@@ -1,0 +1,136 @@
+import Box from '@mui/material/Box';
+import Stack from '@mui/material/Stack';
+import Avatar from '@mui/material/Avatar';
+import TableRow from '@mui/material/TableRow';
+import Checkbox from '@mui/material/Checkbox';
+import TableCell from '@mui/material/TableCell';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+
+import { Label } from 'src/components/label';
+import { Iconify } from 'src/components/iconify';
+
+// ----------------------------------------------------------------------
+
+type Props = {
+    row: {
+        id: string;
+        applicant_name: string;
+        email_id: string;
+        phone_number: string;
+        job_title: string;
+        status: string;
+        applicant_rating: number;
+    };
+    selected: boolean;
+    onSelectRow: VoidFunction;
+    onView: VoidFunction;
+    onEdit: VoidFunction;
+    onDelete: VoidFunction;
+    canEdit?: boolean;
+    canDelete?: boolean;
+};
+
+export function JobApplicantTableRow({
+    row,
+    selected,
+    onSelectRow,
+    onView,
+    onEdit,
+    onDelete,
+    canEdit,
+    canDelete,
+}: Props) {
+    const renderStatus = (status: string) => {
+        let color: 'default' | 'primary' | 'secondary' | 'info' | 'success' | 'warning' | 'error' = 'default';
+
+        switch (status) {
+            case 'Accepted':
+                color = 'success';
+                break;
+            case 'Rejected':
+                color = 'error';
+                break;
+            case 'Hold':
+                color = 'warning';
+                break;
+            case 'Open':
+            case 'Received':
+                color = 'info';
+                break;
+            case 'Replied':
+                color = 'primary';
+                break;
+            default:
+                color = 'default';
+        }
+
+        return (
+            <Label variant="soft" color={color}>
+                {status}
+            </Label>
+        );
+    };
+
+    return (
+        <TableRow hover selected={selected}>
+            <TableCell padding="checkbox">
+                <Checkbox checked={selected} onClick={onSelectRow} />
+            </TableCell>
+
+            <TableCell>
+                <Stack direction="row" alignItems="center" spacing={2}>
+                    <Avatar alt={row.applicant_name} sx={{ bgcolor: 'primary.main', color: 'common.white' }}>
+                        {row.applicant_name.charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Box>
+                        <Typography
+                            variant="subtitle2"
+                            noWrap
+                            sx={{ color: 'primary.main', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                            onClick={onView}
+                        >
+                            {row.applicant_name}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+                            {row.email_id}
+                        </Typography>
+                    </Box>
+                </Stack>
+            </TableCell>
+
+            <TableCell>{row.job_title || '-'}</TableCell>
+
+            <TableCell>{row.phone_number || '-'}</TableCell>
+
+            <TableCell>
+                <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <Iconify icon={"solar:star-bold" as any} width={16} sx={{ color: 'warning.main' }} />
+                    <Typography variant="body2">{row.applicant_rating || 0}</Typography>
+                </Stack>
+            </TableCell>
+
+            <TableCell>{renderStatus(row.status)}</TableCell>
+
+            <TableCell align="right">
+                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                    <IconButton size="small" color="primary" onClick={onView}>
+                        <Iconify icon="solar:eye-bold" />
+                    </IconButton>
+
+                    {canEdit && (
+                        <IconButton size="small" color="info" onClick={onEdit}>
+                            <Iconify icon="solar:pen-bold" />
+                        </IconButton>
+                    )}
+
+                    {canDelete && (
+                        <IconButton size="small" color="error" onClick={onDelete}>
+                            <Iconify icon="solar:trash-bin-trash-bold" />
+                        </IconButton>
+                    )}
+                </Box>
+            </TableCell>
+        </TableRow>
+    );
+}

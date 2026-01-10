@@ -1,0 +1,68 @@
+import React from 'react';
+
+import Box from '@mui/material/Box';
+import Toolbar from '@mui/material/Toolbar';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import OutlinedInput from '@mui/material/OutlinedInput';
+import InputAdornment from '@mui/material/InputAdornment';
+
+import { Iconify } from 'src/components/iconify';
+
+// ----------------------------------------------------------------------
+
+type InvoiceTableToolbarProps = {
+    numSelected: number;
+    filterName: string;
+    onFilterName: (event: React.ChangeEvent<HTMLInputElement>) => void;
+    onDelete?: VoidFunction;
+};
+
+export function InvoiceTableToolbar({
+    numSelected,
+    filterName,
+    onFilterName,
+    onDelete,
+}: InvoiceTableToolbarProps) {
+    return (
+        <Toolbar
+            sx={{
+                height: 96,
+                display: 'flex',
+                justifyContent: 'space-between',
+                p: (theme) => theme.spacing(0, 1, 0, 3),
+                ...(numSelected > 0 && {
+                    color: 'primary.main',
+                    bgcolor: 'primary.lighter',
+                }),
+            }}
+        >
+            {numSelected > 0 ? (
+                <Typography component="div" variant="subtitle1">
+                    {numSelected} selected
+                </Typography>
+            ) : (
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexGrow: 1 }}>
+                    <OutlinedInput
+                        fullWidth
+                        value={filterName}
+                        onChange={onFilterName}
+                        placeholder="Search invoice..."
+                        startAdornment={
+                            <InputAdornment position="start">
+                                <Iconify width={20} icon="eva:search-fill" sx={{ color: 'text.disabled' }} />
+                            </InputAdornment>
+                        }
+                        sx={{ maxWidth: 320 }}
+                    />
+                </Box>
+            )}
+
+            {numSelected > 0 && (
+                <IconButton onClick={onDelete}>
+                    <Iconify icon="solar:trash-bin-trash-bold" />
+                </IconButton>
+            )}
+        </Toolbar>
+    );
+}

@@ -1,0 +1,14 @@
+@import 'simplebar-react/dist/simplebar.min.css';
+
+.simplebar-scrollbar:before {
+  background-color: var(--palette-text-disabled);
+  /* Make thinner */
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+}
+
+.simplebar-scrollbar.simplebar-visible:before {
+  opacity: 0.48;
+}

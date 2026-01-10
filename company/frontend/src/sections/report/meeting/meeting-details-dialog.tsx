@@ -1,0 +1,168 @@
+import { useState, useEffect } from 'react';
+
+import Box from '@mui/material/Box';
+import Dialog from '@mui/material/Dialog';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
+import Typography from '@mui/material/Typography';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+
+import { getMeeting } from 'src/api/meetings';
+
+import { Label } from 'src/components/label';
+import { Iconify } from 'src/components/iconify';
+
+// ----------------------------------------------------------------------
+
+type Props = {
+    open: boolean;
+    onClose: () => void;
+    meetingId: string | null;
+};
+
+export function MeetingDetailsDialog({ open, onClose, meetingId }: Props) {
+    const [meeting, setMeeting] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (open && meetingId) {
+            setLoading(true);
+            getMeeting(meetingId)
+                .then((data) => {
+                    setMeeting(data);
+                    setLoading(false);
+                })
+                .catch((err) => {
+                    console.error(err);
+                    setLoading(false);
+                });
+        } else {
+            setMeeting(null);
+        }
+    }, [open, meetingId]);
+
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'Completed': return 'success';
+            case 'Scheduled': return 'info';
+            case 'Overdue': return 'error';
+            case 'Cancelled': return 'warning';
+            default: return 'default';
+        }
+    };
+
+    return (
+        <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+            <DialogTitle sx={{ pb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Iconify icon={"solar:calendar-date-bold-duotone" as any} width={28} sx={{ color: 'primary.main' }} />
+                        <Typography variant="h6">Meeting Details</Typography>
+                    </Box>
+                    {meeting && (
+                        <Label color={getStatusColor(meeting.outgoing_call_status)} variant="soft">
+                            {meeting.outgoing_call_status}
+                        </Label>
+                    )}
+                </Box>
+            </DialogTitle>
+
+            <Divider />
+
+            <DialogContent sx={{ py: 3 }}>
+                {loading ? (
+                    <Typography>Loading...</Typography>
+                ) : meeting ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {/* General Information */}
+                        <Box>
+                            <SectionHeader icon="solar:info-circle-bold" title="General Information" />
+                            <Box
+                                sx={{
+                                    display: 'grid',
+                                    gap: 3,
+                                    gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                                }}
+                            >
+                                <DetailItem label="Subject" value={meeting.title} fullWidth />
+                                <DetailItem label="Meet For" value={meeting.meet_for} />
+                                <DetailItem label="Reference" value={meeting.lead_name} />
+                                <DetailItem label="From" value={meeting.from ? new Date(meeting.from).toLocaleString() : '-'} />
+                                <DetailItem label="To" value={meeting.to ? new Date(meeting.to).toLocaleString() : '-'} />
+                                <DetailItem label="Venue" value={meeting.meeting_venue} />
+                                <DetailItem label="Location" value={meeting.location} />
+                                <DetailItem label="Owner" value={meeting.owner} />
+                            </Box>
+                        </Box>
+
+                        <Divider sx={{ borderStyle: 'dashed' }} />
+
+                        {/* Details */}
+                        <Box>
+                            <SectionHeader icon="solar:notebook-bold" title="Meeting Notes" />
+                            <Box>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                                    {meeting.completed_meet_notes || 'No notes available.'}
+                                </Typography>
+                            </Box>
+                        </Box>
+
+                        <Divider sx={{ borderStyle: 'dashed' }} />
+
+                        {/* Metadata */}
+                        <Box>
+                            <SectionHeader icon="solar:clock-circle-bold" title="System Info" />
+                            <Box
+                                sx={{
+                                    display: 'grid',
+                                    gap: 3,
+                                    gridTemplateColumns: { xs: 'repeat(1, 1fr)', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+                                }}
+                            >
+                                <DetailItem label="Created On" value={meeting.creation} />
+                                <DetailItem label="Modified On" value={meeting.modified} />
+                            </Box>
+                        </Box>
+
+                    </Box>
+                ) : (
+                    <Typography>No data found</Typography>
+                )}
+            </DialogContent>
+
+            <DialogActions>
+                <Button onClick={onClose} variant="outlined" color="inherit">
+                    Close
+                </Button>
+            </DialogActions>
+        </Dialog>
+    );
+}
+
+// ----------------------------------------------------------------------
+
+function SectionHeader({ icon, title }: { icon: string; title: string }) {
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <Iconify icon={icon as any} width={20} sx={{ color: 'text.secondary' }} />
+            <Typography variant="subtitle2" sx={{ color: 'text.secondary', fontWeight: 700, textTransform: 'uppercase' }}>
+                {title}
+            </Typography>
+        </Box>
+    );
+}
+
+function DetailItem({ label, value, fullWidth }: { label: string; value?: string | null; fullWidth?: boolean }) {
+    return (
+        <Box sx={fullWidth ? { gridColumn: '1 / -1' } : {}}>
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontWeight: 700, textTransform: 'uppercase', display: 'block', mb: 0.5 }}>
+                {label}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                {value || '-'}
+            </Typography>
+        </Box>
+    );
+}
