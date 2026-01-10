@@ -17,6 +17,7 @@ import TextField from '@mui/material/TextField';
 import TableCell from '@mui/material/TableCell';
 import Typography from '@mui/material/Typography';
 import DialogTitle from '@mui/material/DialogTitle';
+import Autocomplete from '@mui/material/Autocomplete';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import TableContainer from '@mui/material/TableContainer';
@@ -312,52 +313,58 @@ export function DealView() {
                                 slotProps={{ input: { readOnly: viewOnly } }}
                             />
 
-                            <TextField
-                                select
+                            <Autocomplete
                                 fullWidth
-                                label="Account"
+                                options={accountOptions}
                                 value={account}
-                                onChange={(e) => {
-                                    setAccount(e.target.value);
-                                    if (e.target.value) setValidationErrors(prev => ({ ...prev, account: false }));
+                                onChange={(event, newValue) => {
+                                    setAccount(newValue || '');
+                                    if (newValue) setValidationErrors((prev) => ({ ...prev, account: false }));
                                 }}
-                                required
-                                error={!!validationErrors.account}
                                 disabled={viewOnly}
-                                SelectProps={{ native: true }}
-                                InputLabelProps={{ shrink: true }}
-                                sx={{
-                                    "& .MuiInputBase-input.Mui-disabled": {
-                                        WebkitTextFillColor: "rgba(0, 0, 0, 0.87)",
-                                    },
+                                slotProps={{
+                                    paper: {
+                                        sx: {
+                                            bgcolor: '#F0F8FF',
+                                            '& .MuiAutocomplete-listbox': {
+                                                bgcolor: '#F0F8FF',
+                                            },
+                                        }
+                                    }
                                 }}
-                            >
-                                <option value="" disabled>Select Account</option>
-                                {accountOptions.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                ))}
-                            </TextField>
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Account"
+                                        required
+                                        error={!!validationErrors.account}
+                                    />
+                                )}
+                            />
 
-                            <TextField
-                                select
+                            <Autocomplete
                                 fullWidth
-                                label="Contact"
+                                options={contactOptions}
                                 value={contact}
-                                onChange={(e) => setContact(e.target.value)}
+                                onChange={(event, newValue) => setContact(newValue || '')}
                                 disabled={viewOnly}
-                                SelectProps={{ native: true }}
-                                InputLabelProps={{ shrink: true }}
-                                sx={{
-                                    "& .MuiInputBase-input.Mui-disabled": {
-                                        WebkitTextFillColor: "rgba(0, 0, 0, 0.87)",
-                                    },
+                                slotProps={{
+                                    paper: {
+                                        sx: {
+                                            bgcolor: '#F0F8FF',
+                                            '& .MuiAutocomplete-listbox': {
+                                                bgcolor: '#F0F8FF',
+                                            },
+                                        }
+                                    }
                                 }}
-                            >
-                                <option value="">Select Contact</option>
-                                {contactOptions.map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                ))}
-                            </TextField>
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Contact"
+                                    />
+                                )}
+                            />
 
                             <TextField
                                 fullWidth
@@ -380,20 +387,7 @@ export function DealView() {
                                 disabled={viewOnly}
                                 slotProps={{
                                     textField: {
-                                        fullWidth: true,
-                                        size: 'small',
-                                        sx: {
-                                            '& .MuiInputBase-root': {
-                                                fontSize: '0.813rem',
-                                                height: '36px'
-                                            },
-                                            '& .MuiInputLabel-root': {
-                                                fontSize: '0.813rem'
-                                            },
-                                            '& .MuiInputBase-input.Mui-disabled': {
-                                                WebkitTextFillColor: 'rgba(0, 0, 0, 0.87)',
-                                            },
-                                        }
+                                        fullWidth: true
                                     }
                                 }}
                             />

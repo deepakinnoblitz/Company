@@ -113,7 +113,7 @@
   {
    "fieldname": "remind_before_minutes",
    "fieldtype": "Int",
-   "label": "Remind before minutes"
+   "label": "Remind me (mins)"
   },
   {
    "fieldname": "meet_for",
@@ -175,7 +175,7 @@
  "index_web_pages_for_search": 1,
  "is_calendar_and_gantt": 1,
  "links": [],
- "modified": "2025-12-12 16:11:46.982240",
+ "modified": "2026-01-10 15:53:39.159812",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Meeting",

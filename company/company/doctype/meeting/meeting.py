@@ -142,19 +142,6 @@ def create_event_for_meeting(doc):
     event.reference_doctype = "Meeting"
     event.reference_docname = doc.name
 
-    # -------- PARTICIPANTS --------
-    if doc.host:
-        event.append("event_participants", {
-            "participant": doc.host,
-            "reference_doctype": "User"
-        })
-
-    for p in doc.participants or []:
-        if p.participant:
-            event.append("event_participants", {
-                "participant": p.participant,
-                "reference_doctype": "User"
-            })
 
     event.insert(ignore_permissions=True)
     frappe.db.commit()

@@ -93,13 +93,13 @@
   },
   {
    "fieldname": "state",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "in_list_view": 1,
    "label": "State"
   },
   {
    "fieldname": "city",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "in_list_view": 1,
    "label": "City"
   },
@@ -127,7 +127,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-05 13:03:01.892842",
+ "modified": "2026-01-10 14:30:23.517779",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Contacts",

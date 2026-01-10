@@ -110,7 +110,7 @@
    "fieldtype": "Section Break"
   },
   {
-   "default": "__User",
+   "default": "__user",
    "fieldname": "owner_name",
    "fieldtype": "Link",
    "label": "Owner",
@@ -120,7 +120,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-10 10:52:01.207533",
+ "modified": "2026-01-10 11:08:05.050475",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Deal",

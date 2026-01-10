@@ -21,51 +21,9 @@ frappe.ui.form.on("Lead", {
         render_dynamic_sales_pipeline(frm);
 
         // 1️⃣ Convert Lead Button
-        if (!frm.doc.__islocal && frm.doc.workflow_state === "Qualified") {
+        if (!frm.doc.__islocal && frm.doc.workflow_state !== "New Lead") {
             frm.add_custom_button("Convert Lead", () => {
-
-                const dialog = new frappe.ui.Dialog({
-                    title: "Convert Lead",
-                    fields: [
-                        {
-                            fieldtype: "HTML",
-                            fieldname: "confirm",
-                            options: `
-                                <div style="
-                                    padding: 12px;
-                                    background: #e0f2fe;
-                                    border: 1px solid #bae6fd;
-                                    border-radius: 8px;
-                                    color: #075985;
-                                    margin-bottom: 12px;
-                                ">
-                                    <b>Are you sure you want to convert this Lead?</b><br>
-                                    This action will move the Lead to <b>Accounts & Contacts</b>.
-                                </div>
-                            `
-                        },
-                        {
-                            fieldtype: "HTML",
-                            fieldname: "info",
-                            options: `
-                                <div style="line-height:1.6">
-                                    <b>This will:</b>
-                                    <ul>
-                                        <li>Create or link an <b>Account</b></li>
-                                        <li>Create or link a <b>Contact</b></li>
-                                    </ul>
-                                </div>
-                            `
-                        }
-                    ],
-                    primary_action_label: "Yes, Convert Lead",
-                    primary_action(values) {
-                        dialog.hide();
-                        convert_lead(frm);
-                    }
-                });
-
-                dialog.show();
+                show_convert_dialog(frm);
             });
         }
 
@@ -156,7 +114,18 @@ frappe.ui.form.on("Lead", {
             method: "company.company.api.get_states",
             args: { country: frm.doc.country },
             callback(r) {
-                frm.set_df_property("state", "options", ["", ...(r.message || []), "Others"].join("\n"));
+                const states = r.message || [];
+
+                frm.set_df_property("state", "options", ["", ...states, "Others"].join("\n"));
+
+                // Find "Tamil Nadu" loosely
+                const tamilNadu = states.find(s => s.trim().toLowerCase() === "tamil nadu");
+
+                // Also explicitly check if state is "Andhra Pradesh" (which might be auto-selected) to override it
+                if ((!frm.doc.state || frm.doc.state === "Andhra Pradesh") && tamilNadu) {
+                    frm.set_value("state", tamilNadu);
+                }
+
                 frm.refresh_field("state");
             }
         });
@@ -421,7 +390,7 @@ function add_pipeline_workflow_menu(frm) {
     if (!frm.page) return;
 
     // Remove old Pipeline button (SPA safety)
-    frm.page.remove_inner_button("Stage Pipeline");
+    frm.page.remove_inner_button("Lead Pipeline");
 
     const actions = get_available_workflow_actions(frm);
 
@@ -430,7 +399,7 @@ function add_pipeline_workflow_menu(frm) {
     actions.forEach(action => {
         frm.add_custom_button(action, () => {
             apply_workflow_action(frm, action);
-        }, "Stage Pipeline");
+        }, "Lead Pipeline");
     });
 }
 
@@ -464,11 +433,61 @@ function apply_workflow_action(frm, action) {
                 },
                 freeze: true,
                 callback() {
-                    frm.reload_doc();
+                    frm.reload_doc().then(() => {
+                        // 🔥 AUTO-POPUP CONVERT DIALOG IF New Lead
+                        if (frm.doc.workflow_state !== "New Lead" && !frm.doc.converted_account) {
+                            show_convert_dialog(frm, "You changed the Workflow. Do you want to convert this Lead?");
+                        }
+                    });
                 }
             });
         }
     );
+}
+
+function show_convert_dialog(frm, msg) {
+    const dialog = new frappe.ui.Dialog({
+        title: "Convert Lead",
+        fields: [
+            {
+                fieldtype: "HTML",
+                fieldname: "confirm",
+                options: `
+                    <div style="
+                        padding: 12px;
+                        background: #e0f2fe;
+                        border: 1px solid #bae6fd;
+                        border-radius: 8px;
+                        color: #075985;
+                        margin-bottom: 12px;
+                    ">
+                        <b>${msg || "Are you sure you want to convert this Lead?"}</b><br>
+                        This action will move the Lead to <b>Accounts & Contacts</b>.
+                    </div>
+                `
+            },
+            {
+                fieldtype: "HTML",
+                fieldname: "info",
+                options: `
+                    <div style="line-height:1.6">
+                        <b>This will:</b>
+                        <ul>
+                            <li>Create or link an <b>Account</b></li>
+                            <li>Create or link a <b>Contact</b></li>
+                        </ul>
+                    </div>
+                `
+            }
+        ],
+        primary_action_label: "Yes, Convert Lead",
+        primary_action(values) {
+            dialog.hide();
+            convert_lead(frm);
+        }
+    });
+
+    dialog.show();
 }
 
 function hide_actions_menu_button(frm) {

@@ -16,9 +16,11 @@
    "fieldname": "items",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Items"
+   "label": "Items",
+   "reqd": 1
   },
   {
+   "default": "1",
    "fieldname": "quantity",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -43,7 +45,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-01-09 17:28:28.398693",
+ "modified": "2026-01-10 16:20:36.990780",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Expenses Items",
