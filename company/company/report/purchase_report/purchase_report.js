@@ -7,8 +7,8 @@ frappe.query_reports["Purchase Report"] = {
             "fieldname": "vendor",
             "label": "Vendor",
             "fieldtype": "Link",
-            "options": "Customer",
-            "get_query": function() {
+            "options": "Contacts",
+            "get_query": function () {
                 return {
                     "filters": {
                         "customer_type": "Purchase"

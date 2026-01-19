@@ -10,6 +10,8 @@
   "invoice_details_section",
   "client_name",
   "billing_address",
+  "column_break_pwtq",
+  "purchase_ref",
   "column_break_nfoe",
   "customer_name",
   "billing_name",
@@ -236,12 +238,22 @@
    "fieldtype": "Data",
    "label": "Customer Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_pwtq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "purchase_ref",
+   "fieldtype": "Link",
+   "label": "Purchase reference",
+   "options": "Purchase"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-10 15:30:37.146146",
+ "modified": "2026-01-19 15:44:00.281817",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Invoice",

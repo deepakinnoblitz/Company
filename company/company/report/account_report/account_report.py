@@ -40,12 +40,6 @@ def get_columns():
             "width": 150
         },
         {
-            "label": "Account Owner",
-            "fieldname": "account_owner",
-            "fieldtype": "Data",
-            "width": 160
-        },
-        {
             "label": "Country",
             "fieldname": "country",
             "fieldtype": "Link",
@@ -101,6 +95,14 @@ def get_data(filters):
         conditions.append("owner_name = %(owner)s")
         values["owner"] = filters["owner"]
 
+    if filters.get("from_date"):
+        conditions.append("DATE(creation) >= %(from_date)s")
+        values["from_date"] = filters["from_date"]
+
+    if filters.get("to_date"):
+        conditions.append("DATE(creation) <= %(to_date)s")
+        values["to_date"] = filters["to_date"]
+
     where_clause = " AND ".join(conditions)
     if where_clause:
         where_clause = "WHERE " + where_clause
@@ -108,11 +110,11 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
+            name,
             account_name,
             phone_number,
             website,
             gstin,
-            account_owner,
             country,
             state,
             city,

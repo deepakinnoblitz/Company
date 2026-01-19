@@ -24,7 +24,7 @@ def execute(filters=None):
 def get_columns():
     return [
         {"label": "Purchase ID", "fieldname": "name", "fieldtype": "Link", "options": "Purchase", "width": 120},
-        {"label": "Vendor Name", "fieldname": "vendor_name", "fieldtype": "Link", "options": "Customer", "width": 140},
+        {"label": "Vendor Name", "fieldname": "vendor_name", "fieldtype": "Link", "options": "Contacts", "width": 140},
         {"label": "Bill No", "fieldname": "bill_no", "fieldtype": "Data", "width": 120},
         {"label": "Bill Date", "fieldname": "bill_date", "fieldtype": "Date", "width": 110},
         {"label": "Payment Type", "fieldname": "payment_type", "fieldtype": "Link", "options": "Payment Type", "width": 120},
@@ -48,15 +48,19 @@ def get_columns():
 # ----------------------------------
 def get_data(filters):
     conditions = []
+    query_filters = {}
 
     if filters.get("vendor"):
-        conditions.append(f"p.vendor_name = '{filters['vendor']}'")
+        conditions.append("p.vendor_name = %(vendor)s")
+        query_filters["vendor"] = filters["vendor"]
 
     if filters.get("from_date"):
-        conditions.append(f"p.bill_date >= '{filters['from_date']}'")
+        conditions.append("p.bill_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append(f"p.bill_date <= '{filters['to_date']}'")
+        conditions.append("p.bill_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
 
     where = " AND ".join(conditions)
     if where:
@@ -66,11 +70,11 @@ def get_data(filters):
         SELECT
             p.name,
             p.vendor_name,
+            v.first_name as vendor_real_name,
             p.bill_no,
             p.bill_date,
             p.payment_type,
             p.grand_total,
-
             c.service,
             c.hsn_code,
             c.description,
@@ -80,14 +84,14 @@ def get_data(filters):
             c.tax_type,
             c.tax_amount,
             c.sub_total
-
         FROM `tabPurchase` p
+        LEFT JOIN `tabContacts` v ON v.name = p.vendor_name
         LEFT JOIN `tabPurchase Items` c ON c.parent = p.name
         {where}
         ORDER BY p.bill_date DESC
     """
 
-    return frappe.db.sql(query, as_dict=True)
+    return frappe.db.sql(query, query_filters, as_dict=True)
 
 
 # ----------------------------------
@@ -95,15 +99,19 @@ def get_data(filters):
 # ----------------------------------
 def get_summary(filters):
     conditions = []
+    query_filters = {}
 
     if filters.get("vendor"):
-        conditions.append(f"vendor_name = '{filters['vendor']}'")
+        conditions.append("vendor_name = %(vendor)s")
+        query_filters["vendor"] = filters["vendor"]
 
     if filters.get("from_date"):
-        conditions.append(f"bill_date >= '{filters['from_date']}'")
+        conditions.append("bill_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append(f"bill_date <= '{filters['to_date']}'")
+        conditions.append("bill_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
 
     where = " AND ".join(conditions)
     if where:
@@ -115,24 +123,24 @@ def get_summary(filters):
             SUM(total_qty) AS total_qty
         FROM `tabPurchase`
         {where}
-    """, as_dict=True)[0]
+    """, query_filters, as_dict=True)[0]
 
     total_purchase = totals.total_purchase or 0
     total_qty = totals.total_qty or 0
 
     # Safe count
-    count_filters = {}
+    count_filters_for_db_count = {}
 
     if filters.get("vendor"):
-        count_filters["vendor_name"] = filters["vendor"]
+        count_filters_for_db_count["vendor_name"] = filters["vendor"]
 
     if filters.get("from_date"):
-        count_filters["bill_date"] = (">=", filters["from_date"])
+        count_filters_for_db_count["bill_date"] = (">=", filters["from_date"])
 
     if filters.get("to_date"):
-        count_filters["bill_date"] = ("<=", filters["to_date"])
+        count_filters_for_db_count["bill_date"] = ("<=", filters["to_date"])
 
-    purchase_count = frappe.db.count("Purchase", filters=count_filters)
+    purchase_count = frappe.db.count("Purchase", filters=count_filters_for_db_count)
 
     return [
         {

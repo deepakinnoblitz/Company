@@ -13,7 +13,7 @@ def execute(filters=None):
 
     columns = get_columns()
     data = get_data(filters)
-    summary = get_summary(data)
+    summary = get_summary(data, filters)
 
     # MUST return 5 items for Frappe Query Report
     return columns, data, None, None, summary
@@ -43,18 +43,23 @@ def get_columns():
 # ---------------------------------------------------
 def get_data(filters):
     conditions = []
+    query_filters = {}
 
     if filters.get("expense_category"):
-        conditions.append(f"e.expense_category LIKE '%{filters['expense_category']}%'")
+        conditions.append("e.expense_category LIKE %(expense_category)s")
+        query_filters["expense_category"] = f"%{filters['expense_category']}%"
 
     if filters.get("payment_type"):
-        conditions.append(f"e.payment_type = '{filters['payment_type']}'")
+        conditions.append("e.payment_type = %(payment_type)s")
+        query_filters["payment_type"] = filters["payment_type"]
 
     if filters.get("from_date"):
-        conditions.append(f"e.date >= '{filters['from_date']}'")
+        conditions.append("e.date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append(f"e.date <= '{filters['to_date']}'")
+        conditions.append("e.date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
 
     condition_sql = " AND ".join(conditions)
     if condition_sql:
@@ -62,39 +67,62 @@ def get_data(filters):
 
     query = f"""
         SELECT
+            e.name,
             e.expense_no,
             e.expense_category,
             e.date,
             e.payment_type,
             e.total,
-
             c.items,
             c.quantity,
             c.price,
             c.amount
-
         FROM `tabExpenses` e
         LEFT JOIN `tabExpenses Items` c ON c.parent = e.name
         {condition_sql}
         ORDER BY e.date DESC
     """
 
-    return frappe.db.sql(query, as_dict=True)
+    return frappe.db.sql(query, query_filters, as_dict=True)
 
+def get_summary(data, filters):
+    conditions = []
+    query_filters = {}
 
-# ---------------------------------------------------
-#  SUMMARY
-# ---------------------------------------------------
-def get_summary(data):
+    if filters.get("expense_category"):
+        conditions.append("expense_category LIKE %(expense_category)s")
+        query_filters["expense_category"] = f"%{filters['expense_category']}%"
 
-    total_expense = sum(flt(d.get("total")) for d in data)
-    total_amount = sum(flt(d.get("amount")) for d in data)
+    if filters.get("payment_type"):
+        conditions.append("payment_type = %(payment_type)s")
+        query_filters["payment_type"] = filters["payment_type"]
+
+    if filters.get("from_date"):
+        conditions.append("date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
+
+    if filters.get("to_date"):
+        conditions.append("date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
+
+    where = " AND ".join(conditions)
+    if where:
+        where = "WHERE " + where
+
+    res = frappe.db.sql(f"""
+        SELECT 
+            SUM(total) as total_expense,
+            COUNT(*) as record_count
+        FROM `tabExpenses`
+        {where}
+    """, query_filters, as_dict=True)[0]
+
     total_qty = sum(flt(d.get("quantity")) for d in data)
 
     return [
-        {"label": "Total Expense Amount", "value": total_expense, "indicator": "blue", "datatype": "Currency"},
+        {"label": "Total Expense Amount", "value": flt(res.total_expense), "indicator": "blue", "datatype": "Currency"},
         {"label": "Total Quantity", "value": total_qty, "indicator": "green", "datatype": "Float"},
-        {"label": "Total Item Amount", "value": total_amount, "indicator": "orange", "datatype": "Currency"},
+        {"label": "Expense Records", "value": res.record_count, "indicator": "orange"},
     ]
 
 

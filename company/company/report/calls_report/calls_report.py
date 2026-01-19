@@ -28,10 +28,24 @@ def get_columns():
             "width": 100
         },
         {
-            "label": "Lead / Reference",
+            "label": "Lead Name",
             "fieldname": "lead_name",
-            "fieldtype": "Dynamic Link",
-            "options": "call_for",
+            "fieldtype": "Link",
+            "options": "Lead",
+            "width": 160
+        },
+        {
+            "label": "Contact Name",
+            "fieldname": "contact_name",
+            "fieldtype": "Link",
+            "options": "Contacts",
+            "width": 160
+        },
+        {
+            "label": "Account Name",
+            "fieldname": "account_name",
+            "fieldtype": "Link",
+            "options": "Accounts",
             "width": 160
         },
         {
@@ -82,11 +96,11 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("call_start_time >= %(from_date)s")
+        conditions.append("DATE(call_start_time) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("call_start_time <= %(to_date)s")
+        conditions.append("DATE(call_start_time) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("call_for"):
@@ -112,9 +126,12 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
+            name,
             title,
             call_for,
             lead_name,
+            contact_name,
+            account_name,
             outgoing_call_status,
             completed_call_status,
             call_start_time,

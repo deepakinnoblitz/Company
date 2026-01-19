@@ -34,11 +34,11 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("creation >= %(from_date)s")
+        conditions.append("DATE(creation) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("creation <= %(to_date)s")
+        conditions.append("DATE(creation) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("leads_type"):
@@ -60,6 +60,7 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
+            name,
             lead_name,
             company_name,
             phone_number,

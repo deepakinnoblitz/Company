@@ -19,7 +19,6 @@ def get_columns():
         {"label": "Company", "fieldname": "company_name", "fieldtype": "Data", "width": 180},
         {"label": "Email", "fieldname": "email", "fieldtype": "Data", "width": 200},
         {"label": "Phone", "fieldname": "phone", "fieldtype": "Phone", "width": 140},
-        {"label": "Designation", "fieldname": "designation", "fieldtype": "Data", "width": 140},
         {"label": "Country", "fieldname": "country", "fieldtype": "Link", "options": "Country", "width": 120},
         {"label": "State", "fieldname": "state", "fieldtype": "Data", "width": 120},
         {"label": "City", "fieldname": "city", "fieldtype": "Data", "width": 120},
@@ -54,6 +53,14 @@ def get_data(filters):
     if filters.get("owner"):
         conditions.append("owner_name = %(owner)s")
         values["owner"] = filters["owner"]
+    
+    if filters.get("from_date"):
+        conditions.append("DATE(creation) >= %(from_date)s")
+        values["from_date"] = filters["from_date"]
+    
+    if filters.get("to_date"):
+        conditions.append("DATE(creation) <= %(to_date)s")
+        values["to_date"] = filters["to_date"]
 
     where_clause = " AND ".join(conditions)
     if where_clause:
@@ -62,16 +69,17 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
+            name,
             first_name,
             company_name,
             email,
             phone,
-            designation,
             country,
             state,
             city,
             source_lead,
-            owner_name
+            owner_name,
+            creation
         FROM `tabContacts`
         {where_clause}
         ORDER BY creation DESC

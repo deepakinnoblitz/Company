@@ -3,13 +3,16 @@ from frappe.auth import LoginManager
 from frappe import _
 
 
+@frappe.whitelist(allow_guest=True)
+def get_csrf_token():
+    return frappe.sessions.get_csrf_token()
+
 @frappe.whitelist()
 def get_invoice_count():
     return frappe.db.count("Invoice")
 
-
 @frappe.whitelist()
-def get_doctype_list(doctype, txt=None, fields=None):
+def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     """
     Fetch a list of documents for a given DocType.
     Useful for populating dropdowns on the frontend.
@@ -17,16 +20,21 @@ def get_doctype_list(doctype, txt=None, fields=None):
     if not frappe.has_permission(doctype, "read"):
         frappe.throw("Not permitted")
 
-    filters = {}
+    query_filters = {}
     if txt:
-        filters["name"] = ["like", f"%{txt}%"]
+        query_filters["name"] = ["like", f"%{txt}%"]
+    
+    if filters:
+        import json
+        extra_filters = json.loads(filters)
+        query_filters.update(extra_filters)
 
     if fields:
         import json
         field_list = json.loads(fields)
-        return frappe.get_list(doctype, filters=filters, fields=field_list, limit=1000)
+        return frappe.get_list(doctype, filters=query_filters, fields=field_list, limit=1000)
 
-    return frappe.get_list(doctype, filters=filters, pluck="name", limit=1000)
+    return frappe.get_list(doctype, filters=query_filters, pluck="name", limit=1000)
 
 
 @frappe.whitelist(allow_guest=True)
@@ -97,12 +105,25 @@ def get_current_user_info():
     Fetch the full details of the currently logged-in user.
     """
     user = frappe.get_doc("User", frappe.session.user)
+    
+    # Calculate allowed modules (All - Blocked)
+    all_modules = frappe.get_all("Module Def", pluck="name")
+    blocked_modules = [d.module for d in user.block_modules]
+    allowed_modules = [m for m in all_modules if m not in blocked_modules]
+
     return {
         "name": user.name,
+        "first_name": user.first_name,
+        "middle_name": user.middle_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
+        "username": user.username,
         "email": user.email,
+        "time_zone": user.time_zone,
         "user_image": user.user_image,
-        "roles": [role.role for role in user.roles]
+        "roles": [role.role for role in user.roles],
+        "role_profile_name": user.role_profile_name,
+        "allowed_modules": allowed_modules
     }
 
 
@@ -703,3 +724,213 @@ def convert_estimation_to_invoice(estimation):
     )
 
     return inv.name
+
+
+@frappe.whitelist()
+def get_sales_dashboard_data():
+    """
+    Fetch Sales dashboard statistics and data.
+    """
+    data = {}
+    today = frappe.utils.today()
+    first_day_month = frappe.utils.get_first_day(today)
+    first_day_year = f"{today[:4]}-01-01"
+    
+    try:
+        # 1. Summary Metrics from Invoices
+        invoices = frappe.get_all("Invoice", fields=[
+            "grand_total", "total_amount", "overall_discount", 
+            "total_qty", "invoice_date", "balance_amount", "due_date",
+            "client_name", "billing_name"
+        ])
+        
+        data["total_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices)
+        data["total_qty_sold"] = sum(frappe.utils.flt(inv.total_qty) for inv in invoices)
+        data["total_orders"] = len(invoices)
+        data["aov"] = data["total_sales"] / data["total_orders"] if data["total_orders"] > 0 else 0
+        
+        # Gross vs Net
+        data["gross_sales"] = sum(frappe.utils.flt(inv.total_amount) for inv in invoices)
+        data["net_sales"] = data["total_sales"] # Using grand_total as net sales for now
+        data["total_discounts"] = sum(frappe.utils.flt(inv.overall_discount) for inv in invoices)
+        
+        # MTD / YTD
+        data["mtd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_month))
+        data["ytd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_year))
+        
+        # 2. Pipeline from Deals
+        deals = frappe.get_all("Deal", fields=["value", "stage"])
+        data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
+        
+        # 3. Top Customers
+        data["top_customers_by_revenue"] = frappe.db.sql("""
+            SELECT client_name, billing_name, SUM(grand_total) as revenue, COUNT(name) as order_count
+            FROM `tabInvoice`
+            GROUP BY client_name
+            ORDER BY revenue DESC
+            LIMIT 5
+        """, as_dict=True)
+        
+        data["most_repeated_customers"] = frappe.db.sql("""
+            SELECT client_name, billing_name, COUNT(name) as order_count, SUM(grand_total) as total_spent
+            FROM `tabInvoice`
+            GROUP BY client_name
+            ORDER BY order_count DESC
+            LIMIT 5
+        """, as_dict=True)
+        
+        # 4. Overdue / Pending Orders
+        data["overdue_orders"] = frappe.get_all("Invoice", 
+            filters={
+                "balance_amount": [">", 0],
+                "due_date": ["<", today]
+            },
+            fields=["name", "billing_name", "due_date", "balance_amount", "grand_total"],
+            order_by="due_date asc",
+            limit=5
+        )
+        data["pending_orders_count"] = frappe.db.count("Invoice", {"balance_amount": [">", 0]})
+        
+        # 5. Trends (Last 12 months)
+        trends = frappe.db.sql("""
+            SELECT 
+                DATE_FORMAT(invoice_date, '%%Y-%%m') as month,
+                SUM(grand_total) as total_sales,
+                SUM(overall_discount) as total_discount
+            FROM `tabInvoice`
+            WHERE invoice_date >= DATE_SUB(%s, INTERVAL 12 MONTH)
+            GROUP BY month
+            ORDER BY month ASC
+        """, (today,), as_dict=True)
+        
+        data["sales_trend"] = {
+            "categories": [t.month for t in trends],
+            "series": [frappe.utils.flt(t.total_sales) for t in trends]
+        }
+        data["discount_trend"] = {
+            "categories": [t.month for t in trends],
+            "series": [frappe.utils.flt(t.total_discount) for t in trends]
+        }
+        
+        # 6. Conversion Rate (Estimations to Invoices)
+        total_estimations = frappe.db.count("Estimation")
+        converted_estimations = frappe.db.count("Invoice", {"converted_from_estimation": 1})
+        data["conversion_rate"] = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
+        
+    except Exception as e:
+        frappe.log_error(f"Sales Dashboard Error: {str(e)}")
+        # Return empty data structure to avoid frontend crashes
+        return {
+            "total_sales": 0, "total_qty_sold": 0, "total_orders": 0, "aov": 0,
+            "gross_sales": 0, "net_sales": 0, "total_discounts": 0,
+            "mtd_sales": 0, "ytd_sales": 0, "pipeline_value": 0,
+            "top_customers_by_revenue": [], "most_repeated_customers": [],
+            "overdue_orders": [], "pending_orders_count": 0,
+            "sales_trend": {"categories": [], "series": []},
+            "discount_trend": {"categories": [], "series": []},
+            "conversion_rate": 0
+        }
+
+    return data
+
+@frappe.whitelist(allow_guest=True)
+def update_my_password(old_password, new_password):
+    """
+    Update the current user's password.
+    """
+    user = frappe.session.user
+    
+    if user == "Guest": 
+        frappe.throw(_("Please login to change password"))  
+        
+    # Verify old password
+    try:
+        frappe.utils.password.check_password(user, old_password)
+    except frappe.AuthenticationError:
+        return {"status": "failed", "message": "Incorrect old password"}
+
+    # Update password
+    frappe.utils.password.update_password(user, new_password)
+    
+    return {"status": "success", "message": "Password updated successfully"}
+
+
+@frappe.whitelist(allow_guest=True)
+def update_profile_info(first_name, middle_name=None, last_name=None):
+    """
+    Update the current user's profile information (names).
+    """
+    user = frappe.session.user
+    
+    if user == "Guest":
+        return {"status": "failed", "message": "Please login to update profile"}
+        
+    try:
+        user_doc = frappe.get_doc("User", user)
+        user_doc.first_name = first_name
+        user_doc.middle_name = middle_name
+        user_doc.last_name = last_name
+        user_doc.save(ignore_permissions=True)
+        
+        return {
+            "status": "success", 
+            "message": "Profile updated successfully",
+            "data": {
+                "first_name": user_doc.first_name,
+                "middle_name": user_doc.middle_name,
+                "last_name": user_doc.last_name,
+                "full_name": user_doc.full_name
+            }
+        }
+    except Exception as e:
+        frappe.log_error(f"Error updating profile: {str(e)}")
+        return {"status": "failed", "message": str(e)}
+
+@frappe.whitelist(allow_guest=True)
+def upload_profile_image():
+    """
+    Upload and update profile image for the current user.
+    """
+    user_email = frappe.session.user
+   
+    if user_email == "Guest":
+        return {"status": "failed", "message": "Please login to upload profile image"}
+ 
+    try:
+        user_doc = frappe.get_doc("User", user_email)
+       
+        # 'file' is the key in FormData
+        file = frappe.request.files.get("file")
+        if not file:
+             return {"status": "failed", "message": "No file uploaded"}
+       
+        from frappe.utils.file_manager import save_file
+       
+        # Save the file
+        fname = file.filename
+        content = file.stream.read()
+       
+        # Save file and attach to User document
+        saved_file = save_file(
+            fname,
+            content,
+            "User",
+            user_email,
+            decode=False,
+            is_private=0,
+            df="user_image"
+        )
+       
+        # Explicitly update user_image just in case save_file df param didn't trigger it (though it should)
+        user_doc.user_image = saved_file.file_url
+        user_doc.save(ignore_permissions=True)
+ 
+        return {
+            "status": "success",
+            "message": "Profile image updated",
+            "file_url": saved_file.file_url
+        }
+ 
+    except Exception as e:
+        frappe.log_error(f"Error uploading profile image: {str(e)}")
+        return {"status": "failed", "message": str(e)}

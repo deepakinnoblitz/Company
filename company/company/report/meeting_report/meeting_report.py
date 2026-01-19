@@ -27,10 +27,24 @@ def get_columns():
             "width": 120
         },
         {
-            "label": "Lead / Reference",
+            "label": "Lead Name",
             "fieldname": "lead_name",
-            "fieldtype": "Dynamic Link",
-            "options": "meet_for",
+            "fieldtype": "Link",
+            "options": "Lead",
+            "width": 160
+        },
+        {
+            "label": "Contact Name",
+            "fieldname": "contact_name",
+            "fieldtype": "Link",
+            "options": "Contacts",
+            "width": 160
+        },
+        {
+            "label": "Account Name",
+            "fieldname": "account_name",
+            "fieldtype": "Link",
+            "options": "Accounts",
             "width": 160
         },
         {
@@ -93,11 +107,11 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("`from` >= %(from_date)s")
+        conditions.append("DATE(`from`) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("`from` <= %(to_date)s")
+        conditions.append("DATE(`from`) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("meet_for"):
@@ -123,9 +137,12 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
+            name,
             title,
             meet_for,
             lead_name,
+            contact_name,
+            account_name,
             meeting_venue,
             location,
             outgoing_call_status,

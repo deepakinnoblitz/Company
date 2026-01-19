@@ -27,7 +27,7 @@ def get_columns():
         {"label": "Invoice", "fieldname": "invoice", "fieldtype": "Link", "options": "Invoice", "width": 150},
         {"label": "Invoice Date", "fieldname": "invoice_date", "fieldtype": "Date", "width": 110},
 
-        {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer", "width": 150},
+        {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Contacts", "width": 150},
         {"label": "Customer Name", "fieldname": "customer_name", "fieldtype": "Data", "width": 150},
 
         {"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency", "width": 120},
@@ -53,7 +53,7 @@ def get_data(filters):
         conditions += f" AND inv.invoice_date <= '{filters['to_date']}'"
 
     if filters.get("customer"):
-        conditions += f" AND inv.client_name = '{filters['customer']}'"
+        conditions += f" AND (inv.client_name LIKE '%%{filters['customer']}%%' OR inv.billing_name LIKE '%%{filters['customer']}%%')"
 
     if filters.get("invoice"):
         conditions += f" AND inv.name = '{filters['invoice']}'"
