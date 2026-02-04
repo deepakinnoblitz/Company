@@ -8,7 +8,58 @@ import numpy as np
 
 
 class UploadAttendance(Document):
-    pass
+    def validate(self):
+        self.convert_xls_to_xlsx()
+
+    def convert_xls_to_xlsx(self):
+        if self.attendance_file and self.attendance_file.lower().endswith(".xls"):
+            try:
+                # Get file doc
+                file_doc = frappe.get_doc("File", {"file_url": self.attendance_file})
+                file_url = file_doc.file_url
+
+                # Determine file path
+                if file_url.startswith("/private/"):
+                    file_path = frappe.get_site_path(file_url.lstrip("/"))
+                elif file_url.startswith("/files/"):
+                    file_path = frappe.get_site_path("public", file_url.lstrip("/files/"))
+                else:
+                    return
+
+                if not os.path.exists(file_path):
+                    return
+
+                # Read XLS and write XLSX
+                df = pd.read_excel(file_path, engine="xlrd")
+                
+                # Create a temporary XLSX file
+                new_file_name = os.path.splitext(file_doc.file_name)[0] + ".xlsx"
+                temp_path = os.path.join("/tmp", new_file_name)
+                df.to_excel(temp_path, index=False)
+
+                # Create new File doc in Frappe
+                with open(temp_path, "rb") as f:
+                    new_file_doc = frappe.get_doc({
+                        "doctype": "File",
+                        "file_name": new_file_name,
+                        "content": f.read(),
+                        "is_private": file_doc.is_private,
+                        "folder": file_doc.folder
+                    })
+                    new_file_doc.insert(ignore_permissions=True)
+
+                # Update attendance_file to point to the new XLSX file
+                self.attendance_file = new_file_doc.file_url
+                
+                # Cleanup temp file
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+                frappe.msgprint(f"File converted from XLS to XLSX: {new_file_name}")
+
+            except Exception as e:
+                frappe.log_error(frappe.get_traceback(), "XLS to XLSX Conversion Error")
+                frappe.msgprint(f"Failed to convert XLS to XLSX: {str(e)}")
 
 
 @frappe.whitelist()
@@ -149,6 +200,11 @@ def import_attendance(docname):
                 errors.append(f"Row {idx+1}: ❌ {str(e)}")
 
         frappe.db.commit()
+
+        # --- Update imported status ---
+        if created or (not errors and df.shape[0] > 0):
+            frappe.db.set_value("Upload Attendance", docname, "imported", 1)
+            frappe.db.commit()
 
         # --- Summary ---
         summary = (
