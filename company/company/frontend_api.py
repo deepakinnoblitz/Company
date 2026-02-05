@@ -561,12 +561,21 @@ def get_hr_dashboard_data():
     
     # 1. Announcements
     try:
-        data["announcements"] = frappe.get_all(
+        announcements = frappe.get_all(
             "Announcement",
-            fields=["title", "message", "posting_date"],
-            order_by="posting_date desc",
+            fields=["announcement_name", "announcement", "creation"],
+            order_by="creation desc",
             limit=5
         )
+        # Map to expected frontend format
+        data["announcements"] = [
+            {
+                "title": a.announcement_name,
+                "message": a.announcement,
+                "posting_date": str(a.creation.date()) if a.creation else ""
+            }
+            for a in announcements
+        ]
     except Exception:
         data["announcements"] = []
 
@@ -1120,3 +1129,471 @@ def apply_workflow_action(doctype, name, action):
 
     apply_workflow(doc, action)
     return {"status": "success", "message": f"Action {action} applied successfully"}
+
+@frappe.whitelist()
+def get_employee_dashboard_data(attendance_range="This Month"):
+    """
+    Fetch personal dashboard statistics and data for the currently logged-in employee.
+    Matches the backend Employee Dashboard layout exactly.
+    """
+    user = frappe.session.user
+    employee_info = frappe.db.get_value("Employee", {"user": user}, ["name", "employee_name"], as_dict=True)
+    
+    if not employee_info:
+        return {}
+
+    employee = employee_info.name
+    today = frappe.utils.today()
+    
+    # Calculate start, end dates and total days in period
+    curr_date = frappe.utils.getdate(today)
+    start_date = frappe.utils.get_first_day(curr_date)
+    end_date = today
+    total_days_in_period = frappe.utils.get_last_day(curr_date).day # Default: Total days in month
+    
+    if attendance_range == "Today":
+        start_date = today
+        total_days_in_period = 1
+    elif attendance_range == "This Week":
+        start_date = frappe.utils.get_first_day_of_week(curr_date)
+        end_date = frappe.utils.add_days(start_date, 6) # End of week
+        total_days_in_period = 7
+    elif attendance_range == "This Month":
+        start_date = frappe.utils.get_first_day(curr_date)
+        end_date = frappe.utils.get_last_day(curr_date)
+        total_days_in_period = frappe.utils.getdate(end_date).day
+    
+    data = {
+        "employee_name": employee_info.employee_name,
+        "employee": employee,
+        "attendance_range": attendance_range,
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "total_days_in_period": total_days_in_period
+    }
+
+    # 1. Last 7 Days Attendance with Check-in/Out Times
+    try:
+        seven_days_ago = frappe.utils.add_days(today, -6)  # Include today
+        
+        # Get attendance records for last 7 days
+        attendance_records = frappe.db.sql("""
+            SELECT 
+                attendance_date as date,
+                status,
+                in_time,
+                out_time,
+                working_hours_decimal as working_hours
+            FROM `tabAttendance`
+            WHERE employee = %s
+            AND attendance_date >= %s
+            AND attendance_date <= %s
+            ORDER BY attendance_date DESC
+        """, (employee, seven_days_ago, today), as_dict=True)
+        
+        # Helper function to convert timedelta to time string
+        def timedelta_to_time_str(td):
+            if not td:
+                return None
+            total_seconds = int(td.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        
+        # Create a map of dates with attendance
+        attendance_map = {}
+        for record in attendance_records:
+            # Use frappe.utils.get_date_str to ensure consistent YYYY-MM-DD format
+            date_str = frappe.utils.get_date_str(record.date)
+            attendance_map[date_str] = {
+                "status": record.status,
+                "in_time": timedelta_to_time_str(record.in_time),
+                "out_time": timedelta_to_time_str(record.out_time),
+                "working_hours": record.working_hours or 0
+            }
+        
+        # Get holiday records for last 7 days using get_all (safer than get_list)
+        holiday_records = frappe.get_all(
+            "Holidays",
+            filters={
+                "holiday_date": ["between", [seven_days_ago, today]]
+            },
+            fields=["holiday_date", "description", "is_working_day"]
+        )
+        
+        holiday_map = {
+            frappe.utils.get_date_str(h.holiday_date): {
+                "description": h.description,
+                "is_working_day": h.is_working_day
+            } 
+            for h in holiday_records
+        }
+        
+        # Build last 7 days array with all dates (Latest First)
+        weekly_attendance = []
+        for i in range(0, 7):  # today back to 6 days ago
+            date = frappe.utils.add_days(today, -i)
+            # Use frappe.utils.get_date_str to ensure consistent YYYY-MM-DD format
+            date_str = frappe.utils.get_date_str(date)
+            
+            # Base data
+            day_data = {
+                "date": date_str,
+                "status": "Not Marked",
+                "check_in": None,
+                "check_out": None,
+                "working_hours": 0,
+                "holiday_info": None,
+                "holiday_is_working_day": 0
+            }
+            
+            # Add attendance data if exists
+            if date_str in attendance_map:
+                record = attendance_map[date_str]
+                day_data.update({
+                    "status": record["status"],
+                    "check_in": record["in_time"],
+                    "check_out": record["out_time"],
+                    "working_hours": record["working_hours"]
+                })
+            
+            # Add holiday info if exists
+            if date_str in holiday_map:
+                holiday = holiday_map[date_str]
+                day_data["holiday_info"] = f"Holiday: {holiday['description']}"
+                day_data["holiday_is_working_day"] = holiday["is_working_day"]
+                if day_data["status"] == "Not Marked" and not holiday["is_working_day"]:
+                    day_data["status"] = "Holiday"
+            
+            weekly_attendance.append(day_data)
+        
+        data["weekly_attendance"] = weekly_attendance
+    except Exception as e:
+        import traceback
+        frappe.log_error(f"Error fetching weekly attendance:\n{traceback.format_exc()}", "Dashboard Error")
+        data["weekly_attendance"] = []
+
+    # 2. Leave Allocations by Type (for Leave Status cards)
+    try:
+        leave_allocations = frappe.db.sql("""
+            SELECT 
+                leave_type, 
+                total_leaves_allocated, 
+                total_leaves_taken
+            FROM `tabLeave Allocation`
+            WHERE employee = %s
+            AND from_date <= %s
+            AND to_date >= %s
+            AND docstatus < 2
+        """, (employee, today, today), as_dict=True)
+        
+        data["leave_allocations"] = [
+            {
+                "leave_type": l.get("leave_type"),
+                "total_leaves_allocated": float(l.get("total_leaves_allocated") or 0),
+                "total_leaves_taken": float(l.get("total_leaves_taken") or 0),
+                "unused_leaves": 0.0 # Field doesn't exist in table
+            } for l in leave_allocations
+        ]
+    except Exception as e:
+        frappe.log_error(f"Error fetching leave allocations: {str(e)}")
+        data["leave_allocations"] = []
+
+    # 7. Pre-fetch Holidays (Range) for use in breakdown
+    try:
+        holiday_list = None
+        # Defensive check for holiday_list field
+        columns = frappe.db.get_table_columns("Employee")
+        if "holiday_list" in columns:
+            holiday_list = frappe.db.get_value("Employee", employee, "holiday_list")
+        
+        if not holiday_list:
+            # Try to get first available holiday list
+            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
+        
+        holidays_data = []
+        if holiday_list:
+            holidays_data = frappe.db.sql("""
+                SELECT holiday_date as date, description
+                FROM `tabHoliday`
+                WHERE parent = %s
+                AND holiday_date BETWEEN %s AND %s
+            """, (holiday_list, start_date, end_date), as_dict=True)
+        
+        holiday_dates = {str(h.date) for h in holidays_data}
+        data["holidays"] = holidays_data
+    except Exception:
+        holiday_dates = set()
+        data["holidays"] = []
+
+    # 3. Attendance Breakdown (Dynamic Range & Fixed Denominators)
+    try:
+        total_days = data.get("total_days_in_period", 1)
+        
+        # Get attendance counts by status
+        attendance_breakdown = frappe.db.sql("""
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM `tabAttendance`
+            WHERE employee = %s
+            AND attendance_date >= %s
+            AND attendance_date <= %s
+            GROUP BY status
+        """, (employee, start_date, end_date), as_dict=True)
+        
+        breakdown = {
+            "present": 0,
+            "absent": 0,
+            "half_day": 0,
+            "on_leave": 0,
+            "holiday": len(holiday_dates),
+            "total_days": total_days
+        }
+        
+        for record in attendance_breakdown:
+            status_val = record.get("status")
+            if status_val:
+                status_key = status_val.lower().replace(" ", "_")
+                if status_key in breakdown:
+                    breakdown[status_key] = int(record.get("count") or 0)
+        
+        # Calculate Missing days for the ENTIRE period
+        marked_days = sum([breakdown["present"], breakdown["absent"], breakdown["half_day"], breakdown["on_leave"], breakdown["holiday"]])
+        breakdown["missing"] = max(0, total_days - marked_days)
+        
+        # Calculate Present Percentage based on fixed denominator
+        # Formula: (Present + 0.5 * Half Day + Holiday) / total_days
+        # (Usually holidays are considered positive/attended days in many systems)
+        present_count = breakdown["present"] + (breakdown["half_day"] * 0.5) + breakdown["holiday"]
+        breakdown["present_percentage"] = round((present_count / total_days) * 100, 1) if total_days > 0 else 0
+        
+        data["monthly_attendance_breakdown"] = breakdown
+    except Exception as e:
+        import traceback
+        frappe.log_error(traceback.format_exc(), "Monthly Breakdown Error")
+        data["monthly_attendance_breakdown"] = {
+            "present": 0,
+            "absent": 0,
+            "half_day": 0,
+            "on_leave": 0,
+            "missing": 1, # Default to show something
+            "total_days": 1,
+            "present_percentage": 0
+        }
+    except Exception as e:
+        import traceback
+        frappe.log_error(traceback.format_exc(), "Monthly Breakdown Error")
+        data["monthly_attendance_breakdown"] = {
+            "present": 0,
+            "absent": 0,
+            "half_day": 0,
+            "on_leave": 0,
+            "missing": 0,
+            "total_days": 0
+        }
+
+    # 4. Missing Timesheets (Current Month-to-Date - All Working Days)
+    try:
+        today_date = frappe.utils.getdate(today)
+        month_start_date = frappe.utils.get_first_day(today_date)
+        curr_ptr = month_start_date
+        potential_working_days = []
+        
+        # Get holiday dates for this month
+        holiday_list = None
+        try:
+            # Check if holiday_list field exists in Employee
+            columns = frappe.db.get_table_columns("Employee")
+            if "holiday_list" in columns:
+                holiday_list = frappe.db.get_value("Employee", employee, "holiday_list")
+            
+            if not holiday_list:
+                # Try to get first available holiday list if no default field or value
+                holiday_list = frappe.db.get_value("Holiday List", {}, "name")
+        except Exception:
+            holiday_list = None
+        
+        month_holidays = []
+        if holiday_list:
+            try:
+                h_records = frappe.get_all("Holiday", 
+                    filters={"parent": holiday_list, "holiday_date": ["between", [month_start_date, today_date]]},
+                    fields=["holiday_date"]
+                )
+                month_holidays = [str(h.holiday_date) for h in h_records]
+            except Exception:
+                month_holidays = []
+
+        # Get leave dates for this month
+        leave_dates = []
+        try:
+            leaves = frappe.get_all("Leave Application",
+                filters={
+                    "employee": employee,
+                    "status": "Approved",
+                    "from_date": ["<=", today_date],
+                    "to_date": [">=", month_start_date],
+                    "docstatus": 1
+                },
+                fields=["from_date", "to_date"]
+            )
+            for l in leaves:
+                d_ptr = max(l.from_date, month_start_date)
+                d_end = min(l.to_date, today_date)
+                while d_ptr <= d_end:
+                    leave_dates.append(str(d_ptr))
+                    d_ptr = frappe.utils.add_days(d_ptr, 1)
+        except Exception:
+            pass
+
+        # Also get dates marked as 'On Leave' in attendance
+        try:
+            attendance_leaves = frappe.get_all("Attendance",
+                filters={
+                    "employee": employee,
+                    "status": "On Leave",
+                    "attendance_date": ["between", [month_start_date, today_date]]
+                },
+                pluck="attendance_date"
+            )
+            leave_dates.extend([str(d) for d in attendance_leaves])
+        except Exception:
+            pass
+        
+        leave_dates_set = set(leave_dates)
+
+        # Generate all past/current days in month
+        while curr_ptr <= today_date:
+            # Skip Sundays (frappe.utils.get_weekday returns 'Monday', 'Tuesday', etc.)
+            if frappe.utils.get_weekday(curr_ptr) != 'Sunday':
+                date_str = str(curr_ptr)
+                if date_str not in month_holidays and date_str not in leave_dates_set:
+                    potential_working_days.append(date_str)
+            # Safely increment as date object
+            curr_ptr = frappe.utils.add_days(curr_ptr, 1)
+            if isinstance(curr_ptr, str):
+                curr_ptr = frappe.utils.getdate(curr_ptr)
+
+        # Get dates with timesheets
+        timesheet_dates = frappe.db.sql("""
+            SELECT DISTINCT timesheet_date
+            FROM `tabTimesheet`
+            WHERE employee = %s
+            AND timesheet_date >= %s
+            AND timesheet_date <= %s
+            AND docstatus < 2
+        """, (employee, month_start_date, today_date), as_list=True)
+        
+        timesheet_dates_set = {str(date[0]) for date in timesheet_dates}
+        
+        # Find missing dates from working days
+        missing_dates = sorted([d for d in potential_working_days if d not in timesheet_dates_set])
+        data["missing_timesheets"] = [{"date": date} for date in missing_dates]
+        
+    except Exception as e:
+        import traceback
+        frappe.log_error(traceback.format_exc(), "Missing Timesheets Error")
+        data["missing_timesheets"] = []
+
+    # 5. Recent Leave Applications
+    try:
+        data["recent_leaves"] = frappe.get_all("Leave Application",
+            filters={"employee": employee},
+            fields=["name", "leave_type", "from_date", "to_date", "workflow_state", "total_leave_days"],
+            order_by="creation desc",
+            limit=5
+        )
+    except Exception:
+        data["recent_leaves"] = []
+
+    # 6. Global Data (Announcements, Birthdays, Holidays, Today's Leaves)
+    hr_data = get_hr_dashboard_data()
+    data["announcements"] = hr_data.get("announcements", [])
+    data["todays_birthdays"] = hr_data.get("todays_birthdays", [])
+    data["todays_leaves"] = hr_data.get("todays_leaves", [])
+
+    # 7. Attendance for Calendar (Last 6 months + Current range)
+    try:
+        # Fetch a broader range for the calendar to show "all data present"
+        calendar_start = frappe.utils.add_months(start_date, -6)
+        
+        full_attendance = frappe.get_all("Attendance",
+            filters={
+                "employee": employee,
+                "attendance_date": ["between", [calendar_start, end_date]]
+            },
+            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+            order_by="attendance_date asc"
+        )
+        
+        # Helper to convert timedelta to time str
+        def td_to_str(td):
+            if not td: return None
+            total_seconds = int(td.total_seconds())
+            return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+
+        # Create attendance map
+        attendance_map = {}
+        for att in full_attendance:
+            attendance_map[str(att.attendance_date)] = {
+                "status": att.status,
+                "check_in": td_to_str(att.in_time),
+                "check_out": td_to_str(att.out_time),
+                "working_hours": att.working_hours or 0
+            }
+
+        # Build full month timeline
+        attendance_events = []
+        month_start = frappe.utils.get_first_day(today_date)
+        month_end = frappe.utils.get_last_day(today_date)
+        
+        # Get holidays for this period as well
+        holiday_list = frappe.db.get_value("Employee", employee, "holiday_list") or \
+                       frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
+        
+        holiday_map = {}
+        if holiday_list:
+            h_records = frappe.db.sql("""
+                SELECT holiday_date as date, description, is_working_day
+                FROM `tabHoliday`
+                WHERE parent = %s
+                AND holiday_date BETWEEN %s AND %s
+            """, (holiday_list, month_start, month_end), as_dict=True)
+            holiday_map = {str(h.date): h for h in h_records}
+
+        curr_ptr = month_start
+        while curr_ptr <= month_end:
+            d_str = str(curr_ptr)
+            day_record = {
+                "date": d_str,
+                "status": "Not Marked",
+                "check_in": None,
+                "check_out": None,
+                "working_hours": 0,
+                "holiday_info": None,
+                "holiday_is_working_day": 0
+            }
+            
+            if d_str in attendance_map:
+                day_record.update(attendance_map[d_str])
+            
+            if d_str in holiday_map:
+                h = holiday_map[d_str]
+                day_record["holiday_info"] = h["description"]
+                day_record["holiday_is_working_day"] = h["is_working_day"]
+                if day_record["status"] == "Not Marked" and not h["is_working_day"]:
+                    day_record["status"] = "Holiday"
+            
+            attendance_events.append(day_record)
+            curr_ptr = frappe.utils.add_days(curr_ptr, 1)
+            if isinstance(curr_ptr, str):
+                curr_ptr = frappe.utils.getdate(curr_ptr)
+
+        data["monthly_attendance_list"] = attendance_events
+    except Exception as e:
+        frappe.log_error(f"Error fetching monthly attendance list: {str(e)}", "Calendar Data Error")
+        data["monthly_attendance_list"] = []
+
+    return data
