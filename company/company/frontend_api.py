@@ -23,7 +23,7 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     query_filters = {}
     if txt:
         query_filters["name"] = ["like", f"%{txt}%"]
-    
+
     if filters:
         import json
         extra_filters = json.loads(filters)
@@ -105,7 +105,7 @@ def get_current_user_info():
     Fetch the full details of the currently logged-in user.
     """
     user = frappe.get_doc("User", frappe.session.user)
-    
+
     # Calculate allowed modules (All - Blocked)
     all_modules = frappe.get_all("Module Def", pluck="name")
     blocked_modules = [d.module for d in user.block_modules]
@@ -133,7 +133,7 @@ def get_dashboard_stats():
     """
     stats = {}
     user = frappe.session.user
-    
+
     # Get counts for each DocType
     doctypes = {
         "leads": "Lead",
@@ -141,7 +141,7 @@ def get_dashboard_stats():
         "deals": "Deal",
         "accounts": "Accounts",
     }
-    
+
     for key, doctype in doctypes.items():
         try:
             if frappe.has_permission(doctype, "read"):
@@ -150,7 +150,7 @@ def get_dashboard_stats():
                 stats[key] = 0
         except Exception:
             stats[key] = 0
-    
+
     # Get recent leads (last 7 days)
     try:
         if frappe.has_permission("Lead", "read"):
@@ -162,7 +162,7 @@ def get_dashboard_stats():
             stats["recent_leads"] = 0
     except Exception:
         stats["recent_leads"] = 0
-    
+
     # Get leads by status (workflow_state)
     try:
         if frappe.has_permission("Lead", "read"):
@@ -176,7 +176,7 @@ def get_dashboard_stats():
             stats["leads_by_status"] = []
     except Exception:
         stats["leads_by_status"] = []
-    
+
     # Get deals by stage
     try:
         if frappe.has_permission("Deal", "read"):
@@ -190,7 +190,7 @@ def get_dashboard_stats():
             stats["deals_by_stage"] = []
     except Exception:
         stats["deals_by_stage"] = []
-    
+
     # Get total deal value
     try:
         if frappe.has_permission("Deal", "read"):
@@ -212,19 +212,19 @@ def get_dashboard_stats():
         contact_series = []
         deal_series = []
         account_series = []
-        
+
         for i in range(6, -1, -1):
             date = frappe.utils.add_days(frappe.utils.nowdate(), -i)
             day_name = frappe.utils.get_datetime(date).strftime('%a')
             days.append(day_name)
-            
+
             lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"], "owner": user}))
             contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"], "owner": user}))
             deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"], "owner": user}))
             account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"], "owner": user}))
-            
+
         stats["charts"] = {
-            "categories": days, 
+            "categories": days,
             "leads": lead_series,
             "contacts": contact_series,
             "deals": deal_series,
@@ -239,7 +239,7 @@ def get_dashboard_stats():
             "deals": [0]*7,
             "accounts": [0]*7
         }
-    
+
     return stats
 
 
@@ -309,15 +309,15 @@ def get_today_activities():
     Fetch today's calls and meetings.
     """
     from datetime import datetime
-    
+
     activities = {
         "calls": [],
         "meetings": []
     }
-    
+
     # Get today's date
     today_date = frappe.utils.today()
-    
+
     # Fetch and filter calls
     try:
         if frappe.has_permission("Calls", "read"):
@@ -331,7 +331,7 @@ def get_today_activities():
             """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching calls for dashboard: {str(e)}")
-    
+
     # Fetch and filter meetings (strictly from Meeting DocType)
     try:
         if frappe.has_permission("Meeting", "read"):
@@ -345,7 +345,7 @@ def get_today_activities():
             """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching meetings for dashboard: {str(e)}")
-    
+
     return activities
 
 
@@ -357,7 +357,7 @@ def update_event(name, data):
     if isinstance(data, str):
         import json
         data = json.loads(data)
-        
+
     try:
         if frappe.has_permission("Event", "write", doc=name):
             doc = frappe.get_doc("Event", name)
@@ -370,7 +370,7 @@ def update_event(name, data):
         frappe.log_error(f"Error updating event {name}: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-        
+
 @frappe.whitelist()
 def delete_event(name):
     """
@@ -394,7 +394,7 @@ def create_event(data):
     if isinstance(data, str):
         import json
         data = json.loads(data)
-        
+
     try:
         if frappe.has_permission("Event", "create"):
             doc = frappe.get_doc({
@@ -415,10 +415,10 @@ def get_events(start=None, end=None):
     Fetch events for calendar view.
     """
     filters = {}
-    
+
     if start and end:
         filters["starts_on"] = ["between", [start, end]]
-    
+
     try:
         if frappe.has_permission("Event", "read"):
             events = frappe.get_all(
@@ -446,12 +446,12 @@ def get_workflow_states(doctype="Lead", current_state=None):
             fields=["name"],
             limit=1
         )
-        
+
         if not workflow:
             return {"states": [], "transitions": [], "actions": []}
-        
+
         workflow_name = workflow[0].name
-        
+
         # Get all workflow states
         states = frappe.get_all(
             "Workflow Document State",
@@ -459,7 +459,7 @@ def get_workflow_states(doctype="Lead", current_state=None):
             fields=["state", "doc_status", "is_optional_state"],
             order_by="idx"
         )
-        
+
         # Get all workflow transitions
         transitions = frappe.get_all(
             "Workflow Transition",
@@ -467,7 +467,7 @@ def get_workflow_states(doctype="Lead", current_state=None):
             fields=["state", "action", "next_state", "allowed"],
             order_by="idx"
         )
-        
+
         # If current_state is provided, filter transitions for that state
         allowed_actions = []
         if current_state:
@@ -480,7 +480,7 @@ def get_workflow_states(doctype="Lead", current_state=None):
                             "action": transition.action,
                             "next_state": transition.next_state
                         })
-        
+
         return {
             "states": [s.state for s in states],
             "transitions": transitions,
@@ -527,7 +527,7 @@ def get_doc_fields(doctype):
                 "options": df.options,
                 "reqd": df.reqd
             })
-    
+
     return fields
 
 
@@ -671,15 +671,15 @@ def update_import_file(data_import_name, data):
     data_import.check_permission("write")
 
     rows = json.loads(data)
-    
+
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
     for row in rows:
         writer.writerow(row)
-    
+
     content = output.getvalue()
-    
+
     # Save as a new file
     filename = f"edited_{data_import_name}.csv"
     file_doc = save_file(
@@ -694,24 +694,24 @@ def update_import_file(data_import_name, data):
     # Update Data Import record
     data_import.import_file = file_doc.file_url
     data_import.save()
-    
+
     return {"status": "success", "file_url": file_doc.file_url}
 
 @frappe.whitelist()
 def get_doctype_fields(doctype):
     meta = frappe.get_meta(doctype)
     fields = []
-    
+
     for d in meta.fields:
         if d.fieldtype not in ['Section Break', 'Column Break', 'Tab Break', 'HTML', 'Button', 'Table'] and not d.hidden and not d.read_only:
-             fields.append({
+            fields.append({
                 "fieldname": d.fieldname,
                 "label": d.label,
                 "fieldtype": d.fieldtype,
                 "options": d.options,
                 "hidden": d.hidden
             })
-            
+
     return {"name": doctype, "fields": fields}
 
 @frappe.whitelist()
@@ -859,7 +859,7 @@ def convert_estimation_to_invoice(estimation):
 
     for f in fields_to_copy:
         inv.set(f, est.get(f))
-        
+
     # Set client_name (contact ID) from estimation
     inv.client_name = est.client_name
 
@@ -912,33 +912,33 @@ def get_sales_dashboard_data():
     today = frappe.utils.today()
     first_day_month = frappe.utils.get_first_day(today)
     first_day_year = f"{today[:4]}-01-01"
-    
+
     try:
         # 1. Summary Metrics from Invoices
         invoices = frappe.get_all("Invoice", fields=[
-            "grand_total", "total_amount", "overall_discount", 
+            "grand_total", "total_amount", "overall_discount",
             "total_qty", "invoice_date", "balance_amount", "due_date",
             "client_name", "billing_name"
         ])
-        
+
         data["total_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices)
         data["total_qty_sold"] = sum(frappe.utils.flt(inv.total_qty) for inv in invoices)
         data["total_orders"] = len(invoices)
         data["aov"] = data["total_sales"] / data["total_orders"] if data["total_orders"] > 0 else 0
-        
+
         # Gross vs Net
         data["gross_sales"] = sum(frappe.utils.flt(inv.total_amount) for inv in invoices)
         data["net_sales"] = data["total_sales"] # Using grand_total as net sales for now
         data["total_discounts"] = sum(frappe.utils.flt(inv.overall_discount) for inv in invoices)
-        
+
         # MTD / YTD
         data["mtd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_month))
         data["ytd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_year))
-        
+
         # 2. Pipeline from Deals
         deals = frappe.get_all("Deal", fields=["value", "stage"])
         data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
-        
+
         # 3. Top Customers
         data["top_customers_by_revenue"] = frappe.db.sql("""
             SELECT client_name, billing_name, SUM(grand_total) as revenue, COUNT(name) as order_count
@@ -947,7 +947,7 @@ def get_sales_dashboard_data():
             ORDER BY revenue DESC
             LIMIT 5
         """, as_dict=True)
-        
+
         data["most_repeated_customers"] = frappe.db.sql("""
             SELECT client_name, billing_name, COUNT(name) as order_count, SUM(grand_total) as total_spent
             FROM `tabInvoice`
@@ -955,9 +955,9 @@ def get_sales_dashboard_data():
             ORDER BY order_count DESC
             LIMIT 5
         """, as_dict=True)
-        
+
         # 4. Overdue / Pending Orders
-        data["overdue_orders"] = frappe.get_all("Invoice", 
+        data["overdue_orders"] = frappe.get_all("Invoice",
             filters={
                 "balance_amount": [">", 0],
                 "due_date": ["<", today]
@@ -967,10 +967,10 @@ def get_sales_dashboard_data():
             limit=5
         )
         data["pending_orders_count"] = frappe.db.count("Invoice", {"balance_amount": [">", 0]})
-        
+
         # 5. Trends (Last 12 months)
         trends = frappe.db.sql("""
-            SELECT 
+            SELECT
                 DATE_FORMAT(invoice_date, '%%Y-%%m') as month,
                 SUM(grand_total) as total_sales,
                 SUM(overall_discount) as total_discount
@@ -979,7 +979,7 @@ def get_sales_dashboard_data():
             GROUP BY month
             ORDER BY month ASC
         """, (today,), as_dict=True)
-        
+
         data["sales_trend"] = {
             "categories": [t.month for t in trends],
             "series": [frappe.utils.flt(t.total_sales) for t in trends]
@@ -988,12 +988,12 @@ def get_sales_dashboard_data():
             "categories": [t.month for t in trends],
             "series": [frappe.utils.flt(t.total_discount) for t in trends]
         }
-        
+
         # 6. Conversion Rate (Estimations to Invoices)
         total_estimations = frappe.db.count("Estimation")
         converted_estimations = frappe.db.count("Invoice", {"converted_from_estimation": 1})
         data["conversion_rate"] = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
-        
+
     except Exception as e:
         frappe.log_error(f"Sales Dashboard Error: {str(e)}")
         # Return empty data structure to avoid frontend crashes
@@ -1016,10 +1016,10 @@ def update_my_password(old_password, new_password):
     Update the current user's password.
     """
     user = frappe.session.user
-    
-    if user == "Guest": 
-        frappe.throw(_("Please login to change password"))  
-        
+
+    if user == "Guest":
+        frappe.throw(_("Please login to change password"))
+
     # Verify old password
     try:
         frappe.utils.password.check_password(user, old_password)
@@ -1028,7 +1028,7 @@ def update_my_password(old_password, new_password):
 
     # Update password
     frappe.utils.password.update_password(user, new_password)
-    
+
     return {"status": "success", "message": "Password updated successfully"}
 
 
@@ -1038,19 +1038,19 @@ def update_profile_info(first_name, middle_name=None, last_name=None):
     Update the current user's profile information (names).
     """
     user = frappe.session.user
-    
+
     if user == "Guest":
         return {"status": "failed", "message": "Please login to update profile"}
-        
+
     try:
         user_doc = frappe.get_doc("User", user)
         user_doc.first_name = first_name
         user_doc.middle_name = middle_name
         user_doc.last_name = last_name
         user_doc.save(ignore_permissions=True)
-        
+
         return {
-            "status": "success", 
+            "status": "success",
             "message": "Profile updated successfully",
             "data": {
                 "first_name": user_doc.first_name,
@@ -1069,24 +1069,24 @@ def upload_profile_image():
     Upload and update profile image for the current user.
     """
     user_email = frappe.session.user
-   
+
     if user_email == "Guest":
         return {"status": "failed", "message": "Please login to upload profile image"}
- 
+
     try:
         user_doc = frappe.get_doc("User", user_email)
-       
+
         # 'file' is the key in FormData
         file = frappe.request.files.get("file")
         if not file:
              return {"status": "failed", "message": "No file uploaded"}
-       
+
         from frappe.utils.file_manager import save_file
-       
+
         # Save the file
         fname = file.filename
         content = file.stream.read()
-       
+
         # Save file and attach to User document
         saved_file = save_file(
             fname,
@@ -1097,22 +1097,22 @@ def upload_profile_image():
             is_private=0,
             df="user_image"
         )
-       
+
         # Explicitly update user_image just in case save_file df param didn't trigger it (though it should)
         user_doc.user_image = saved_file.file_url
         user_doc.save(ignore_permissions=True)
- 
+
         return {
             "status": "success",
             "message": "Profile image updated",
             "file_url": saved_file.file_url
         }
- 
+
     except Exception as e:
         frappe.log_error(f"Error uploading profile image: {str(e)}")
         return {"status": "failed", "message": str(e)}
- 
- 
+
+
 @frappe.whitelist()
 def get_financial_totals():
     """
@@ -1120,21 +1120,21 @@ def get_financial_totals():
     Includes total amount, count, and 7-day trend chart data.
     """
     data = {}
-    
+
     # Get last 7 days for chart
     days = []
     for i in range(6, -1, -1):
         date = frappe.utils.add_days(frappe.utils.nowdate(), -i)
         day_name = frappe.utils.get_datetime(date).strftime('%a')
         days.append(day_name)
-    
+
     # 1. Invoices
     try:
         invoices_total = frappe.db.sql("""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabInvoice`
         """, as_dict=True)[0]
-        
+
         # Chart data for last 7 days (count of invoices created each day)
         invoice_chart = []
         for i in range(6, -1, -1):
@@ -1145,7 +1145,7 @@ def get_financial_totals():
                 WHERE DATE(invoice_date) = %s
             """, (date,), as_dict=True)[0]
             invoice_chart.append(count.get('count') or 0)
-        
+
         data["invoices"] = {
             "total": frappe.utils.flt(invoices_total.get('total') or 0),
             "count": invoices_total.get('count') or 0,
@@ -1154,14 +1154,14 @@ def get_financial_totals():
     except Exception as e:
         frappe.log_error(f"Error fetching invoice totals: {str(e)}")
         data["invoices"] = {"total": 0, "count": 0, "chart": [0]*7}
-    
+
     # 2. Estimations
     try:
         estimations_total = frappe.db.sql("""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabEstimation`
         """, as_dict=True)[0]
-        
+
         # Chart data for last 7 days (count of estimations created each day)
         estimation_chart = []
         for i in range(6, -1, -1):
@@ -1172,7 +1172,7 @@ def get_financial_totals():
                 WHERE DATE(estimate_date) = %s
             """, (date,), as_dict=True)[0]
             estimation_chart.append(count.get('count') or 0)
-        
+
         data["estimations"] = {
             "total": frappe.utils.flt(estimations_total.get('total') or 0),
             "count": estimations_total.get('count') or 0,
@@ -1181,14 +1181,14 @@ def get_financial_totals():
     except Exception as e:
         frappe.log_error(f"Error fetching estimation totals: {str(e)}")
         data["estimations"] = {"total": 0, "count": 0, "chart": [0]*7}
-    
+
     # 3. Purchases
     try:
         purchases_total = frappe.db.sql("""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabPurchase`
         """, as_dict=True)[0]
-        
+
         # Chart data for last 7 days (count of purchases created each day)
         purchase_chart = []
         for i in range(6, -1, -1):
@@ -1199,7 +1199,7 @@ def get_financial_totals():
                 WHERE DATE(purchase_date) = %s
             """, (date,), as_dict=True)[0]
             purchase_chart.append(count.get('count') or 0)
-        
+
         data["purchases"] = {
             "total": frappe.utils.flt(purchases_total.get('total') or 0),
             "count": purchases_total.get('count') or 0,
@@ -1208,14 +1208,14 @@ def get_financial_totals():
     except Exception as e:
         frappe.log_error(f"Error fetching purchase totals: {str(e)}")
         data["purchases"] = {"total": 0, "count": 0, "chart": [0]*7}
-    
+
     # 4. Expenses
     try:
         expenses_total = frappe.db.sql("""
             SELECT SUM(total) as total, COUNT(*) as count
             FROM `tabExpenses`
         """, as_dict=True)[0]
-        
+
         # Chart data for last 7 days (count of expenses created each day)
         expense_chart = []
         for i in range(6, -1, -1):
@@ -1226,7 +1226,7 @@ def get_financial_totals():
                 WHERE DATE(date) = %s
             """, (date,), as_dict=True)[0]
             expense_chart.append(count.get('count') or 0)
-        
+
         data["expenses"] = {
             "total": frappe.utils.flt(expenses_total.get('total') or 0),
             "count": expenses_total.get('count') or 0,
@@ -1235,9 +1235,9 @@ def get_financial_totals():
     except Exception as e:
         frappe.log_error(f"Error fetching expense totals: {str(e)}")
         data["expenses"] = {"total": 0, "count": 0, "chart": [0]*7}
-    
+
     data["categories"] = days
-    
+
     return data
 
 @frappe.whitelist()
@@ -1258,17 +1258,17 @@ def get_crm_expense_tracker_stats(start_date=None, end_date=None):
 
     try:
         data = frappe.get_all("CRM Expense Tracker", filters=filters, fields=["type", "amount"])
-        
+
         for d in data:
             if d.type == "Income":
                 stats["total_income"] += frappe.utils.flt(d.amount)
             elif d.type == "Expense":
                 stats["total_expense"] += frappe.utils.flt(d.amount)
-        
+
         stats["balance"] = stats["total_income"] - stats["total_expense"]
     except Exception as e:
         frappe.log_error(f"Error fetching CRM Expense Tracker stats: {str(e)}")
-        
+
     return stats
 
 @frappe.whitelist()
@@ -1281,7 +1281,7 @@ def apply_workflow_action(doctype, name, action):
 
     from frappe.model.workflow import apply_workflow, get_transitions
     doc = frappe.get_doc(doctype, name)
-    
+
     # Debug logging
     try:
         transitions = get_transitions(doc)
