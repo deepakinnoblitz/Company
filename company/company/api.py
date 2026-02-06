@@ -2957,3 +2957,126 @@ def process_chat_message_queue():
         
         frappe.db.commit()
 
+@frappe.whitelist()
+def get_month_calendar_data(month=None, year=None):
+    """
+    Fetch both holidays and attendance for a specific employee and month.
+    """
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, ["name", "date_of_joining"], as_dict=True)
+    
+    if not employee:
+        return {"holidays": [], "attendance": [], "joining_date": None}
+    
+    employee_id = employee.name
+    joining_date = employee.date_of_joining
+
+    today_date = datetime.today().date()
+    month = int(month) if month else today_date.month
+    year = int(year) if year else today_date.year
+
+    # 1. Fetch Holidays
+    holidays = []
+    # Try to get a holiday list for the current month/year
+    try:
+        holiday_list = frappe.db.get_value("Holiday List", 
+            {"month_year": str(month), "year": year}, 
+            "name")
+        
+        if not holiday_list:
+            # If no specific month/year list, get any holiday list
+            holiday_list = frappe.db.get_value("Holiday List", None, "name")
+    except Exception:
+        holiday_list = None
+    
+    if holiday_list:
+        start_date = f"{year}-{month:02d}-01"
+        end_date = get_last_day(getdate(start_date))
+        h_records = frappe.db.sql("""
+            SELECT holiday_date as date, description, is_working_day
+            FROM `tabHolidays`
+            WHERE parent = %s
+            AND holiday_date BETWEEN %s AND %s
+        """, (holiday_list, start_date, end_date), as_dict=True)
+        holidays = [{
+            "date": str(h.date), 
+            "description": h.description,
+            "is_working_day": h.is_working_day
+        } for h in h_records]
+
+    # 2. Fetch Attendance
+    attendance = []
+    start_date = f"{year}-{month:02d}-01"
+    end_date = get_last_day(getdate(start_date))
+    
+    # Helper to convert timedelta to time str
+    def td_to_str(td):
+        if not td: return None
+        total_seconds = int(td.total_seconds())
+        return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+
+    att_records = frappe.get_all("Attendance",
+        filters={
+            "employee": employee_id,
+            "attendance_date": ["between", [start_date, end_date]]
+        },
+        fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+        order_by="attendance_date asc"
+    )
+
+    for att in att_records:
+        attendance.append({
+            "date": str(att.attendance_date),
+            "status": att.status,
+            "in_time": td_to_str(att.in_time),
+            "out_time": td_to_str(att.out_time),
+            "working_hours": att.working_hours or 0
+        })
+
+    # 3. Build Full Month Timeline
+    calendar_data = []
+    first_day = getdate(f"{year}-{month:02d}-01")
+    last_day = get_last_day(first_day)
+    
+    attendance_map = {a['date']: a for a in attendance}
+    holiday_map = {h['date']: h for h in holidays}
+    
+    current = first_day
+    while current <= last_day:
+        date_str = str(current)
+        day_record = {
+            "date": date_str,
+            "status": "Not Marked",
+            "check_in": None,
+            "check_out": None,
+            "working_hours": 0,
+            "holiday_info": None,
+            "holiday_is_working_day": 0
+        }
+        
+        # Add attendance data if exists
+        if date_str in attendance_map:
+            att = attendance_map[date_str]
+            day_record.update({
+                "status": att["status"],
+                "check_in": att["in_time"],
+                "check_out": att["out_time"],
+                "working_hours": att["working_hours"]
+            })
+            
+        # Add holiday info if exists
+        if date_str in holiday_map:
+            h = holiday_map[date_str]
+            day_record["holiday_info"] = h["description"]
+            day_record["holiday_is_working_day"] = h["is_working_day"]
+            # If not marked and is a non-working holiday
+            if day_record["status"] == "Not Marked" and not h["is_working_day"]:
+                day_record["status"] = "Holiday"
+                
+        calendar_data.append(day_record)
+        current = add_days(current, 1)
+
+    return {
+        "calendar_data": calendar_data,
+        "joining_date": str(joining_date) if joining_date else None
+    }
