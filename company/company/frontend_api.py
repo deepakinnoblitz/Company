@@ -244,6 +244,66 @@ def get_dashboard_stats():
 
 
 @frappe.whitelist()
+def get_expense_tracker_stats(start_date=None, end_date=None):
+    """
+    Get dashboard stats for Expense Tracker.
+    Calculates total income, total expense and balance based on the period.
+    """
+    filters = {}
+    if start_date and end_date:
+        filters["date_time"] = ["between", [start_date, end_date]]
+    elif start_date:
+        filters["date_time"] = [">=", start_date]
+    elif end_date:
+        filters["date_time"] = ["<=", end_date]
+
+    stats = {
+        "total_income": 0,
+        "total_expense": 0,
+        "balance": 0
+    }
+
+    try:
+        data = frappe.get_all("Expense Tracker", filters=filters, fields=["type", "amount"])
+
+        for d in data:
+            if d.type == "Income":
+                stats["total_income"] += frappe.utils.flt(d.amount)
+            elif d.type == "Expense":
+                stats["total_expense"] += frappe.utils.flt(d.amount)
+
+        stats["balance"] = stats["total_income"] - stats["total_expense"]
+    except Exception as e:
+        frappe.log_error(f"Error fetching Expense Tracker stats: {str(e)}")
+
+    return stats
+
+@frappe.whitelist()
+def update_request_status(name, workflow_state, update_data=None):
+    """
+    Update the workflow state of a Request.
+    Handles doc_status change for 'Rejected' state.
+    """
+    if isinstance(update_data, str):
+        import json
+        update_data = json.loads(update_data)
+
+    doc = frappe.get_doc("Request", name)
+
+    if update_data:
+        doc.update(update_data)
+
+    doc.workflow_state = workflow_state
+
+    if workflow_state == "Rejected":
+        doc.cancel()
+    else:
+        doc.save()
+
+    return doc.as_dict()
+
+
+@frappe.whitelist()
 def get_today_activities():
     """
     Fetch today's calls and meetings.
@@ -475,23 +535,126 @@ def get_doc_fields(doctype):
 def download_import_template(doctype):
     """
     Generate and download a blank import template for a given DocType.
+    Customized to force Phone columns as "Text" in Excel.
     """
     import json
+    import openpyxl
+    from io import BytesIO
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+    from frappe.core.doctype.data_import.exporter import Exporter
+    from frappe.desk.utils import provide_binary_file
+
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("Not permitted"), frappe.PermissionError)
 
-    from frappe.core.doctype.data_import.data_import import download_template
-    
     meta = frappe.get_meta(doctype)
     # Get relevant fields for the template (mandatory + common)
     fields = [df.fieldname for df in meta.fields if (df.reqd or df.in_list_view) and df.fieldtype not in ("Section Break", "Column Break", "Tab Break", "HTML", "Button") and not df.hidden]
-    
-    if "name" not in fields:
+
+    # Ensure requested fields are included for Lead
+    if doctype == "Lead":
+        extra_fields = ["gstin", "phone_number", "billing_address", "remarks"]
+        for f in extra_fields:
+            if f not in fields:
+                fields.append(f)
+
+    # Ensure requested fields are included for Contacts
+    if doctype == "Contacts":
+        extra_fields = ["customer_type", "designation", "address", "notes"]
+        for f in extra_fields:
+            if f not in fields:
+                fields.append(f)
+
+    # Ensure requested fields are included for Accounts
+    if doctype == "Accounts":
+        extra_fields = ["gstin", "website"]
+        for f in extra_fields:
+            if f not in fields:
+                fields.append(f)
+
+    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts"):
         fields.insert(0, "name")
 
     export_fields = {doctype: fields}
-    
-    return download_template(doctype, export_fields=json.dumps(export_fields), export_records="blank_template", file_type="Excel")
+
+    # Use standard Exporter to get the template structure
+    e = Exporter(
+        doctype,
+        export_fields=export_fields,
+        export_data=False,
+        file_type="Excel"
+    )
+    csv_array = e.get_csv_array_for_export()
+
+    # Create Workbook manually to set formatting
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = doctype[:30] # Excel sheet name limit
+
+    header = csv_array[0]
+    phone_indices = [i for i, label in enumerate(header) if "(+91-)" in label]
+
+    for row_idx, row_data in enumerate(csv_array):
+        # We need to handle list length consistency
+        ws.append(row_data)
+
+        # Format Header
+        if row_idx == 0:
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+
+    # Add Sample Data for Attendance
+    if doctype == "Attendance":
+        try:
+            sample_employee = frappe.db.get_value("Employee", {"status": "Active"}, ["name", "employee_name"], as_dict=True)
+            if sample_employee:
+                from frappe.utils import nowdate
+
+                # Create a map of fieldname to column index
+                col_map = {col: i + 1 for i, col in enumerate(header)}
+
+                # Sample row data
+                sample_row = []
+                for col in header:
+                    val = ""
+                    # Match against Labels (as seen in Debug Output)
+                    if col == "Employee":
+                        val = sample_employee.name
+                    elif col == "Employee Name":
+                        val = sample_employee.employee_name
+                    elif col == "Date":
+                        val = nowdate()
+                    elif col == "Status":
+                        val = "Present"
+                    elif col == "In Time":
+                        val = "09:00:00"
+                    elif col == "Out Time":
+                        val = "18:00:00"
+                    elif col == "Working Hours":
+                        val = "09:00"
+                    elif col == "Overtime Hours":
+                        val = "00:00"
+
+                    sample_row.append(val)
+
+                ws.append(sample_row)
+        except Exception as e:
+            frappe.log_error(f"Error adding sample data for Attendance: {str(e)}")
+
+    # Set column format to Text (@) for phone columns
+    # We apply this to the first 100 rows to ensure user input is caught as text
+    for col_idx in phone_indices:
+        col_letter = get_column_letter(col_idx + 1)
+        for r in range(1, 101):
+            ws.cell(row=r, column=col_idx + 1).number_format = "@"
+
+    # Save to buffer
+    xlsx_file = BytesIO()
+    wb.save(xlsx_file)
+
+    # Provide binary response
+    provide_binary_file(doctype, "xlsx", xlsx_file.getvalue())
 
 
 @frappe.whitelist()
