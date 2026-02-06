@@ -31,7 +31,7 @@ class UploadAttendance(Document):
 
                 # Read XLS and write XLSX
                 df = pd.read_excel(file_path, engine="xlrd")
-                
+
                 # Create a temporary XLSX file
                 new_file_name = os.path.splitext(file_doc.file_name)[0] + ".xlsx"
                 temp_path = os.path.join("/tmp", new_file_name)
@@ -50,7 +50,7 @@ class UploadAttendance(Document):
 
                 # Update attendance_file to point to the new XLSX file
                 self.attendance_file = new_file_doc.file_url
-                
+
                 # Cleanup temp file
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
