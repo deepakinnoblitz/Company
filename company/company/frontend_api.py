@@ -1032,6 +1032,31 @@ def update_my_password(old_password, new_password):
     return {"status": "success", "message": "Password updated successfully"}
 
 
+@frappe.whitelist()
+def admin_change_user_password(user_email, new_password):
+    """
+    Allow administrators to change a user's password.
+    Requires System Manager role.
+    """
+    # Check if current user has permission
+    if not frappe.has_permission("User", "write"):
+        frappe.throw(_("Not permitted to change user passwords"))
+    
+    # Verify the target user exists
+    if not frappe.db.exists("User", user_email):
+        frappe.throw(_("User not found"))
+    
+    try:
+        # Update the password using Frappe's utility
+        frappe.utils.password.update_password(user_email, new_password)
+        frappe.db.commit()
+        
+        return {"status": "success", "message": "Password changed successfully"}
+    except Exception as e:
+        frappe.log_error(f"Error changing password for {user_email}: {str(e)}")
+        frappe.throw(_("Failed to change password: {0}").format(str(e)))
+
+
 @frappe.whitelist(allow_guest=True)
 def update_profile_info(first_name, middle_name=None, last_name=None):
     """
