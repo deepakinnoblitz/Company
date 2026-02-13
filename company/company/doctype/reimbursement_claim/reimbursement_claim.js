@@ -12,10 +12,6 @@ frappe.ui.form.on("Reimbursement Claim", {
 
     after_workflow_action(frm) {
         frm.reload_doc();
-    },
-
-    after_save(frm) {
-        auto_submit(frm);
     }
 
 });
