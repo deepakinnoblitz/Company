@@ -5,252 +5,265 @@
  "creation": "2025-09-18 11:50:11.083982",
  "doctype": "DocType",
  "engine": "InnoDB",
-    "field_order": [
-        "employee_id",
-        "employee_name",
-        "profile_picture",
-        "country",
-        "date_of_joining",
-        "skip_probation",
-        "bank_name",
-        "bank_account",
-        "dob",
-        "pf_number",
-        "esi_no",
-        "column_break_hiwd",
-        "email",
-        "personal_email",
-        "phone",
-        "office_phone_number",
-        "department",
-        "designation",
-        "status",
-        "user",
-        "section_break_zuyd",
-        "ctc",
-        "salary_details_section",
-        "basic_pay",
-        "hra",
-        "conveyance_allowances",
-        "medical_allowances",
-        "other_allowances",
-        "column_break_jfqq",
-        "pf",
-        "health_insurance",
-        "professional_tax",
-        "loan_recovery"
-    ],
-    "fields": [
-        {
-            "fieldname": "employee_id",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Employee ID",
-            "read_only": 1,
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "employee_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Employee Name",
-            "reqd": 1
-        },
-        {
-            "fieldname": "email",
-            "fieldtype": "Data",
-            "label": "Email",
-            "options": "Email",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "phone",
-            "fieldtype": "Phone",
-            "label": "Personal Phone Number"
-        },
-        {
-            "fieldname": "country",
-            "fieldtype": "Link",
-            "label": "Country",
-            "options": "Country"
-        },
-        {
-            "fieldname": "column_break_hiwd",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "department",
-            "fieldtype": "Link",
-            "label": "Department",
-            "options": "Department"
-        },
-        {
-            "fieldname": "designation",
-            "fieldtype": "Data",
-            "label": "Designation"
-        },
-        {
-            "fieldname": "date_of_joining",
-            "fieldtype": "Date",
-            "label": "Date of Joining",
-            "read_only": 1
-        },
-        {
-            "fieldname": "skip_probation",
-            "fieldtype": "Check",
-            "label": "Skip Probation Check"
-        },
-        {
-            "fieldname": "status",
-            "fieldtype": "Select",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Status",
-            "options": "Active\nInactive"
-        },
-        {
-            "fieldname": "bank_account",
-            "fieldtype": "Link",
-            "label": "Bank Account",
-            "options": "Bank Account",
-            "read_only": 1
-        },
-        {
-            "fieldname": "salary_details_section",
-            "fieldtype": "Section Break",
-            "label": "Salary Details"
-        },
-        {
-            "fieldname": "basic_pay",
-            "fieldtype": "Currency",
-            "label": "Basic Pay",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "hra",
-            "fieldtype": "Currency",
-            "label": "HRA",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "pf",
-            "fieldtype": "Currency",
-            "label": "PF",
-            "precision": "2"
-        },
-        {
-            "fieldname": "dob",
-            "fieldtype": "Date",
-            "label": "Date of Birth"
-        },
-        {
-            "fieldname": "pf_number",
-            "fieldtype": "Data",
-            "label": "PF Number",
-            "read_only": 1
-        },
-        {
-            "fieldname": "esi_no",
-            "fieldtype": "Data",
-            "label": "ESI No",
-            "read_only": 1
-        },
-        {
-            "fieldname": "bank_name",
-            "fieldtype": "Data",
-            "label": "Bank Name",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_jfqq",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "conveyance_allowances",
-            "fieldtype": "Currency",
-            "label": "Conveyance Allowances",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "medical_allowances",
-            "fieldtype": "Currency",
-            "label": "Medical Allowances",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "other_allowances",
-            "fieldtype": "Currency",
-            "label": "Other Allowances",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "health_insurance",
-            "fieldtype": "Currency",
-            "label": "ESI/Health Insurance",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "professional_tax",
-            "fieldtype": "Currency",
-            "label": "Professional Tax",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "loan_recovery",
-            "fieldtype": "Currency",
-            "label": "Loan Recovery",
-            "precision": "2",
-            "read_only": 1
-        },
-        {
-            "fieldname": "personal_email",
-            "fieldtype": "Data",
-            "label": "Personal Email",
-            "options": "Email",
-            "unique": 1
-        },
-        {
-            "fieldname": "user",
-            "fieldtype": "Link",
-            "label": "User",
-            "options": "User",
-            "read_only": 1
-        },
-        {
-            "fieldname": "office_phone_number",
-            "fieldtype": "Phone",
-            "label": "Office Phone Number"
-        },
-        {
-            "fieldname": "section_break_zuyd",
-            "fieldtype": "Section Break"
-        },
-        {
-            "fieldname": "ctc",
-            "fieldtype": "Currency",
-            "label": "CTC (Monthly)",
-            "precision": "2"
-        },
-        {
-            "fieldname": "profile_picture",
-            "fieldtype": "Attach Image",
-            "label": "Profile Picture"
-        }
-    ],
+ "field_order": [
+  "employee_id",
+  "employee_name",
+  "profile_picture",
+  "country",
+  "state",
+  "city",
+  "date_of_joining",
+  "skip_probation",
+  "bank_name",
+  "bank_account",
+  "dob",
+  "pf_number",
+  "esi_no",
+  "column_break_hiwd",
+  "email",
+  "personal_email",
+  "phone",
+  "office_phone_number",
+  "department",
+  "designation",
+  "status",
+  "user",
+  "section_break_zuyd",
+  "ctc",
+  "salary_details_section",
+  "basic_pay",
+  "hra",
+  "conveyance_allowances",
+  "medical_allowances",
+  "other_allowances",
+  "column_break_jfqq",
+  "pf",
+  "health_insurance",
+  "professional_tax",
+  "loan_recovery"
+ ],
+ "fields": [
+  {
+   "fieldname": "employee_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Employee ID",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Phone",
+   "label": "Personal Phone Number"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "column_break_hiwd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "fieldname": "date_of_joining",
+   "fieldtype": "Date",
+   "label": "Date of Joining",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "skip_probation",
+   "fieldtype": "Check",
+   "label": "Skip Probation Check"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nInactive"
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Bank Account",
+   "read_only": 1
+  },
+  {
+   "fieldname": "salary_details_section",
+   "fieldtype": "Section Break",
+   "label": "Salary Details"
+  },
+  {
+   "fieldname": "basic_pay",
+   "fieldtype": "Currency",
+   "label": "Basic Pay",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "hra",
+   "fieldtype": "Currency",
+   "label": "HRA",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pf",
+   "fieldtype": "Currency",
+   "label": "PF",
+   "precision": "2"
+  },
+  {
+   "fieldname": "dob",
+   "fieldtype": "Date",
+   "label": "Date of Birth"
+  },
+  {
+   "fieldname": "pf_number",
+   "fieldtype": "Data",
+   "label": "PF Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "esi_no",
+   "fieldtype": "Data",
+   "label": "ESI No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_jfqq",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "conveyance_allowances",
+   "fieldtype": "Currency",
+   "label": "Conveyance Allowances",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "medical_allowances",
+   "fieldtype": "Currency",
+   "label": "Medical Allowances",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "other_allowances",
+   "fieldtype": "Currency",
+   "label": "Other Allowances",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "health_insurance",
+   "fieldtype": "Currency",
+   "label": "ESI/Health Insurance",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "professional_tax",
+   "fieldtype": "Currency",
+   "label": "Professional Tax",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "loan_recovery",
+   "fieldtype": "Currency",
+   "label": "Loan Recovery",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "personal_email",
+   "fieldtype": "Data",
+   "label": "Personal Email",
+   "options": "Email",
+   "unique": 1
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "office_phone_number",
+   "fieldtype": "Phone",
+   "label": "Office Phone Number"
+  },
+  {
+   "fieldname": "section_break_zuyd",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "ctc",
+   "fieldtype": "Currency",
+   "label": "CTC (Monthly)",
+   "precision": "2"
+  },
+  {
+   "fieldname": "profile_picture",
+   "fieldtype": "Attach Image",
+   "label": "Profile Picture"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "label": "State"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Select",
+   "label": "City"
+  }
+ ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-20 17:10:06.697701",
+ "modified": "2026-02-12 14:05:10.194624",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",

@@ -2199,6 +2199,131 @@ def get_employee_attendance_stats(employee, from_date, to_date):
     }
 
 
+# ==================================================================
+# 🔹 MISSING ATTENDANCE CHART DATA (Last 7 Days)
+# ==================================================================
+@frappe.whitelist()
+def get_missing_attendance_chart_data():
+    """
+    Returns daily missing attendance counts for the last 7 days.
+    Used for Missing Attendance Chart in HR Dashboard.
+    """
+    import datetime
+    
+    today = frappe.utils.getdate()
+    result = []
+    
+    # Get total active employees count
+    total_employees = frappe.db.count("Employee", {"status": "Active"})
+    
+    # Get all holiday lists
+    holiday_list_names = frappe.db.get_list("Holiday List", pluck="name")
+    
+    for i in range(6, -1, -1):  # Last 7 days (6 days ago to today)
+        date = today - datetime.timedelta(days=i)
+        
+        # Get holidays for this date
+        holidays = set()
+        if holiday_list_names:
+            holiday_rows = frappe.db.get_all(
+                "Holidays",
+                filters={
+                    "parent": ["in", holiday_list_names],
+                    "holiday_date": date,
+                    "is_working_day": 0
+                },
+                fields=["holiday_date"]
+            )
+            holidays = {frappe.utils.getdate(h["holiday_date"]) for h in holiday_rows}
+        
+        # If it's a holiday, missing count is 0
+        if date in holidays:
+            missing_count = 0
+        else:
+            # Count attendance records for this date
+            marked_attendance = frappe.db.count("Attendance", {"attendance_date": date})
+            missing_count = max(0, total_employees - marked_attendance)
+        
+        result.append({
+            "date": str(date),
+            "count": missing_count
+        })
+    
+    return result
+
+
+# ==================================================================
+# 🔹 WEEKLY PRESENT COUNT CHART DATA (Current Week Mon-Sun)
+# ==================================================================
+@frappe.whitelist()
+def get_weekly_present_chart_data():
+    """
+    Returns daily present counts for the current week (Monday to Sunday).
+    Used for Weekly Present Count Chart in HR Dashboard.
+    """
+    import datetime
+    
+    today = frappe.utils.getdate()
+    
+    # Find Monday of current week (weekday() returns 0 for Monday)
+    days_since_monday = today.weekday()
+    monday = today - datetime.timedelta(days=days_since_monday)
+    
+    result = []
+    
+    # Get all holiday lists
+    holiday_list_names = frappe.db.get_list("Holiday List", pluck="name")
+    
+    for i in range(7):  # Monday to Sunday
+        date = monday + datetime.timedelta(days=i)
+        
+        # For future dates, show 0 count
+        if date > today:
+            day_name = date.strftime('%a')
+            result.append({
+                "date": str(date),
+                "day": day_name,
+                "count": 0
+            })
+            continue
+        
+        # Get holidays for this date
+        holidays = set()
+        if holiday_list_names:
+            holiday_rows = frappe.db.get_all(
+                "Holidays",
+                filters={
+                    "parent": ["in", holiday_list_names],
+                    "holiday_date": date,
+                    "is_working_day": 0
+                },
+                fields=["holiday_date"]
+            )
+            holidays = {frappe.utils.getdate(h["holiday_date"]) for h in holiday_rows}
+        
+        # Count present attendance
+        present_count = frappe.db.count("Attendance", {
+            "attendance_date": date,
+            "status": "Present"
+        })
+        
+        # Add holiday count to present
+        if date in holidays:
+            # Count total employees as present on holidays
+            total_employees = frappe.db.count("Employee", {"status": "Active"})
+            present_count = total_employees
+        
+        day_name = date.strftime('%a')  # Mon, Tue, Wed, etc.
+        
+        result.append({
+            "date": str(date),
+            "day": day_name,
+            "count": present_count
+        })
+    
+    return result
+
+
 @frappe.whitelist()
 def get_month_holidays(month=None, year=None):
     """

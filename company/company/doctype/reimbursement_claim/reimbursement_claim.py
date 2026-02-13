@@ -2,6 +2,8 @@ import frappe
 from frappe.model.document import Document
 
 class ReimbursementClaim(Document):
+    def after_insert(self):
+        self.submit()
 
     # ----------------------------------------
     # 1️⃣ Notify HR when employee submits claim

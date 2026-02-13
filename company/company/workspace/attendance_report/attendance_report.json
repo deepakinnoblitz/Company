@@ -6,7 +6,7 @@
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
- "external_link": "https://erp.innoblitz.in/app/query-report/Monthly%20Attendance%20Report?month=October&year=2025",
+ "external_link": "https://erp.localhost.innoblitz:8025/app/query-report/Monthly%20Attendance%20Report?month=October&year=2025",
  "for_user": "",
  "hide_custom": 0,
  "icon": "mail",
@@ -17,13 +17,13 @@
  "link_to": "Monthly Attendance Report",
  "link_type": "Report",
  "links": [],
- "modified": "2025-10-10 17:30:11.378169",
+ "modified": "2026-02-06 15:16:57.204001",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Attendance Report",
  "number_cards": [],
  "owner": "Administrator",
- "parent_page": "",
+ "parent_page": "Attendance Records",
  "public": 1,
  "quick_lists": [],
  "roles": [
@@ -31,7 +31,7 @@
    "role": "HR"
   }
  ],
- "sequence_id": 37.0,
+ "sequence_id": 56.0,
  "shortcuts": [],
  "title": "Attendance Report",
  "type": "URL"
