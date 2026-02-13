@@ -1279,18 +1279,27 @@ def sync_future_leave_allocations(employee, leave_type, from_date, delta):
     if next_alloc:
         next_alloc = next_alloc[0]
         
-        # Check if next month is a 'Restart Month' (every 3 months)
-        count = frappe.db.count("Leave Allocation", {
-            "employee": employee,
-            "leave_type": leave_type,
-            "status": "Approved",
-            "from_date": ["<", next_month_start]
-        })
+        # 1️⃣ Fetch reset frequency from Leave Type
+        paid_leave_frequency = frappe.db.get_value("Leave Type", "Paid Leave", "reset_frequency") or "Every 3 months"
         
-        if count % 3 == 0:
-            # Reached a reset point, stop cascading carry-forward
+        freq_map = {
+            "Every 3 months": 3,
+            "Every 4 months": 4,
+            "Every 6 months": 6,
+            "Whole year": 12
+        }
+        reset_interval = freq_map.get(paid_leave_frequency, 3)
+
+        # 2️⃣ Check if NEXT month is a calendar-based reset month (Start of a fresh period)
+        # If it is a reset month, we STOP cascading the carry-forward balance.
+        next_month = next_month_start.month
+        is_reset_month = (next_month - 1) % reset_interval == 0
+
+        if is_reset_month:
+            # Reached a restart point, stop cascading carry-forward
             return
 
+        # 3️⃣ Apply delta and ripple forward
         new_total_allocated = flt(next_alloc.total_leaves_allocated) - delta
         frappe.db.set_value("Leave Allocation", next_alloc.name, "total_leaves_allocated", new_total_allocated)
         
