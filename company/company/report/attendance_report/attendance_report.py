@@ -32,9 +32,11 @@ def get_columns() -> list[dict]:
 def get_data(filters: dict | None) -> list[dict]:
 	"""Return data for the report with gap analysis for Holidays and Missing attendance."""
 	try:
-		if not filters: filters = {}
+		# Robust Filter Parsing
+		if isinstance(filters, str):
+			import json
+			filters = json.loads(filters)
 		
-		# Robust Date Parsing
 		today = frappe.utils.getdate()
 		from_date = filters.get("from_date")
 		to_date = filters.get("to_date")
@@ -45,8 +47,14 @@ def get_data(filters: dict | None) -> list[dict]:
 		if not to_date: to_date = frappe.utils.get_last_day(today)
 		else: to_date = frappe.utils.getdate(to_date)
 		
+		# Ensure we handle 'all' or empty filters consistently
 		selected_employee = filters.get("employee")
+		if selected_employee in ["all", "", None]:
+			selected_employee = None
+			
 		status_filter = filters.get("status")
+		if status_filter in ["all", "", None]:
+			status_filter = None
 
 		# 1. Fetch Employees
 		emp_filters = {"status": "Active"} 
