@@ -301,6 +301,39 @@ def update_request_status(name, workflow_state, update_data=None):
         doc.save()
 
     return doc.as_dict()
+ 
+ 
+@frappe.whitelist()
+def update_doc_status(doctype, name, workflow_state, update_data=None):
+    """
+    Update the workflow state of any document along with optional field updates.
+    Handles doc_status change for 'Rejected' state if the document is submittable.
+    """
+    if isinstance(update_data, str):
+        import json
+        update_data = json.loads(update_data)
+ 
+    doc = frappe.get_doc(doctype, name)
+ 
+    if update_data:
+        doc.update(update_data)
+ 
+    doc.workflow_state = workflow_state
+ 
+    # Use Frappe's workflow apply if possible, otherwise manual update
+    from frappe.model.workflow import apply_workflow
+    try:
+        # We try to apply workflow action if it matches the workflow_state
+        # But here we are directly setting workflow_state from the frontend.
+        # It's better to just save if we are doing direct specific state transitions.
+        if workflow_state == "Rejected" and doc.docstatus == 1:
+            doc.cancel()
+        else:
+            doc.save()
+    except Exception:
+        doc.save()
+ 
+    return doc.as_dict()
 
 
 @frappe.whitelist()
@@ -573,7 +606,18 @@ def download_import_template(doctype):
             if f not in fields:
                 fields.append(f)
 
-    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts"):
+    # For Asset and Asset Assignment, include almost all visible, non-read-only fields
+    if doctype in ("Asset", "Asset Assignment"):
+        all_visible_fields = [
+            df.fieldname for df in meta.fields 
+            if not df.hidden and not df.read_only 
+            and df.fieldtype not in ("Section Break", "Column Break", "Tab Break", "HTML", "Button")
+        ]
+        for f in all_visible_fields:
+            if f not in fields:
+                fields.append(f)
+
+    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts", "Asset", "Asset Assignment"):
         fields.insert(0, "name")
 
     export_fields = {doctype: fields}
@@ -1297,7 +1341,7 @@ def get_crm_expense_tracker_stats(start_date=None, end_date=None):
     return stats
 
 @frappe.whitelist()
-def apply_workflow_action(doctype, name, action):
+def apply_workflow_action(doctype, name, action, comment=None, payment_details=None):
     """
     Apply a workflow action to a document.
     """
@@ -1315,7 +1359,35 @@ def apply_workflow_action(doctype, name, action):
     except Exception as e:
         frappe.log_error(f"Error in workflow debug logging: {str(e)}", "Workflow Debug Error")
 
+    # Handle optional comment
+    if comment:
+        doc.add_comment("Workflow", comment)
+
+    # Handle payment details if provided
+    if payment_details:
+        import json
+        if isinstance(payment_details, str):
+            pd = json.loads(payment_details)
+        else:
+            pd = payment_details
+        
+        if "payment_reference" in pd:
+            doc.payment_reference = pd.get("payment_reference")
+        if "paid_date" in pd:
+            doc.paid_date = pd.get("paid_date")
+        if "paid_by" in pd:
+            doc.paid_by = pd.get("paid_by")
+        
+    # Determine paid status based on action
+    if action == "Pay":
+         doc.paid = 1
+         
+    doc.save()
     apply_workflow(doc, action)
+    
+    # Reload doc to ensure we get the latest state including paid field
+    doc.reload()
+        
     return {"status": "success", "message": f"Action {action} applied successfully"}
 
 @frappe.whitelist()
@@ -1785,3 +1857,186 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         data["monthly_attendance_list"] = []
 
     return data
+
+@frappe.whitelist()
+def preview_salary_slip(employee, start_date, end_date):
+    """
+    Preview Salary Slip calculations for a specific employee and period.
+    Returns a dictionary with calculated values without creating a document.
+    """
+    from frappe.utils import getdate, flt
+    from datetime import timedelta
+    
+    start_date = getdate(start_date)
+    end_date = getdate(end_date)
+    
+    # 1. Fetch Employee Details
+    emp = frappe.get_doc("Employee", employee)
+    
+    # 2. Fetch Holidays
+    year = start_date.year
+    month = start_date.month
+    
+    # Helper logic for get_holiday_dates_for_month (inlined for independence)
+    holiday_list = frappe.get_all("Holiday List",
+        filters={"year": year, "month_year": month},
+        fields=["name"]
+    )
+    
+    holiday_dates = []
+    if holiday_list:
+        holiday_doc = frappe.get_doc("Holiday List", holiday_list[0].name)
+        for row in holiday_doc.holidays:
+            if not row.is_working_day:
+                holiday_dates.append(row.holiday_date)
+
+    # 3. Fetch Attendance
+    attendance_records = frappe.get_all(
+        "Attendance",
+        filters={
+            "employee": emp.name,
+            "attendance_date": ["between", [start_date, end_date]],
+            "docstatus": ["in", [0, 1]]
+        },
+        fields=["status", "leave_type", "attendance_date"]
+    )
+
+    # 4. Calculate Days
+    total_days = (end_date - start_date).days + 1
+    present_days = 0
+    absent_days = 0
+    paid_leave_days = 0
+    total_leave_days = 0
+
+    for i in range(total_days):
+        single_day = start_date + timedelta(days=i)
+        single_day_date = single_day  # keeping as date object
+        
+        is_holiday = single_day_date in holiday_dates
+        record = next((r for r in attendance_records if getdate(r["attendance_date"]) == single_day_date), None)
+
+        if is_holiday:
+            present_days += 1
+            continue
+
+        if record:
+            status = record.get("status")
+            if status == "Present":
+                present_days += 1
+            elif status == "Half Day":
+                total_leave_days += 0.5
+                leave_type = record.get("leave_type")
+
+                if leave_type == "Unpaid Leave":
+                    absent_days += 0.5
+                else:
+                    present_days += 0.5
+                    paid_leave_days += 0.5
+            elif status == "Absent":
+                absent_days += 1
+                total_leave_days += 1
+            elif status in ["On Leave", "Leave"]:
+                leave_type = record.get("leave_type")
+                if leave_type:
+                    # Check Leave Allocation
+                    allocations = frappe.get_all(
+                        "Leave Allocation",
+                        filters={
+                            "employee": emp.name,
+                            "leave_type": leave_type,
+                            "status": "Approved",
+                            "from_date": ["<=", single_day_date],
+                            "to_date": [">=", single_day_date]
+                        },
+                        fields=["name", "total_leaves_allocated", "total_leaves_taken"]
+                    )
+                    
+                    allocation_found = None
+                    for a in allocations:
+                        if flt(a.total_leaves_taken) < flt(a.total_leaves_allocated):
+                            allocation_found = a
+                            break
+
+                    if allocation_found:
+                        paid_leave_days += 1
+                        present_days += 1
+                        total_leave_days += 1
+                    else:
+                        # Check approved Leave Application
+                        approved_leave = frappe.db.exists("Leave Application", {
+                            "employee": emp.name,
+                            "leave_type": leave_type,
+                            "workflow_state": "Approved",
+                            "from_date": ["<=", single_day_date],
+                            "to_date": [">=", single_day_date]
+                        })
+                        if approved_leave:
+                            paid_leave_days += 1
+                            present_days += 1
+                            total_leave_days += 1
+                        else:
+                            absent_days += 1
+                            total_leave_days += 1
+        else:
+            absent_days += 1
+            total_leave_days += 1
+
+    # 5. Calculate Earnings & Deductions
+    working_days = total_days
+    unpaid_leave_days = total_leave_days - paid_leave_days
+
+    # Earnings
+    gross_pay = (
+        flt(emp.basic_pay)
+        + flt(emp.hra)
+        + flt(emp.conveyance_allowances)
+        + flt(emp.medical_allowances)
+        + flt(emp.other_allowances)
+    )
+
+    # Deductions
+    base_deductions = (
+        flt(emp.pf)
+        + flt(emp.health_insurance)
+        + flt(emp.professional_tax)
+        + flt(emp.loan_recovery)
+    )
+
+    # Prorate based on attendance
+    grand_gross_pay = gross_pay * ((working_days - unpaid_leave_days) / working_days) if working_days else gross_pay
+    grand_net_pay = grand_gross_pay - base_deductions
+
+    lop_amount = gross_pay * (unpaid_leave_days / working_days) if working_days else 0
+    total_deductions = base_deductions + lop_amount
+
+    return {
+        "employee": emp.name,
+        "employee_name": emp.employee_name,
+        "designation": emp.designation,
+        "department": emp.department,
+        "date_of_joining": emp.date_of_joining,
+        "bank_name": emp.bank_name,
+        "email": emp.email,
+        "personal_email": emp.personal_email,
+        "pay_period_start": start_date,
+        "pay_period_end": end_date,
+        "no_of_leave": total_leave_days,
+        "no_of_paid_leave": paid_leave_days,
+        "gross_pay": gross_pay,
+        "grand_gross_pay": grand_gross_pay,
+        "net_pay": grand_gross_pay - base_deductions,
+        "grand_net_pay": grand_net_pay,
+        "total_deduction": total_deductions,
+        "total_working_days": working_days,
+        "lop": lop_amount,
+        "lop_days": unpaid_leave_days,
+        "basic_pay": emp.basic_pay,
+        "hra": emp.hra,
+        "conveyance_allowances": emp.conveyance_allowances,
+        "medical_allowances": emp.medical_allowances,
+        "other_allowances": emp.other_allowances,
+        "pf": emp.pf,
+        "health_insurance": emp.health_insurance,
+        "professional_tax": emp.professional_tax,
+        "loan_recovery": emp.loan_recovery
+    }
