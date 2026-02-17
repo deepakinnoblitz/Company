@@ -5,8 +5,14 @@ import frappe
 from frappe import _
 
 
-def execute(filters: dict | None = None):
+def execute(filters: dict | str | None = None):
 	"""Return columns and data for the report."""
+	import json
+	if isinstance(filters, str):
+		filters = json.loads(filters)
+	if not filters:
+		filters = {}
+
 	columns = get_columns()
 	data = get_data(filters)
 

@@ -37,6 +37,94 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     return frappe.get_list(doctype, filters=query_filters, pluck="name", limit=1000)
 
 
+@frappe.whitelist()
+def get_list_enhanced(doctype, fields=None, filters=None, or_filters=None, limit_start=0, limit_page_length=20, order_by=None):
+    """
+    Enhanced version of get_list that supports or_filters and returns total count.
+    Used for multi-column search and intelligent date matching.
+    """
+    import json
+    if isinstance(fields, str): fields = json.loads(fields)
+    if isinstance(filters, str): filters = json.loads(filters)
+    if isinstance(or_filters, str): or_filters = json.loads(or_filters)
+
+    # Get metadata to identify field types
+    meta = frappe.get_meta(doctype)
+    date_fields = [df.fieldname for df in meta.fields if df.fieldtype in ["Date", "Datetime"]]
+
+    # Intelligent Date Handling
+    # If the user types DD-MM-YYYY, we also search for YYYY-MM-DD
+    processed_or_filters = []
+    if or_filters:
+        for f in or_filters:
+            # handle both [field, op, val] and [doctype, field, op, val]
+            field_name = None
+            op = None
+            val = None
+            
+            if len(f) == 3:
+                field_name, op, val = f[0], f[1], f[2]
+            elif len(f) == 4:
+                field_name, op, val = f[1], f[2], f[3]
+            else:
+                processed_or_filters.append(f)
+                continue
+
+            search_val = str(val).strip("%")
+            
+            # If it's a date field, we need to be careful with 'like'
+            if field_name in date_fields:
+                is_valid_date_search = False
+                
+                # Check for DD-MM-YYYY pattern
+                if "-" in search_val and len(search_val) >= 8:
+                    parts = search_val.split("-")
+                    if len(parts) == 3:
+                        try:
+                            # If it looks like DD-MM-YYYY, convert to YYYY-MM-DD
+                            if len(parts[0]) <= 2 and len(parts[2]) == 4:
+                                # Reformat to YYYY-MM-DD
+                                d, m, y = parts[0].zfill(2), parts[1].zfill(2), parts[2]
+                                iso_date = f"{y}-{m}-{d}"
+                                processed_or_filters.append([doctype, field_name, "=", iso_date])
+                                is_valid_date_search = True
+                            elif len(parts[0]) == 4:
+                                # Already YYYY-MM-DD or similar
+                                processed_or_filters.append([doctype, field_name, "like", f"%{search_val}%"])
+                                is_valid_date_search = True
+                        except Exception:
+                            pass
+                
+                # If it's not a valid date-like string, skip searching this field
+                # to avoid ValidationError: "%val% is not a valid date string"
+                if not is_valid_date_search:
+                    continue
+            else:
+                # For non-date fields, keep original filter format
+                if len(f) == 3:
+                    processed_or_filters.append([doctype, f[0], f[1], f[2]])
+                else:
+                    processed_or_filters.append(f)
+
+    data = frappe.get_list(
+        doctype,
+        fields=fields or ["*"],
+        filters=filters,
+        or_filters=processed_or_filters,
+        limit_start=limit_start,
+        limit_page_length=limit_page_length,
+        order_by=order_by
+    )
+
+    # Count matching records for pagination
+    total = len(frappe.get_all(doctype, filters=filters, or_filters=processed_or_filters, limit_page_length=0, pluck="name"))
+
+    return {
+        "data": data,
+        "total": total
+    }
+
+
 @frappe.whitelist(allow_guest=True)
 def mobile_login(username, password):
     """
@@ -92,12 +180,38 @@ def get_doc_permissions(doctype):
     """
     Check if the current user has read, write, and delete permissions for a given DocType.
     """
-    return {
+    permissions = {
         "read": bool(frappe.has_permission(doctype, "read")),
         "write": bool(frappe.has_permission(doctype, "write")),
         "delete": bool(frappe.has_permission(doctype, "delete")),
     }
 
+    # Custom override for Timesheet deletion for Employees
+    if doctype == "Timesheet" and not permissions["delete"]:
+        user_roles = frappe.get_roles()
+        if "Employee" in user_roles:
+            permissions["delete"] = True
+
+    return permissions
+
+
+@frappe.whitelist()
+def delete_doc_enhanced(doctype, name):
+    """
+    Enhanced delete_doc that allows users to delete their own records
+    if they have the appropriate role, even if global permissions are restricted.
+    """
+    doc = frappe.get_doc(doctype, name)
+    
+    # Check if user is owner or has global delete permission
+    has_global_delete = frappe.has_permission(doctype, "delete")
+    is_owner = doc.owner == frappe.session.user
+    
+    if has_global_delete or is_owner:
+        frappe.delete_doc(doctype, name, ignore_permissions=True)
+        return {"status": "success"}
+    else:
+        frappe.throw(_("Not permitted to delete this document"), frappe.PermissionError)
 
 @frappe.whitelist()
 def get_current_user_info():
@@ -111,6 +225,10 @@ def get_current_user_info():
     blocked_modules = [d.module for d in user.block_modules]
     allowed_modules = [m for m in all_modules if m not in blocked_modules]
 
+    # Get linked employee
+    employee_id = frappe.db.get_value("Employee", {"user": user.name}, "name") if user.name else None
+    employee_name = frappe.db.get_value("Employee", {"user": user.name}, "employee_name") if user.name else None
+
     return {
         "name": user.name,
         "first_name": user.first_name,
@@ -123,7 +241,9 @@ def get_current_user_info():
         "user_image": user.user_image,
         "roles": [role.role for role in user.roles],
         "role_profile_name": user.role_profile_name,
-        "allowed_modules": allowed_modules
+        "allowed_modules": allowed_modules,
+        "employee": employee_id,
+        "employee_name": employee_name
     }
 
 @frappe.whitelist()
