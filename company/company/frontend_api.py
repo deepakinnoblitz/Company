@@ -37,6 +37,37 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     return frappe.get_list(doctype, filters=query_filters, pluck="name", limit=1000)
 
 
+@frappe.whitelist()
+def check_asset_availability(asset, name=None):
+    """
+    Check if the Asset is already assigned and not yet returned.
+    Returns details of the existing assignment if found.
+    """
+    filters = {
+        "asset": asset,
+        "returned_on": ["is", "not set"]
+    }
+    if name:
+        filters["name"] = ["!=", name]
+
+    existing = frappe.db.get_value(
+        "Asset Assignment",
+        filters,
+        ["name", "assigned_to", "employee_name"],
+        as_dict=True
+    )
+
+    if existing:
+        return {
+            "is_assigned": True,
+            "assigned_to": existing.assigned_to,
+            "employee_name": existing.employee_name,
+            "assignment_name": existing.name
+        }
+
+    return {"is_assigned": False}
+
+
 @frappe.whitelist(allow_guest=True)
 def mobile_login(username, password):
     """
@@ -111,6 +142,9 @@ def get_current_user_info():
     blocked_modules = [d.module for d in user.block_modules]
     allowed_modules = [m for m in all_modules if m not in blocked_modules]
 
+    # Fetch employee info
+    employee = frappe.db.get_value("Employee", {"user": user.name}, ["name", "employee_name"], as_dict=True)
+
     return {
         "name": user.name,
         "first_name": user.first_name,
@@ -123,7 +157,9 @@ def get_current_user_info():
         "user_image": user.user_image,
         "roles": [role.role for role in user.roles],
         "role_profile_name": user.role_profile_name,
-        "allowed_modules": allowed_modules
+        "allowed_modules": allowed_modules,
+        "employee": employee.get("name") if employee else None,
+        "employee_name": employee.get("employee_name") if employee else None
     }
 
 @frappe.whitelist()
