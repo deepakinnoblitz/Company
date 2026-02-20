@@ -1443,6 +1443,8 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     
     # Calculate start, end dates and total days in period
     curr_date = frappe.utils.getdate(today)
+    month = curr_date.month
+    year = curr_date.year
     start_date = frappe.utils.get_first_day(curr_date)
     end_date = today
     total_days_in_period = frappe.utils.get_last_day(curr_date).day # Default: Total days in month
@@ -1596,91 +1598,135 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         frappe.log_error(f"Error fetching leave allocations: {str(e)}")
         data["leave_allocations"] = []
 
-    # 7. Pre-fetch Holidays (Range) for use in breakdown
+    # -------------------- HOLIDAY DEBUG --------------------
     try:
-        holiday_list = None
-        # Defensive check for holiday_list field
-        columns = frappe.db.get_table_columns("Employee")
-        if "holiday_list" in columns:
-            holiday_list = frappe.db.get_value("Employee", employee, "holiday_list")
-        
-        if not holiday_list:
-            # Try to get first available holiday list
-            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
-        
+
+        # Show all holiday lists in DB
+        all_holiday_lists = frappe.db.get_all(
+            "Holiday List",
+            fields=["name", "month_year", "year"]
+        )
+
+        # Try to fetch holiday list using month + year
+        holiday_list = frappe.db.get_value(
+            "Holiday List",
+            {
+                "month_year": str(month),
+                "year": year
+            },
+            "name"
+        )
+
+
         holidays_data = []
+
         if holiday_list:
             holidays_data = frappe.db.sql("""
-                SELECT holiday_date as date, description
-                FROM `tabHoliday`
+                SELECT holiday_date AS date, description, is_working_day, parent
+                FROM `tabHolidays`
                 WHERE parent = %s
-                AND holiday_date BETWEEN %s AND %s
-            """, (holiday_list, start_date, end_date), as_dict=True)
-        
-        holiday_dates = {str(h.date) for h in holidays_data}
+                AND is_working_day = 0
+                ORDER BY holiday_date
+            """, holiday_list, as_dict=True)
+
+
+        holiday_dates = {
+            str(h.date) for h in holidays_data if int(h.is_working_day or 0) == 0
+        }
+
+
         data["holidays"] = holidays_data
-    except Exception:
+
+    except Exception as e:
         holiday_dates = set()
         data["holidays"] = []
 
-    # 3. Attendance Breakdown (Dynamic Range & Fixed Denominators)
+
+    # -------------------- ATTENDANCE DEBUG --------------------
     try:
         total_days = data.get("total_days_in_period", 1)
-        
-        # Get attendance counts by status
+
+
+        # Show raw attendance rows
+        raw_attendance = frappe.db.sql("""
+            SELECT attendance_date, status
+            FROM `tabAttendance`
+            WHERE employee = %s
+            AND attendance_date BETWEEN %s AND %s
+            ORDER BY attendance_date
+        """, (employee, start_date, end_date), as_dict=True)
+
+
         attendance_breakdown = frappe.db.sql("""
             SELECT 
                 status,
                 COUNT(*) as count
             FROM `tabAttendance`
             WHERE employee = %s
-            AND attendance_date >= %s
-            AND attendance_date <= %s
+            AND attendance_date BETWEEN %s AND %s
             GROUP BY status
         """, (employee, start_date, end_date), as_dict=True)
-        
+
+
         breakdown = {
             "present": 0,
             "absent": 0,
             "half_day": 0,
             "on_leave": 0,
+            "missing": 0,
             "holiday": len(holiday_dates),
-            "total_days": total_days
+            "total_days": 0,
+            "calendar_total": total_days
         }
-        
+
         for record in attendance_breakdown:
             status_val = record.get("status")
+
             if status_val:
                 status_key = status_val.lower().replace(" ", "_")
+
+                if status_key == "leave":
+                    status_key = "on_leave"
+
                 if status_key in breakdown:
                     breakdown[status_key] = int(record.get("count") or 0)
+
+        workingDays = total_days - breakdown["holiday"]
+        breakdown["total_days"] = workingDays
+
+        # Calculate "Till Today" metrics for the percentage
+        today_date = frappe.utils.getdate(today)
+        start_date_obj = frappe.utils.getdate(start_date)
         
-        # Calculate Missing days for the ENTIRE period
-        marked_days = sum([breakdown["present"], breakdown["absent"], breakdown["half_day"], breakdown["on_leave"], breakdown["holiday"]])
-        breakdown["missing"] = max(0, total_days - marked_days)
+        # Calendar days elapsed so far in the period
+        days_elapsed = frappe.utils.date_diff(today_date, start_date_obj) + 1
         
-        # Calculate Present Percentage based on fixed denominator
-        # Formula: (Present + 0.5 * Half Day + Holiday) / total_days
-        # (Usually holidays are considered positive/attended days in many systems)
-        present_count = breakdown["present"] + (breakdown["half_day"] * 0.5) + breakdown["holiday"]
-        breakdown["present_percentage"] = round((present_count / total_days) * 100, 1) if total_days > 0 else 0
-        
+        # Holidays that have already occurred in the period
+        holidays_elapsed = len([
+            d for d in holiday_dates 
+            if frappe.utils.getdate(d) <= today_date
+        ])
+
+        # Weighted calculation Till Today
+        # Numerator includes user-requested components
+        present_weighted = (
+            breakdown["present"] + 
+            breakdown["on_leave"] + 
+            (breakdown["half_day"] * 0.5) +
+            breakdown["missing"] + 
+            holidays_elapsed  # Use elapsed holidays in the numerator
+        )
+
+        # Denominator is total calendar days elapsed
+        breakdown["attendance_percentage"] = (
+            round((present_weighted / days_elapsed) * 100)
+            if days_elapsed > 0 else 0
+        )
+
         data["monthly_attendance_breakdown"] = breakdown
+
     except Exception as e:
-        import traceback
-        frappe.log_error(traceback.format_exc(), "Monthly Breakdown Error")
-        data["monthly_attendance_breakdown"] = {
-            "present": 0,
-            "absent": 0,
-            "half_day": 0,
-            "on_leave": 0,
-            "missing": 1, # Default to show something
-            "total_days": 1,
-            "present_percentage": 0
-        }
-    except Exception as e:
-        import traceback
-        frappe.log_error(traceback.format_exc(), "Monthly Breakdown Error")
+
         data["monthly_attendance_breakdown"] = {
             "present": 0,
             "absent": 0,
@@ -1845,15 +1891,19 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         month_start = frappe.utils.get_first_day(today_date)
         month_end = frappe.utils.get_last_day(today_date)
         
-        # Get holidays for this period as well
-        holiday_list = frappe.db.get_value("Employee", employee, "holiday_list") or \
-                       frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
+        # Get holidays for this period correctly
+        holiday_list = None
+        company = frappe.db.get_value("Employee", employee, "company")
+        if company:
+            holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
+        if not holiday_list:
+            holiday_list = frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
         
         holiday_map = {}
         if holiday_list:
             h_records = frappe.db.sql("""
                 SELECT holiday_date as date, description, is_working_day
-                FROM `tabHoliday`
+                FROM `tabHolidays`
                 WHERE parent = %s
                 AND holiday_date BETWEEN %s AND %s
             """, (holiday_list, month_start, month_end), as_dict=True)
