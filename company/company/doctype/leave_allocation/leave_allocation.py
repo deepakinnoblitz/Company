@@ -9,11 +9,35 @@ from frappe.utils import flt
 class LeaveAllocation(Document):
 	def validate(self):
 		self.validate_balance()
+		self.validate_overlap()
 
 	def validate_balance(self):
 		if flt(self.total_leaves_allocated) < flt(self.total_leaves_taken):
 			frappe.throw(_("Total Leaves Allocated ({0}) cannot be less than Total Leaves Taken ({1})")
 						 .format(self.total_leaves_allocated, self.total_leaves_taken))
+
+	def validate_overlap(self):
+		if not self.from_date or not self.to_date:
+			return
+
+		overlapping_allocation = frappe.db.sql("""
+			SELECT name
+			FROM `tabLeave Allocation`
+			WHERE employee = %s
+			AND leave_type = %s
+			AND docstatus < 2
+			AND name != %s
+			AND (
+				(%s BETWEEN from_date AND to_date) OR
+				(%s BETWEEN from_date AND to_date) OR
+				(from_date BETWEEN %s AND %s)
+			)
+		""", (self.employee, self.leave_type, self.name or "New", 
+			  self.from_date, self.to_date, self.from_date, self.to_date), as_dict=True)
+
+		if overlapping_allocation:
+			frappe.throw(_("Employee {0} already has a {1} allocation for an overlapping period: {2}")
+						 .format(self.employee, self.leave_type, overlapping_allocation[0].name))
 
 	def on_update(self):
 		self.sync_manual_changes()
