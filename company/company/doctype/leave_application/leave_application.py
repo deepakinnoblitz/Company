@@ -81,6 +81,9 @@ class LeaveApplication(Document):
         if not hr_email:
             return
 
+        employee_email = frappe.get_value("Employee", self.employee, "email")
+        sender_name = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+
         cc_list = []
         if cc_emails:
             cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
@@ -93,8 +96,8 @@ class LeaveApplication(Document):
             icon="📩",
             intro=f"{self.employee_name} has submitted a leave application.",
             color="#0062cc",
-            sender=hr_email,
-            reply_to=hr_email
+            sender=sender_name,
+            reply_to=employee_email or hr_email
         )
 
     # =================================================
