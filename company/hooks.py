@@ -12,7 +12,7 @@ app_include_js = [
     "/assets/company/js/invoice.js",
     "/assets/company/js/purchase.js",
     # "/assets/company/js/expenses.js",
-    "/assets/company/js/custom.js",
+    "/assets/company/js/custom.js?v=1",
     "/assets/company/js/attendance.js",
     "/assets/company/js/salary_slip.js",
     "/assets/company/js/salary_list.js",
@@ -40,6 +40,7 @@ app_include_js = [
     "/assets/company/js/expense_tracker.js?v=2",
     "/assets/company/js/auto_refresh.js?v=3",
     "/assets/company/js/list_pagination.js",
+    "/assets/company/js/desk_redirect.js?v=1",
 ]
 
 app_include_css = "/assets/company/css/custom.css?v=17"
@@ -113,9 +114,28 @@ scheduler_events = {
 # Website Route Rules
 # -------------------
 # Handle client-side routing for React SPA
-website_route_rules = [
-    {"from_route": "/crm/<path:app_path>", "to_route": "crm"},
+# Website Route Rules
+# -------------------
+# Handle client-side routing for React SPA
+# List of all top-level routes used by the React SPA
+spa_routes = [
+    "leads", "users", "user-permissions", "profile", "my-profile", "chat",
+    "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
+    "products", "invoices", "estimations", "blog", "employee", "attendance",
+    "leaves", "leave-allocations", "payroll", "requests", "announcements",
+    "assets", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
+    "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
+    "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
+    "job-openings", "job-applicants", "interviews", "purchase",
+    "invoice-collections", "purchase-collections", "reports", "access-denied", "sign-in", "salary-slips", "profile"
 ]
+
+website_route_rules = []
+for r in spa_routes:
+    website_route_rules.append({"from_route": f"/{r}/<path:app_path>", "to_route": "crm"})
+    website_route_rules.append({"from_route": f"/{r}", "to_route": "crm"})
+
+home_page = "crm"
 
 
 extend_bootinfo = "company.company.api.extend_bootinfo"
@@ -177,9 +197,9 @@ extend_bootinfo = "company.company.api.extend_bootinfo"
 # home_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+    "Employee": "crm"
+}
 
 # Generators
 # ----------

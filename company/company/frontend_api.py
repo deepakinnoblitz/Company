@@ -18,7 +18,7 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     Useful for populating dropdowns on the frontend.
     """
     if not frappe.has_permission(doctype, "read"):
-        frappe.throw("Not permitted")
+        return []
 
     query_filters = {}
     if txt:
