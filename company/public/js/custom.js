@@ -1,3 +1,10 @@
+// Override Frappe Desk logout redirect to point to base CRM URL
+if (frappe.Application) {
+    frappe.Application.prototype.redirect_to_login = function () {
+        window.location.href = '/';
+    };
+}
+
 frappe.after_ajax(() => {
     frappe.call({
         method: "company.company.api.get_today_checkin_time",

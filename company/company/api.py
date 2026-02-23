@@ -1946,8 +1946,8 @@ def send_chat_notification_to_user(user: str, title: str, body: str):
             soup = BeautifulSoup(body, 'html.parser')
             body = soup.get_text().strip()
         
-        # Send the notification
-        return send_push_notification_to_user(user, title, body)
+        # Send the notification with a link to the chat SPA
+        return send_push_notification_to_user(user, title, body, data={"url": "/chat"})
     except Exception as e:
         frappe.log_error(
             message=f"Error sending chat notification to {user}: {str(e)}",
