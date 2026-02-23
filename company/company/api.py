@@ -395,6 +395,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
 
         created_count, skipped_count = 0, 0
         errors = []
+        created_details = []
 
         for emp in employees:
             # Check Probation
@@ -480,7 +481,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         leave_count = base_leave_count
 
                     # === Step 6: Create new allocation ===
-                    frappe.get_doc({
+                    new_alloc_doc = frappe.get_doc({
                         "doctype": "Leave Allocation",
                         "employee": emp.name,
                         "leave_type": leave_type,
@@ -489,22 +490,31 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         "total_leaves_allocated": leave_count + carry_forward_balance,
                         "total_leaves_taken": 0,
                         "status": "Approved"
-                    }).insert(ignore_permissions=True, ignore_mandatory=True)
+                    })
+                    new_alloc_doc.insert(ignore_permissions=True, ignore_mandatory=True)
 
                     created_count += 1
+                    created_details.append({
+                        "employee_name": frappe.db.get_value("Employee", emp.name, "employee_name"),
+                        "employee_id": emp.employee_id,
+                        "leave_type": leave_type,
+                        "total_leaves": leave_count + carry_forward_balance
+                    })
 
                 except Exception as e:
                     errors.append(f"{emp.employee_id} - {leave_type} - {str(e)}")
 
         frappe.db.commit()
 
-        msg = f"✅ Leave Allocation done.<br>Created: {created_count}, Skipped: {skipped_count}"
-        if errors:
-            msg += "<br><br>⚠️ Errors:<br>" + "<br>".join(errors)
-        return msg
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "created_details": created_details,
+            "errors": errors
+        }
 
     except Exception as e:
-        frappe.throw(f"❌ Error in auto leave allocation: {e}")
+        frappe.throw(f"Error in auto leave allocation: {e}")
 
 
 # =================== SALARY SLIP GENERATION REFERENCE ===================
