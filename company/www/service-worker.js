@@ -38,7 +38,7 @@ messaging.onBackgroundMessage((payload) => {
 // 🌐 PWA CACHING LOGIC
 // ===============================
 
-const CACHE_NAME = "erpnext-cache-v2";
+const CACHE_NAME = "erpnext-cache-v3";
 
 self.addEventListener("install", event => {
     event.waitUntil(
@@ -65,19 +65,49 @@ self.addEventListener("activate", event => {
 });
 
 self.addEventListener("fetch", event => {
-    // For assets, try network first, fallback to cache
-    if (event.request.url.includes("/assets/")) {
+    const url = new URL(event.request.url);
+
+    // ── 1. Static assets: cache-first (fast, versioned filenames never stale)
+    if (url.pathname.startsWith("/assets/")) {
         event.respondWith(
             fetch(event.request).catch(() => caches.match(event.request))
         );
-    } else {
-        event.respondWith(
-            caches.match(event.request).then(response => {
-                return response || fetch(event.request);
-            })
-        );
+        return;
     }
+
+    // ── 2. API / socket / firebase calls: always go to network, never cache
+    if (
+        url.pathname.startsWith("/api/") ||
+        url.pathname.startsWith("/socket.io") ||
+        url.hostname.includes("firestore") ||
+        url.hostname.includes("gstatic")
+    ) {
+        return; // Let browser handle normally
+    }
+
+    // ── 3. Navigation requests (HTML pages): network-first
+    //    On a normal F5 refresh the browser fetches a fresh copy.
+    //    Only fall back to cache when truly offline.
+    if (event.request.mode === "navigate") {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    // Update cache with fresh response
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    return response;
+                })
+                .catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // ── 4. Everything else: network-first, cache fallback
+    event.respondWith(
+        fetch(event.request).catch(() => caches.match(event.request))
+    );
 });
+
 
 // ✅ Notification Click Handler (Optional but recommended)
 self.addEventListener("notificationclick", (event) => {
