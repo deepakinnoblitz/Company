@@ -5,8 +5,8 @@ $(document).ready(function () {
 
         // Check if the user has the 'Employee' role and is NOT an 'Administrator' or 'System Manager'
         if (frappe.user_roles.includes('Employee') &&
-            !frappe.user_roles.includes('Administrator') &&
-            !frappe.user_roles.includes('System Manager')) {
+            frappe.user_roles.includes('HR') &&
+            !frappe.user_roles.includes('Administrator')) {
 
             // Function to check and perform redirect
             const checkRedirect = () => {
