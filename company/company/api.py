@@ -1977,6 +1977,22 @@ def extend_bootinfo(bootinfo):
         bootinfo["site_config"]["firebase"] = firebase_config
 
 
+def _push_unread_count_update(user: str):
+    """Re-query unread counts for a user and push via Frappe realtime socket."""
+    counts = frappe.db.sql("""
+        SELECT reference_doctype, COUNT(*) as count
+        FROM `tabHR Read Tracker`
+        WHERE is_read = 0 AND read_by = %s
+        GROUP BY reference_doctype
+    """, user, as_dict=True)
+    payload = {row.reference_doctype: row.count for row in counts}
+    frappe.publish_realtime(
+        event="unread_count_updated",
+        message=payload,
+        user=user
+    )
+
+
 @frappe.whitelist()
 def create_unread_entry_for_hr(doc, method=None):
     # skip if HR created it
@@ -2004,6 +2020,11 @@ def create_unread_entry_for_hr(doc, method=None):
             "is_read": 0
         }).insert(ignore_permissions=True)
 
+    # Push realtime update to each affected HR user
+    frappe.db.commit()
+    for user in hr_users:
+        _push_unread_count_update(user)
+
 
 
 
@@ -2022,6 +2043,8 @@ def mark_hr_item_as_read(doctype, name):
             "read_time": frappe.utils.now()
         })
     frappe.db.commit()
+    # Push updated counts to this HR user immediately
+    _push_unread_count_update(user)
 
 
 @frappe.whitelist()

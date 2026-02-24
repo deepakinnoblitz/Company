@@ -336,6 +336,12 @@ def update_request_status(name, workflow_state, update_data=None):
     else:
         doc.save()
 
+    # Push real-time update so Request dialogs refresh instantly
+    frappe.publish_realtime(
+        event="request_updated",
+        message={"name": name, "workflow_state": workflow_state},
+    )
+
     return doc.as_dict()
  
  
@@ -368,7 +374,14 @@ def update_doc_status(doctype, name, workflow_state, update_data=None):
             doc.save()
     except Exception:
         doc.save()
- 
+
+    # Push real-time update to all connected clients so they can refresh
+    if doctype == "Leave Application":
+        frappe.publish_realtime(
+            event="leave_application_updated",
+            message={"name": name, "workflow_state": workflow_state},
+        )
+
     return doc.as_dict()
 
 
@@ -1423,7 +1436,24 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
     
     # Reload doc to ensure we get the latest state including paid field
     doc.reload()
-        
+
+    # Push real-time update so Leave Application / Leave Allocation view refreshes instantly
+    if doctype == "Leave Application":
+        frappe.publish_realtime(
+            event="leave_application_updated",
+            message={"name": name, "action": action},
+        )
+    elif doctype == "Leave Allocation":
+        frappe.publish_realtime(
+            event="leave_allocation_updated",
+            message={"name": name, "action": action},
+        )
+    elif doctype == "WFH Attendance":
+        frappe.publish_realtime(
+            event="wfh_attendance_updated",
+            message={"name": name, "action": action},
+        )
+
     return {"status": "success", "message": f"Action {action} applied successfully"}
 
 @frappe.whitelist()
