@@ -40,7 +40,7 @@ app_include_js = [
     "/assets/company/js/expense_tracker.js?v=2",
     "/assets/company/js/auto_refresh.js?v=3",
     "/assets/company/js/list_pagination.js",
-    "/assets/company/js/desk_redirect.js?v=1",
+    "/assets/company/js/desk_redirect.js?v=2",
 ]
 
 app_include_css = "/assets/company/css/custom.css?v=17"
@@ -198,7 +198,8 @@ extend_bootinfo = "company.company.api.extend_bootinfo"
 
 # website user home page (by Role)
 role_home_page = {
-    "Employee": "crm"
+    "Employee": "crm",
+    "HR": "crm"
 }
 
 # Generators
