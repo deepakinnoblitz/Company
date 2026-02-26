@@ -67,7 +67,7 @@ class Request(Document):
         """Fetch HR email and CC from Company Email Settings"""
         settings = frappe.get_all(
             "Company Email Settings",
-            fields=["hr_email", "hr_cc_emails"],
+            fields=["hr_email", "hr_cc_emails", "hr_name"],
             limit=1
         )
         if settings:
@@ -85,6 +85,9 @@ class Request(Document):
         if not hr_email:
             return
 
+        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
+        sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+
         cc_list = []
         if cc_emails:
             cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
@@ -97,8 +100,8 @@ class Request(Document):
             icon="📩",
             intro=f"{self.employee_name} has submitted a new request for review.",
             color="#0062cc",
-            sender=hr_email,
-            reply_to=hr_email
+            sender=sender,
+            reply_to=employee_email or hr_email
         )
 
     # =================================================
@@ -107,9 +110,12 @@ class Request(Document):
     def notify_employee_on_approval(self, approver_name=None, approver_email=None):
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
         
         employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
         if not employee_email: return
+
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
         extra = f"""
         <p style="margin-top:15px; font-size:14px; color:#555;">
@@ -125,7 +131,7 @@ class Request(Document):
             intro="Your request has been approved by HR.",
             extra_message=extra,
             color="#28a745",
-            sender=hr_email,
+            sender=sender,
             reply_to=hr_email
         )
 
@@ -135,9 +141,12 @@ class Request(Document):
     def notify_employee_on_rejection(self, rejector_name=None, rejector_email=None):
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
         
         employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
         if not employee_email: return
+
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
         extra = f"""
         <p style="margin-top:15px; font-size:14px; color:#555;">
@@ -153,7 +162,7 @@ class Request(Document):
             intro="Your request has been rejected by HR.",
             extra_message=extra,
             color="#dc3545",
-            sender=hr_email,
+            sender=sender,
             reply_to=hr_email
         )
 
@@ -174,8 +183,11 @@ class Request(Document):
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
         
         employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
+        hr_sender = f"{hr_name} <{hr_email}>" if hr_email else None
+        employee_sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
 
         # -------------------------------------------------
         # HR → ASK CLARIFICATION → EMPLOYEE (Yellow)
@@ -191,7 +203,7 @@ class Request(Document):
                 intro="HR has replied to your request.",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
-                sender=hr_email,
+                sender=hr_sender,
                 reply_to=hr_email
             )
 
@@ -215,8 +227,8 @@ class Request(Document):
                 intro=f"{self.employee_name} has replied to your clarification request.",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
-                sender=hr_email,
-                reply_to=hr_email
+                sender=employee_sender,
+                reply_to=employee_email or hr_email
             )
 
     # =================================================

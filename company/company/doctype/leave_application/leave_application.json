@@ -106,7 +106,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "depends_on": "eval:doc.leave_type!==\"Permission\";",
+   "depends_on": "eval:doc.leave_type && doc.leave_type !== \"Permission\"",
    "fieldname": "half_day",
    "fieldtype": "Check",
    "label": "Half Day"
@@ -227,7 +227,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-31 14:08:31.307409",
+ "modified": "2026-02-25 18:58:19.753388",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Leave Application",

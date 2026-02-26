@@ -2,7 +2,6 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import formatdate, get_url
 
-
 class LeaveApplication(Document):
 
     # =================================================
@@ -42,8 +41,10 @@ class LeaveApplication(Document):
     def on_cancel(self):
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
         
         employee_email = frappe.get_value("Employee", self.employee, "personal_email")
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
         self.send_email(
             recipients=[employee_email],
@@ -52,7 +53,7 @@ class LeaveApplication(Document):
             icon="❌",
             intro="Your leave application has been rejected/cancelled.",
             color="#dc3545",
-            sender=hr_email,
+            sender=sender,
             reply_to=hr_email
         )
 
@@ -63,7 +64,7 @@ class LeaveApplication(Document):
         """Fetch HR email and CC from Company Email Settings"""
         settings = frappe.get_all(
             "Company Email Settings",
-            fields=["hr_email", "hr_cc_emails"],
+            fields=["hr_email", "hr_cc_emails", "hr_name"],
             limit=1
         )
         if settings:
@@ -81,7 +82,7 @@ class LeaveApplication(Document):
         if not hr_email:
             return
 
-        employee_email = frappe.get_value("Employee", self.employee, "email")
+        employee_email = frappe.get_value("Employee", self.employee, "personal_email")
         sender_name = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
 
         cc_list = []
@@ -118,8 +119,11 @@ class LeaveApplication(Document):
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
         
         employee_email = frappe.get_value("Employee", self.employee, "personal_email")
+        hr_sender = f"{hr_name} <{hr_email}>" if hr_email else None
+        employee_sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
 
         # -------------------------------------------------
         # HR → ASK CLARIFICATION → EMPLOYEE
@@ -135,7 +139,7 @@ class LeaveApplication(Document):
                 intro="HR has replied to your leave application.",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
-                sender=hr_email,
+                sender=hr_sender,
                 reply_to=hr_email
             )
 
@@ -159,8 +163,8 @@ class LeaveApplication(Document):
                 intro=f"{self.employee_name} has replied to your clarification request.",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
-                sender=hr_email,
-                reply_to=hr_email
+                sender=employee_sender,
+                reply_to=employee_email or hr_email
             )
 
         # -------------------------------------------------
@@ -174,7 +178,7 @@ class LeaveApplication(Document):
                 icon="✅",
                 intro="Your leave application has been approved.",
                 color="#28a745",
-                sender=hr_email,
+                sender=hr_sender,
                 reply_to=hr_email
             )
 
