@@ -6,6 +6,7 @@
  "engine": "InnoDB",
  "field_order": [
   "hr_email",
+  "hr_name",
   "hr_cc_emails"
  ],
  "fields": [
@@ -20,12 +21,17 @@
    "fieldname": "hr_cc_emails",
    "fieldtype": "Small Text",
    "label": "HR CC Emails"
+  },
+  {
+   "fieldname": "hr_name",
+   "fieldtype": "Data",
+   "label": "HR Name"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-11 17:50:20.314528",
+ "modified": "2026-02-25 17:14:31.236579",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Company Email Settings",

@@ -16,32 +16,6 @@ frappe.ui.form.on("Reimbursement Claim", {
 
 });
 
-function auto_submit(frm) {
-    if (frm.doc.docstatus === 0) {
-
-        frappe.call({
-            method: "frappe.client.submit",
-            args: {
-                doc: frm.doc
-            },
-            callback: function (r) {
-                if (!r.exc) {
-
-                    // ⭐ SUCCESS POPUP
-                    frappe.msgprint({
-                        title: __('Success'),
-                        indicator: 'green',
-                        message: __('Reimbursement Claim submitted successfully!')
-                    });
-
-                    frm.reload_doc();  // refresh updated state
-                }
-            }
-        });
-    }
-}
-
-
 function evaluate_visibility(frm) {
     let state = frm.doc.workflow_state;
 

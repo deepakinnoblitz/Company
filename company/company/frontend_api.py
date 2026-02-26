@@ -1431,7 +1431,6 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
     if action == "Pay":
          doc.paid = 1
          
-    doc.save()
     apply_workflow(doc, action)
     
     # Reload doc to ensure we get the latest state including paid field
@@ -1446,6 +1445,11 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
     elif doctype == "Leave Allocation":
         frappe.publish_realtime(
             event="leave_allocation_updated",
+            message={"name": name, "action": action},
+        )
+    elif doctype == "Reimbursement Claim":
+        frappe.publish_realtime(
+            event="reimbursement_claim_updated",
             message={"name": name, "action": action},
         )
     elif doctype == "WFH Attendance":

@@ -142,7 +142,7 @@ class WFHAttendance(Document):
         """Fetch HR email and CC from Company Email Settings"""
         settings = frappe.get_all(
             "Company Email Settings",
-            fields=["hr_email", "hr_cc_emails"],
+            fields=["hr_email", "hr_cc_emails", "hr_name"],
             limit=1
         )
         if settings:
@@ -158,6 +158,9 @@ class WFHAttendance(Document):
 
         if not hr_email:
             return
+
+        employee_email = frappe.db.get_value("Employee", self.employee, "personal_email")
+        sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
 
         cc_list = []
         if cc_emails:
@@ -242,8 +245,8 @@ class WFHAttendance(Document):
                 cc=cc_list,
                 subject=f"WFH Approval Request - {self.employee_name} ({frappe.utils.formatdate(self.date)})",
                 message=message,
-                sender=hr_email,
-                reply_to=hr_email,
+                sender=sender,
+                reply_to=employee_email or hr_email,
                 reference_doctype=self.doctype,
                 reference_name=self.name
             )
@@ -253,8 +256,13 @@ class WFHAttendance(Document):
     def notify_employee_on_approval(self):
         """Send mail to employee when HR approves"""
 
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
+
         emp = frappe.get_doc("Employee", self.employee)
-        recipients = [r for r in [emp.email, emp.personal_email] if r]
+        recipients = [r for r in [emp.personal_email, emp.email] if r]
         if not recipients:
             return
 
@@ -294,7 +302,7 @@ class WFHAttendance(Document):
                     <div style="text-align:center; margin-top:28px;">
                         <a href="{frappe.utils.get_url('/app/wfh-attendance/' + self.name)}"
                         style="background:#28a745; color:white; padding:12px 24px; text-decoration:none;
-                                border-radius:8px; font-size:14px; font-weight:500;">
+                                 border-radius:8px; font-size:14px; font-weight:500;">
                         View in ERP
                         </a>
                     </div>
@@ -308,14 +316,11 @@ class WFHAttendance(Document):
         </div>
         """
 
-        hr_settings = self.get_hr_settings()
-        hr_email = hr_settings.get("hr_email")
-
         frappe.sendmail(
             recipients=recipients,
             subject=f"✅ WFH Approved - {frappe.utils.formatdate(self.date)}",
             message=message,
-            sender=hr_email,
+            sender=sender,
             reply_to=hr_email,
             reference_doctype=self.doctype,
             reference_name=self.name
@@ -324,8 +329,13 @@ class WFHAttendance(Document):
     def notify_employee_on_rejection(self):
         """Send mail to employee when HR rejects"""
 
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
+
         emp = frappe.get_doc("Employee", self.employee)
-        recipients = [r for r in [emp.email, emp.personal_email] if r]
+        recipients = [r for r in [emp.personal_email, emp.email] if r]
         if not recipients:
             return
 
@@ -375,14 +385,11 @@ class WFHAttendance(Document):
         </div>
         """
 
-        hr_settings = self.get_hr_settings()
-        hr_email = hr_settings.get("hr_email")
-
         frappe.sendmail(
             recipients=recipients,
             subject=f"❌ WFH Rejected - {frappe.utils.formatdate(self.date)}",
             message=message,
-            sender=hr_email,
+            sender=sender,
             reply_to=hr_email,
             reference_doctype=self.doctype,
             reference_name=self.name
