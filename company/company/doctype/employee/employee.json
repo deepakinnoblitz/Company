@@ -227,7 +227,8 @@
    "fieldtype": "Link",
    "label": "User",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "reqd": 1
   },
   {
    "fieldname": "office_phone_number",
@@ -263,7 +264,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-12 14:05:10.194624",
+ "modified": "2026-03-02 12:42:58.660952",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",
