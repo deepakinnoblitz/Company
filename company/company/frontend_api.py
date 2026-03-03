@@ -71,35 +71,79 @@ def check_asset_availability(asset, name=None):
 @frappe.whitelist(allow_guest=True)
 def mobile_login(username, password):
     """
-    Login API for Mobile / App
-    Returns API Key + Secret per user
+    Login API for Mobile / App.
+    Returns API Key + Secret per user.
+
+    - If the user already has api_key + api_secret → returns existing ones (no regeneration).
+    - If either is missing → calls Frappe's built-in generate_keys to create them once.
+
+    This ensures existing mobile sessions are never broken by a login call.
     """
+    from frappe.core.doctype.user.user import generate_keys
 
     if not username or not password:
         frappe.throw(_("Username and password required"))
 
-    # Authenticate user
+    # --- Authenticate ---
     login_manager = LoginManager()
     login_manager.authenticate(username, password)
     login_manager.post_login()
 
-    user = frappe.get_doc("User", username)
+    logged_in_user = frappe.session.user
+    user = frappe.get_doc("User", logged_in_user)
 
-    # Generate API Key if missing
-    if not user.api_key:
-        frappe.throw(_("API Key not found for user {}".format(username)))
+    # --- Return existing keys if already set (do NOT regenerate) ---
+    if user.api_key and user.api_secret:
+        return {
+            "user":       logged_in_user,
+            "api_key":    user.api_key,
+            "api_secret": user.get_password("api_secret"),  # decrypted plain-text
+        }
 
-    # Generate API Secret if missing
-    if not user.api_secret:
-        frappe.throw(_("API Secret not found for user {}".format(username)))
+    # --- Keys are missing — generate them once via Frappe's built-in generate_keys ---
+    # generate_keys requires System Manager role, so we temporarily
+    # elevate to Administrator to make the call, then restore the session.
+    frappe.set_user("Administrator")
+    try:
+        keys = generate_keys(logged_in_user)
+    finally:
+        frappe.set_user(logged_in_user)
 
-    user.save(ignore_permissions=True)
+    frappe.db.commit()
 
     return {
-        "user": user.name,
-        "api_key": user.api_key,
-        "api_secret": user.get_password("api_secret")
+        "user":       logged_in_user,
+        "api_key":    keys.get("api_key"),
+        "api_secret": keys.get("api_secret"),   # plain-text — store securely on device
     }
+
+
+@frappe.whitelist(allow_guest=False)
+def mobile_get_announcements(limit=20):
+    """
+    Fetch active Announcements for HRMS Mobile App.
+    Only returns records where is_active = 1, newest first.
+
+    Requires Token Auth: Authorization: token <api_key>:<api_secret>
+
+    Args:
+        limit (int): Max number of announcements to return. Default 20.
+
+    Returns:
+        list of { name, announcement_name, announcement, is_active, creation }
+    """
+    try:
+        announcements = frappe.get_all(
+            "Announcement",
+            filters={"is_active": 1},
+            fields=["name", "announcement_name", "announcement", "is_active", "creation"],
+            order_by="creation desc",
+            limit=int(limit)
+        )
+        return announcements
+    except Exception as e:
+        frappe.log_error(f"Error fetching announcements: {str(e)}")
+        return []
 
 
 @frappe.whitelist()
@@ -1103,15 +1147,19 @@ def get_sales_dashboard_data():
 
     return data
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=False)
 def update_my_password(old_password, new_password):
     """
     Update the current user's password.
+    Requires Token Auth: Authorization: token <api_key>:<api_secret>
     """
     user = frappe.session.user
 
-    if user == "Guest":
-        frappe.throw(_("Please login to change password"))
+    if not old_password or not new_password:
+        frappe.throw(_("Old password and new password are required."), frappe.ValidationError)
+
+    if old_password == new_password:
+        frappe.throw(_("New password must be different from the old password."), frappe.ValidationError)
 
     # Verify old password
     try:
@@ -1119,8 +1167,9 @@ def update_my_password(old_password, new_password):
     except frappe.AuthenticationError:
         return {"status": "failed", "message": "Incorrect old password"}
 
-    # Update password
+    # Update password and commit to DB
     frappe.utils.password.update_password(user, new_password)
+    frappe.db.commit()
 
     return {"status": "success", "message": "Password updated successfully"}
 
@@ -1180,6 +1229,7 @@ def update_profile_info(first_name, middle_name=None, last_name=None):
     except Exception as e:
         frappe.log_error(f"Error updating profile: {str(e)}")
         return {"status": "failed", "message": str(e)}
+
 
 @frappe.whitelist(allow_guest=True)
 def upload_profile_image():
@@ -1794,7 +1844,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         month_holidays = []
         if holiday_list:
             try:
-                h_records = frappe.get_all("Holiday", 
+                h_records = frappe.get_all("Holidays",
                     filters={"parent": holiday_list, "holiday_date": ["between", [month_start_date, today_date]]},
                     fields=["holiday_date"]
                 )
