@@ -16,10 +16,12 @@ document.addEventListener("DOMContentLoaded", async () => {
           newWorker.onstatechange = () => {
             if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
               console.log("🔄 New service worker installed — will activate after reload.");
-              frappe.show_alert({
-                message: "A new version is available. Refresh to update!",
-                indicator: "blue"
-              }, 8);
+              if (window.frappe && frappe.show_alert) {
+                frappe.show_alert({
+                  message: "A new version is available. Refresh to update!",
+                  indicator: "blue"
+                }, 8);
+              }
             }
           };
         }

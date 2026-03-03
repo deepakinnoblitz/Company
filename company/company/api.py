@@ -395,6 +395,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
 
         created_count, skipped_count = 0, 0
         errors = []
+        created_details = []
 
         for emp in employees:
             # Check Probation
@@ -450,11 +451,26 @@ def auto_allocate_monthly_leaves(year: int, month: int):
 
                     # === ✅ Step 4: Logic for Paid Leave ===
                     if leave_type == "Paid Leave":
-                        if allocation_count > 0 and allocation_count % 3 == 0:
-                            # Restart after every 3 months
+                        # Fetch reset frequency from Leave Type
+                        paid_leave_frequency = frappe.db.get_value("Leave Type", "Paid Leave", "reset_frequency") or "Every 3 months"
+                        
+                        freq_map = {
+                            "Every 3 months": 3,
+                            "Every 4 months": 4,
+                            "Every 6 months": 6,
+                            "Whole year": 12
+                        }
+                        reset_interval = freq_map.get(paid_leave_frequency, 3)
+
+                        # Check if current month is a reset month (Start of a period)
+                        is_reset_month = (month - 1) % reset_interval == 0
+
+                        if is_reset_month:
+                            # Restart at the start of each period
                             carry_forward_balance = 0
                             leave_count = base_leave_count
                         elif prev_alloc:
+                            # Carry forward within the period
                             balance = flt(prev_alloc.total_leaves_allocated) - flt(prev_alloc.total_leaves_taken)
                             if balance > 0:
                                 carry_forward_balance = balance
@@ -465,7 +481,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         leave_count = base_leave_count
 
                     # === Step 6: Create new allocation ===
-                    frappe.get_doc({
+                    new_alloc_doc = frappe.get_doc({
                         "doctype": "Leave Allocation",
                         "employee": emp.name,
                         "leave_type": leave_type,
@@ -474,22 +490,31 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         "total_leaves_allocated": leave_count + carry_forward_balance,
                         "total_leaves_taken": 0,
                         "status": "Approved"
-                    }).insert(ignore_permissions=True, ignore_mandatory=True)
+                    })
+                    new_alloc_doc.insert(ignore_permissions=True, ignore_mandatory=True)
 
                     created_count += 1
+                    created_details.append({
+                        "employee_name": frappe.db.get_value("Employee", emp.name, "employee_name"),
+                        "employee_id": emp.employee_id,
+                        "leave_type": leave_type,
+                        "total_leaves": leave_count + carry_forward_balance
+                    })
 
                 except Exception as e:
                     errors.append(f"{emp.employee_id} - {leave_type} - {str(e)}")
 
         frappe.db.commit()
 
-        msg = f"✅ Leave Allocation done.<br>Created: {created_count}, Skipped: {skipped_count}"
-        if errors:
-            msg += "<br><br>⚠️ Errors:<br>" + "<br>".join(errors)
-        return msg
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "created_details": created_details,
+            "errors": errors
+        }
 
     except Exception as e:
-        frappe.throw(f"❌ Error in auto leave allocation: {e}")
+        frappe.throw(f"Error in auto leave allocation: {e}")
 
 
 # =================== SALARY SLIP GENERATION REFERENCE ===================
@@ -1235,6 +1260,62 @@ def has_approved_leave(employee, from_date, to_date, exclude_doc=None):
 #         f"Total taken now: {new_taken} minutes."
 #     )
 
+def sync_future_leave_allocations(employee, leave_type, from_date, delta):
+    """
+    If leave balance of an allocation changes by delta,
+    cascades this change to all future contiguous allocations (if any).
+    delta > 0: more leave taken (balance decreases in next month's allocated)
+    delta < 0: leave cancelled (balance increases in next month's allocated)
+    """
+    if leave_type != "Paid Leave":
+        return
+
+    # Find the next contiguous monthly allocation
+    current_month_end = get_last_day(getdate(from_date))
+    next_month_start = add_days(current_month_end, 1)
+
+    next_alloc = frappe.get_all(
+        "Leave Allocation",
+        filters={
+            "employee": employee,
+            "leave_type": leave_type,
+            "from_date": next_month_start,
+            "status": "Approved"
+        },
+        fields=["name", "total_leaves_allocated"],
+        limit=1
+    )
+
+    if next_alloc:
+        next_alloc = next_alloc[0]
+        
+        # 1️⃣ Fetch reset frequency from Leave Type
+        paid_leave_frequency = frappe.db.get_value("Leave Type", "Paid Leave", "reset_frequency") or "Every 3 months"
+        
+        freq_map = {
+            "Every 3 months": 3,
+            "Every 4 months": 4,
+            "Every 6 months": 6,
+            "Whole year": 12
+        }
+        reset_interval = freq_map.get(paid_leave_frequency, 3)
+
+        # 2️⃣ Check if NEXT month is a calendar-based reset month (Start of a fresh period)
+        # If it is a reset month, we STOP cascading the carry-forward balance.
+        next_month = next_month_start.month
+        is_reset_month = (next_month - 1) % reset_interval == 0
+
+        if is_reset_month:
+            # Reached a restart point, stop cascading carry-forward
+            return
+
+        # 3️⃣ Apply delta and ripple forward
+        new_total_allocated = flt(next_alloc.total_leaves_allocated) - delta
+        frappe.db.set_value("Leave Allocation", next_alloc.name, "total_leaves_allocated", new_total_allocated)
+        
+        # Ripple forward recursively
+        sync_future_leave_allocations(employee, leave_type, next_month_start, delta)
+
 def update_leave_allocation(doc, method=None):
     """
     Unified hook for Leave Application — updates Leave Allocation when workflow is Approved.
@@ -1278,7 +1359,7 @@ def update_leave_allocation(doc, method=None):
             "status": "Approved",
             "to_date": [">=", doc.from_date]
         },
-        fields=["name", "total_leaves_allocated", "total_leaves_taken"],
+        fields=["name", "from_date", "total_leaves_allocated", "total_leaves_taken"],
         order_by="from_date asc"
     )
 
@@ -1302,6 +1383,10 @@ def update_leave_allocation(doc, method=None):
             deduct = min(remainder, available_in_this_alloc)
             new_taken = taken + deduct
             frappe.db.set_value("Leave Allocation", alloc.name, "total_leaves_taken", new_taken)
+            
+            # ✅ Sync future months if this is a carry-forward change
+            sync_future_leave_allocations(doc.employee, doc.leave_type, alloc.from_date, deduct)
+
             remainder -= deduct
             updated_allocations.append({
                 "name": alloc.name,
@@ -1319,6 +1404,9 @@ def update_leave_allocation(doc, method=None):
         # Let's just update it anyway to ensure all 'to_add' is accounted for.
         frappe.db.set_value("Leave Allocation", last_alloc.name, "total_leaves_taken", new_taken)
         
+        # ✅ Sync future months for the overflow part too
+        sync_future_leave_allocations(doc.employee, doc.leave_type, last_alloc.from_date, remainder)
+
         # Update our list for the message
         found = False
         for ua in updated_allocations:
@@ -1868,8 +1956,8 @@ def send_chat_notification_to_user(user: str, title: str, body: str):
             soup = BeautifulSoup(body, 'html.parser')
             body = soup.get_text().strip()
         
-        # Send the notification
-        return send_push_notification_to_user(user, title, body)
+        # Send the notification with a link to the chat SPA
+        return send_push_notification_to_user(user, title, body, data={"url": "/chat"})
     except Exception as e:
         frappe.log_error(
             message=f"Error sending chat notification to {user}: {str(e)}",
@@ -1887,6 +1975,22 @@ def extend_bootinfo(bootinfo):
         # Ensure the site_config dict exists
         bootinfo["site_config"] = bootinfo.get("site_config", {})
         bootinfo["site_config"]["firebase"] = firebase_config
+
+
+def _push_unread_count_update(user: str):
+    """Re-query unread counts for a user and push via Frappe realtime socket."""
+    counts = frappe.db.sql("""
+        SELECT reference_doctype, COUNT(*) as count
+        FROM `tabHR Read Tracker`
+        WHERE is_read = 0 AND read_by = %s
+        GROUP BY reference_doctype
+    """, user, as_dict=True)
+    payload = {row.reference_doctype: row.count for row in counts}
+    frappe.publish_realtime(
+        event="unread_count_updated",
+        message=payload,
+        user=user
+    )
 
 
 @frappe.whitelist()
@@ -1916,6 +2020,11 @@ def create_unread_entry_for_hr(doc, method=None):
             "is_read": 0
         }).insert(ignore_permissions=True)
 
+    # Push realtime update to each affected HR user
+    frappe.db.commit()
+    for user in hr_users:
+        _push_unread_count_update(user)
+
 
 
 
@@ -1934,6 +2043,8 @@ def mark_hr_item_as_read(doctype, name):
             "read_time": frappe.utils.now()
         })
     frappe.db.commit()
+    # Push updated counts to this HR user immediately
+    _push_unread_count_update(user)
 
 
 @frappe.whitelist()
@@ -2128,6 +2239,131 @@ def get_employee_attendance_stats(employee, from_date, to_date):
         "missing": missing,
         "last_sync": frappe.utils.now()
     }
+
+
+# ==================================================================
+# 🔹 MISSING ATTENDANCE CHART DATA (Last 7 Days)
+# ==================================================================
+@frappe.whitelist()
+def get_missing_attendance_chart_data():
+    """
+    Returns daily missing attendance counts for the last 7 days.
+    Used for Missing Attendance Chart in HR Dashboard.
+    """
+    import datetime
+    
+    today = frappe.utils.getdate()
+    result = []
+    
+    # Get total active employees count
+    total_employees = frappe.db.count("Employee", {"status": "Active"})
+    
+    # Get all holiday lists
+    holiday_list_names = frappe.db.get_list("Holiday List", pluck="name")
+    
+    for i in range(6, -1, -1):  # Last 7 days (6 days ago to today)
+        date = today - datetime.timedelta(days=i)
+        
+        # Get holidays for this date
+        holidays = set()
+        if holiday_list_names:
+            holiday_rows = frappe.db.get_all(
+                "Holidays",
+                filters={
+                    "parent": ["in", holiday_list_names],
+                    "holiday_date": date,
+                    "is_working_day": 0
+                },
+                fields=["holiday_date"]
+            )
+            holidays = {frappe.utils.getdate(h["holiday_date"]) for h in holiday_rows}
+        
+        # If it's a holiday, missing count is 0
+        if date in holidays:
+            missing_count = 0
+        else:
+            # Count attendance records for this date
+            marked_attendance = frappe.db.count("Attendance", {"attendance_date": date})
+            missing_count = max(0, total_employees - marked_attendance)
+        
+        result.append({
+            "date": str(date),
+            "count": missing_count
+        })
+    
+    return result
+
+
+# ==================================================================
+# 🔹 WEEKLY PRESENT COUNT CHART DATA (Current Week Mon-Sun)
+# ==================================================================
+@frappe.whitelist()
+def get_weekly_present_chart_data():
+    """
+    Returns daily present counts for the current week (Monday to Sunday).
+    Used for Weekly Present Count Chart in HR Dashboard.
+    """
+    import datetime
+    
+    today = frappe.utils.getdate()
+    
+    # Find Monday of current week (weekday() returns 0 for Monday)
+    days_since_monday = today.weekday()
+    monday = today - datetime.timedelta(days=days_since_monday)
+    
+    result = []
+    
+    # Get all holiday lists
+    holiday_list_names = frappe.db.get_list("Holiday List", pluck="name")
+    
+    for i in range(7):  # Monday to Sunday
+        date = monday + datetime.timedelta(days=i)
+        
+        # For future dates, show 0 count
+        if date > today:
+            day_name = date.strftime('%a')
+            result.append({
+                "date": str(date),
+                "day": day_name,
+                "count": 0
+            })
+            continue
+        
+        # Get holidays for this date
+        holidays = set()
+        if holiday_list_names:
+            holiday_rows = frappe.db.get_all(
+                "Holidays",
+                filters={
+                    "parent": ["in", holiday_list_names],
+                    "holiday_date": date,
+                    "is_working_day": 0
+                },
+                fields=["holiday_date"]
+            )
+            holidays = {frappe.utils.getdate(h["holiday_date"]) for h in holiday_rows}
+        
+        # Count present attendance
+        present_count = frappe.db.count("Attendance", {
+            "attendance_date": date,
+            "status": "Present"
+        })
+        
+        # Add holiday count to present
+        if date in holidays:
+            # Count total employees as present on holidays
+            total_employees = frappe.db.count("Employee", {"status": "Active"})
+            present_count = total_employees
+        
+        day_name = date.strftime('%a')  # Mon, Tue, Wed, etc.
+        
+        result.append({
+            "date": str(date),
+            "day": day_name,
+            "count": present_count
+        })
+    
+    return result
 
 
 @frappe.whitelist()
@@ -2888,3 +3124,126 @@ def process_chat_message_queue():
         
         frappe.db.commit()
 
+@frappe.whitelist()
+def get_month_calendar_data(month=None, year=None):
+    """
+    Fetch both holidays and attendance for a specific employee and month.
+    """
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, ["name", "date_of_joining"], as_dict=True)
+    
+    if not employee:
+        return {"holidays": [], "attendance": [], "joining_date": None}
+    
+    employee_id = employee.name
+    joining_date = employee.date_of_joining
+
+    today_date = datetime.today().date()
+    month = int(month) if month else today_date.month
+    year = int(year) if year else today_date.year
+
+    # 1. Fetch Holidays
+    holidays = []
+    # Try to get a holiday list for the current month/year
+    try:
+        holiday_list = frappe.db.get_value("Holiday List", 
+            {"month_year": str(month), "year": year}, 
+            "name")
+        
+        if not holiday_list:
+            # If no specific month/year list, get any holiday list
+            holiday_list = frappe.db.get_value("Holiday List", None, "name")
+    except Exception:
+        holiday_list = None
+    
+    if holiday_list:
+        start_date = f"{year}-{month:02d}-01"
+        end_date = get_last_day(getdate(start_date))
+        h_records = frappe.db.sql("""
+            SELECT holiday_date as date, description, is_working_day
+            FROM `tabHolidays`
+            WHERE parent = %s
+            AND holiday_date BETWEEN %s AND %s
+        """, (holiday_list, start_date, end_date), as_dict=True)
+        holidays = [{
+            "date": str(h.date), 
+            "description": h.description,
+            "is_working_day": h.is_working_day
+        } for h in h_records]
+
+    # 2. Fetch Attendance
+    attendance = []
+    start_date = f"{year}-{month:02d}-01"
+    end_date = get_last_day(getdate(start_date))
+    
+    # Helper to convert timedelta to time str
+    def td_to_str(td):
+        if not td: return None
+        total_seconds = int(td.total_seconds())
+        return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+
+    att_records = frappe.get_all("Attendance",
+        filters={
+            "employee": employee_id,
+            "attendance_date": ["between", [start_date, end_date]]
+        },
+        fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+        order_by="attendance_date asc"
+    )
+
+    for att in att_records:
+        attendance.append({
+            "date": str(att.attendance_date),
+            "status": att.status,
+            "in_time": td_to_str(att.in_time),
+            "out_time": td_to_str(att.out_time),
+            "working_hours": att.working_hours or 0
+        })
+
+    # 3. Build Full Month Timeline
+    calendar_data = []
+    first_day = getdate(f"{year}-{month:02d}-01")
+    last_day = get_last_day(first_day)
+    
+    attendance_map = {a['date']: a for a in attendance}
+    holiday_map = {h['date']: h for h in holidays}
+    
+    current = first_day
+    while current <= last_day:
+        date_str = str(current)
+        day_record = {
+            "date": date_str,
+            "status": "Not Marked",
+            "check_in": None,
+            "check_out": None,
+            "working_hours": 0,
+            "holiday_info": None,
+            "holiday_is_working_day": 0
+        }
+        
+        # Add attendance data if exists
+        if date_str in attendance_map:
+            att = attendance_map[date_str]
+            day_record.update({
+                "status": att["status"],
+                "check_in": att["in_time"],
+                "check_out": att["out_time"],
+                "working_hours": att["working_hours"]
+            })
+            
+        # Add holiday info if exists
+        if date_str in holiday_map:
+            h = holiday_map[date_str]
+            day_record["holiday_info"] = h["description"]
+            day_record["holiday_is_working_day"] = h["is_working_day"]
+            # If not marked and is a non-working holiday
+            if day_record["status"] == "Not Marked" and not h["is_working_day"]:
+                day_record["status"] = "Holiday"
+                
+        calendar_data.append(day_record)
+        current = add_days(current, 1)
+
+    return {
+        "calendar_data": calendar_data,
+        "joining_date": str(joining_date) if joining_date else None
+    }

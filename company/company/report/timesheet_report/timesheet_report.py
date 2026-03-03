@@ -93,6 +93,7 @@ def get_data(filters):
 
     query = f"""
         SELECT
+            ts.name,
             ts.employee,
             ts.employee_name,
             tse.project,

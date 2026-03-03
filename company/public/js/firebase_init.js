@@ -60,13 +60,32 @@ scriptApp.onload = () => {
             console.log("🔥 FCM Token:", token);
 
             // Step 7️⃣ - Save token to backend
-            frappe.call({
-              method: "company.company.api.save_fcm_token",
-              args: { token },
-              callback: function () {
-                console.log("✅ Token saved");
-              },
-            });
+            if (window.frappe && frappe.call) {
+              frappe.call({
+                method: "company.company.api.save_fcm_token",
+                args: { token },
+                callback: function () {
+                  console.log("✅ Token saved via frappe.call");
+                },
+              });
+            } else {
+              // Fallback to fetch if frappe.call is not available (e.g. in CRM SPA)
+              console.log("ℹ️ frappe.call not found, using fetch fallback");
+              fetch("/", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Frappe-CSRF-Token": window.frappe ? frappe.csrf_token : "",
+                },
+                body: JSON.stringify({
+                  cmd: "company.company.api.save_fcm_token",
+                  token: token,
+                }),
+              })
+                .then((r) => r.json())
+                .then((data) => console.log("✅ Token saved via fetch", data))
+                .catch((err) => console.error("❌ Token save error:", err));
+            }
           })
           .catch((err) => {
             console.error("❌ Token error:", err);
@@ -78,10 +97,15 @@ scriptApp.onload = () => {
       console.log("🔔 Foreground Message:", payload);
 
       // Browser notification
-      new Notification(payload.notification.title, {
-        body: payload.notification.body,
-        icon: "https://erp.innoblitz.in/assets/Innoblitz%20Logo%20Full.png",
-      });
+      if (Notification.permission === "granted") {
+        const notificationTitle = payload.notification ? payload.notification.title : (payload.data ? payload.data.title : "New Notification");
+        const notificationOptions = {
+          body: payload.notification ? payload.notification.body : (payload.data ? payload.data.body : ""),
+          icon: "https://erp.innoblitz.in/assets/Innoblitz%20Logo%20Full.png",
+          data: payload.data
+        };
+        new Notification(notificationTitle, notificationOptions);
+      }
     });
   };
 

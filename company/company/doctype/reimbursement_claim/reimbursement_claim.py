@@ -2,12 +2,31 @@ import frappe
 from frappe.model.document import Document
 
 class ReimbursementClaim(Document):
+    def after_insert(self):
+        """Auto-submit the document immediately after creation"""
+        try:
+            if self.docstatus == 0:
+                self.submit()
+                self.notify_hr_on_submission()
+                
+                # Real-time update for list refresh
+                frappe.publish_realtime(
+                    event="reimbursement_claim_updated",
+                    message={"name": self.name, "status": "Submitted"}
+                )
+        except Exception as e:
+            frappe.log_error(frappe.get_traceback(), "Auto-Submit Error")
 
-    # ----------------------------------------
-    # 1️⃣ Notify HR when employee submits claim
-    # ----------------------------------------
-    def on_submit(self):
-        self.notify_hr_on_submission()
+    def get_hr_settings(self):
+        """Fetch HR email and CC from Company Email Settings"""
+        settings = frappe.get_all(
+            "Company Email Settings",
+            fields=["hr_email", "hr_cc_emails", "hr_name"],
+            limit=1
+        )
+        if settings:
+            return settings[0]
+        return {}
 
     # ----------------------------------------
     # 2️⃣ + 3️⃣ + 4️⃣ Handle workflow updates after submit
@@ -15,25 +34,32 @@ class ReimbursementClaim(Document):
     def on_update_after_submit(self):
 
         current_state = self.workflow_state
-        previous_state = self.get_db_value("workflow_state")
+        doc_before_save = self.get_doc_before_save()
+        previous_state = doc_before_save.workflow_state if doc_before_save else None
+        
         user = frappe.session.user
-
         approver_name = frappe.db.get_value("User", user, "full_name")
         approver_email = frappe.db.get_value("User", user, "email")
 
 		# ----------------------------------------
-		# 2️⃣ Send approval email ONLY once
+		# 2️⃣ Send approval email ONLY on state transition to Approved
 		# ----------------------------------------
-        if current_state == "Approved" and previous_state != "Paid":
+        if current_state == "Approved" and previous_state != "Approved":
             frappe.db.set_value(self.doctype, self.name, "approved_by", user, update_modified=False)
             self.notify_employee_on_approval(approver_name, approver_email)
 
 		# ----------------------------------------
-		# 4️⃣ Send Paid mail — ONLY when state is PAID
+		# 4️⃣ Send Paid mail — ONLY on state transition to Paid
 		# ----------------------------------------
-        if current_state == "Paid":
+        if current_state == "Paid" and previous_state != "Paid":
             frappe.db.set_value(self.doctype, self.name, "paid_by", user, update_modified=False)
             self.notify_employee_on_payment(approver_name, approver_email)
+
+        # Real-time update for list refresh
+        frappe.publish_realtime(
+            event="reimbursement_claim_updated",
+            message={"name": self.name, "status": current_state}
+        )
 
     def on_cancel(self):
         current_state = self.workflow_state
@@ -50,23 +76,30 @@ class ReimbursementClaim(Document):
             frappe.db.set_value(self.doctype, self.name, "approved_by", user, update_modified=False)
             self.notify_employee_on_rejection(approver_name, approver_email)
 
+        # Real-time update for list refresh
+        frappe.publish_realtime(
+            event="reimbursement_claim_updated",
+            message={"name": self.name, "status": "Rejected"}
+        )
+
 
     # -------------------------------------------------------------------
     # 1️⃣ Email — Notify HR on Submission (Blue Theme)
     # -------------------------------------------------------------------
     def notify_hr_on_submission(self):
-        settings = frappe.get_all(
-            "Company Email Settings",
-            fields=["hr_email", "hr_cc_emails"],
-            limit=1
-        )
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        cc_emails = hr_settings.get("hr_cc_emails")
 
-        if not settings:
+        if not hr_email:
             return
 
-        hr_email = settings[0].get("hr_email")
-        cc_raw = settings[0].get("hr_cc_emails") or ""
-        cc_emails = [e.strip() for e in cc_raw.replace("\n", ",").split(",") if e.strip()]
+        employee_email = frappe.db.get_value("Employee", self.employee, "personal_email")
+        sender_name = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+
+        cc_list = []
+        if cc_emails:
+            cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
 
         message = f"""
         <div style="font-family:'Poppins',Arial;background:#e6f3ff;padding:40px;">
@@ -108,9 +141,11 @@ class ReimbursementClaim(Document):
 
         frappe.sendmail(
             recipients=[hr_email],
-            cc=cc_emails,
+            cc=cc_list,
             subject=f"🧾 Reimbursement Claim Submitted - {self.employee_name}",
             message=message,
+            sender=sender_name,
+            reply_to=employee_email or hr_email,
             reference_doctype=self.doctype,
             reference_name=self.name,
         )
@@ -164,10 +199,19 @@ class ReimbursementClaim(Document):
         </div>
         """
 
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
+
         frappe.sendmail(
             recipients=recipients,
             subject=f"✅ Reimbursement Approved - {self.claim_type}",
             message=message,
+            sender=sender,
+            reply_to=hr_email,
+            reference_doctype=self.doctype,
+            reference_name=self.name
         )
 
     # -------------------------------------------------------------------
@@ -219,10 +263,19 @@ class ReimbursementClaim(Document):
         </div>
         """
 
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
+
         frappe.sendmail(
             recipients=recipients,
             subject=f"❌ Reimbursement Rejected - {self.claim_type}",
             message=message,
+            sender=sender,
+            reply_to=hr_email,
+            reference_doctype=self.doctype,
+            reference_name=self.name
         )
 
     # -------------------------------------------------------------------
@@ -276,8 +329,17 @@ class ReimbursementClaim(Document):
         </div>
         """
 
+        hr_settings = self.get_hr_settings()
+        hr_email = hr_settings.get("hr_email")
+        hr_name = hr_settings.get("hr_name") or "HR Team"
+        sender = f"{hr_name} <{hr_email}>" if hr_email else None
+
         frappe.sendmail(
             recipients=recipients,
             subject=f"💰 Reimbursement Paid - {self.claim_type}",
             message=message,
+            sender=sender,
+            reply_to=hr_email,
+            reference_doctype=self.doctype,
+            reference_name=self.name
         )
