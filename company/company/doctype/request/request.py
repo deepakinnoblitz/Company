@@ -6,10 +6,13 @@ from frappe.utils import formatdate, get_url
 class Request(Document):
 
     # =================================================
-    # EMPLOYEE SUBMITS REQUEST → MAIL HR
+    # AUTO-SUBMIT AFTER INSERT
+    # Python equivalent of JS: frappe.client.submit(doc)
+    # Triggers on_submit() → notifies HR automatically
     # =================================================
-    def on_submit(self):
-        """Triggered when an Employee submits the Request"""
+    def after_insert(self):
+        """Auto-submit the Request right after creation (docstatus 0 → 1)."""
+        self.submit()
         self.notify_hr_on_submission()
 
     # =================================================
