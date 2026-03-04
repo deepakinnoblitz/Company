@@ -1540,13 +1540,18 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         end_date = frappe.utils.get_last_day(curr_date)
         total_days_in_period = frappe.utils.getdate(end_date).day
     
+    # Get probation info
+    from company.company.api import get_employee_probation_info
+    probation_info = get_employee_probation_info(employee)
+    
     data = {
         "employee_name": employee_info.employee_name,
         "employee": employee,
         "attendance_range": attendance_range,
         "start_date": str(start_date),
         "end_date": str(end_date),
-        "total_days_in_period": total_days_in_period
+        "total_days_in_period": total_days_in_period,
+        "in_probation": probation_info.get("in_probation", False)
     }
 
     # 1. Last 7 Days Attendance with Check-in/Out Times
