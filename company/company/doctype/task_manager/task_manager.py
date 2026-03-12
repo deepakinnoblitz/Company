@@ -6,7 +6,8 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime, validate_email_address
+from frappe.utils import now_datetime, validate_email_address, get_url
+import datetime
 
 
 class TaskManager(Document):
@@ -14,6 +15,54 @@ class TaskManager(Document):
 	def validate(self):
 		self.validate_due_date()
 		self.validate_closing_fields()
+
+	def send_chat_notification(self, sender_email, receiver_email, content):
+		"""Send a chat message via clefincode_chat. Create channel if it doesn't exist."""
+		try:
+			from clefincode_chat.api.api_1_2_1.api import send, create_channel, get_profile_id
+			
+			# Check if direct room exists
+			room_name = frappe.db.sql("""
+				SELECT c.name
+				FROM `tabClefinCode Chat Channel` c
+				JOIN `tabClefinCode Chat Channel User` u1 ON u1.parent = c.name
+				JOIN `tabClefinCode Chat Channel User` u2 ON u2.parent = c.name
+				WHERE c.type = 'Direct'
+				AND c.is_parent = 1
+				AND u1.user = %s
+				AND u2.user = %s
+			""", (sender_email, receiver_email), pluck=True)
+
+			if room_name:
+				room_name = room_name[0]
+			else:
+				# Create channel
+				users = [
+					{"email": sender_email, "platform": "Chat"},
+					{"email": receiver_email, "platform": "Chat"}
+				]
+				sender_name = frappe.db.get_value("User", sender_email, "full_name") or sender_email
+				res = create_channel(
+					channel_name="", # Direct chats usually have empty channel_name
+					users=json.dumps(users),
+					type="Direct",
+					last_message=content,
+					creator_email=sender_email,
+					creator=sender_name
+				)
+				if res and res.get("results"):
+					room_name = res["results"][0]["room"]
+
+			if room_name:
+				sender_name = frappe.db.get_value("User", sender_email, "full_name") or sender_email
+				send(
+					content=content,
+					user=sender_name,
+					room=room_name,
+					email=sender_email
+				)
+		except Exception as e:
+			frappe.log_error(title="Task Manager Chat Notification Error", message=frappe.get_traceback())
 
 	def before_save(self):
 		# Auto-set closed_by and closed_on when status changes to Completed
@@ -54,6 +103,16 @@ class TaskManager(Document):
 	def after_insert(self):
 		"""Send notification to all assignees when task is created."""
 		self.notify_assignees("assigned")
+		
+		# Send Chat Notification from taskmanager@gmail.com
+		tm_email = "taskmanager@gmail.com"
+		if self.assignees:
+			for row in self.assignees:
+				receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
+				if receiver:
+					content = f"New Task Assigned: {self.title}. Due Date: {self.due_date}"
+					self.send_chat_notification(tm_email, receiver, content)
+
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "insert"})
 
 	def on_update(self):
@@ -67,13 +126,29 @@ class TaskManager(Document):
 		new_status = self.status
 
 		if old_status != new_status:
+			tm_email = "taskmanager@gmail.com"
 			if new_status == "Completed":
 				# Notify Task Manager (HR) only via email — not the assignees
 				self.notify_hr("completed")
+				# Send Chat Notification to taskmanager@gmail.com
+				content = f"Task Completed: {self.title} by {frappe.session.user}"
+				self.send_chat_notification(frappe.session.user, tm_email, content)
+
 			elif new_status == "Reopened":
 				self.notify_assignees("reopened")
+				# Send Chat Notification from taskmanager@gmail.com
+				if self.assignees:
+					for row in self.assignees:
+						receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
+						if receiver:
+							content = f"Task Reopened: {self.title}. Please review."
+							self.send_chat_notification(tm_email, receiver, content)
+
 			elif new_status == "In Progress":
 				self.notify_hr("in_progress")
+				# Send Chat Notification to taskmanager@gmail.com
+				content = f"Task In Progress: {self.title} by {frappe.session.user}"
+				self.send_chat_notification(frappe.session.user, tm_email, content)
 
 	def on_trash(self):
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "trash"})
@@ -483,6 +558,12 @@ def close_task(task_name, hours_spent, remarks, attachment=None):
 	})
 
 	doc.save()
+	
+	# Send Chat Notification
+	tm_email = "taskmanager@gmail.com"
+	content = f"Task Closed: {doc.title}. Hours Spent: {hours_spent}. Remarks: {remarks}"
+	doc.send_chat_notification(frappe.session.user, tm_email, content)
+
 	return {"message": "Task closed successfully", "status": doc.status}
 
 
@@ -533,6 +614,12 @@ def accept_task(task_name):
 	})
 
 	doc.save()
+	
+	# Send Chat Notification
+	tm_email = "taskmanager@gmail.com"
+	content = f"Task Accepted: {doc.title}. Work has started."
+	doc.send_chat_notification(frappe.session.user, tm_email, content)
+
 	return {"message": "Task accepted successfully", "status": doc.status}
 
 
