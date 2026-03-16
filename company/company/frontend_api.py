@@ -170,6 +170,7 @@ def get_doc_permissions(doctype):
     return {
         "read": bool(frappe.has_permission(doctype, "read")),
         "write": bool(frappe.has_permission(doctype, "write")),
+        "create": bool(frappe.has_permission(doctype, "create")),
         "delete": bool(frappe.has_permission(doctype, "delete")),
     }
 
@@ -923,8 +924,8 @@ def get_hr_dashboard_data():
             SELECT employee_name, name as employee
             FROM `tabEmployee`
             WHERE status = 'Active'
-            AND DAY(date_of_birth) = DAY(%s)
-            AND MONTH(date_of_birth) = MONTH(%s)
+            AND DAY(dob) = DAY(%s)
+            AND MONTH(dob) = MONTH(%s)
         """, (today, today), as_dict=True)
     except Exception:
         data["todays_birthdays"] = []

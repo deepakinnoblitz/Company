@@ -80,6 +80,9 @@ doc_events = {
         ],
         "after_insert": "company.company.api.auto_submit_leave_application"
     },
+    "Personality Event": {
+        "after_insert": "company.company.api.auto_submit_personality_event"
+    },
     # "Attendance": {
     #     "on_update": "company.company.api.update_leave_allocation_from_attendance",
     # },
