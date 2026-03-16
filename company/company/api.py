@@ -1462,6 +1462,17 @@ def auto_submit_leave_application(doc, method=None):
         frappe.log_error(frappe.get_traceback(), "Auto Submit Leave Application Error")
 
 
+def auto_submit_personality_event(doc, method=None):
+    """
+    Automatically submit Personality Event after save.
+    """
+    try:
+        if doc.docstatus == 0:
+            doc.submit()
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Auto Submit Personality Event Error")
+
+
 @frappe.whitelist()
 def handle_leave_status_change(doc, method=None):
     """
