@@ -99,19 +99,35 @@ class TaskManager(Document):
 			if not self.assignees:
 				frappe.throw(_("Please add at least one <b>Assignee</b> before saving."))
 
+	def get_task_managers_emails(self):
+		"""Get emails of all active users with the 'Task Manager' role."""
+		manager_users = frappe.get_all(
+			"Has Role",
+			filters={"role": "Task Manager", "parenttype": "User"},
+			pluck="parent"
+		)
+		if not manager_users:
+			return []
+
+		emails = [
+			frappe.db.get_value("User", u, "email") or u
+			for u in manager_users
+		]
+		return [e for e in emails if e]
+
 
 	def after_insert(self):
 		"""Send notification to all assignees when task is created."""
 		self.notify_assignees("assigned")
 		
-		# Send Chat Notification from taskmanager@gmail.com
-		tm_email = "taskmanager@gmail.com"
+		# Send Chat Notification from current user
 		if self.assignees:
 			for row in self.assignees:
 				receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
 				if receiver:
 					content = f"New Task Assigned: {self.title}. Due Date: {self.due_date}"
-					self.send_chat_notification(tm_email, receiver, content)
+					for tm_email in self.get_task_managers_emails():
+						self.send_chat_notification(tm_email, receiver, content)
 
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "insert"})
 
@@ -126,29 +142,31 @@ class TaskManager(Document):
 		new_status = self.status
 
 		if old_status != new_status:
-			tm_email = "taskmanager@gmail.com"
 			if new_status == "Completed":
 				# Notify Task Manager (HR) only via email — not the assignees
 				self.notify_hr("completed")
-				# Send Chat Notification to taskmanager@gmail.com
+				# Send Chat Notification to all Task Managers
 				content = f"Task Completed: {self.title} by {frappe.session.user}"
-				self.send_chat_notification(frappe.session.user, tm_email, content)
+				for tm_email in self.get_task_managers_emails():
+					self.send_chat_notification(frappe.session.user, tm_email, content)
 
 			elif new_status == "Reopened":
 				self.notify_assignees("reopened")
-				# Send Chat Notification from taskmanager@gmail.com
+				# Send Chat Notification from Task Managers
 				if self.assignees:
 					for row in self.assignees:
 						receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
 						if receiver:
 							content = f"Task Reopened: {self.title}. Please review."
-							self.send_chat_notification(tm_email, receiver, content)
+							for tm_email in self.get_task_managers_emails():
+								self.send_chat_notification(tm_email, receiver, content)
 
 			elif new_status == "In Progress":
 				self.notify_hr("in_progress")
-				# Send Chat Notification to taskmanager@gmail.com
+				# Send Chat Notification to all Task Managers
 				content = f"Task In Progress: {self.title} by {frappe.session.user}"
-				self.send_chat_notification(frappe.session.user, tm_email, content)
+				for tm_email in self.get_task_managers_emails():
+					self.send_chat_notification(frappe.session.user, tm_email, content)
 
 	def on_trash(self):
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "trash"})
@@ -558,11 +576,10 @@ def close_task(task_name, hours_spent, remarks, attachment=None):
 	})
 
 	doc.save()
-	
-	# Send Chat Notification
-	tm_email = "taskmanager@gmail.com"
+	# Send Chat Notification to all Task Managers
 	content = f"Task Closed: {doc.title}. Hours Spent: {hours_spent}. Remarks: {remarks}"
-	doc.send_chat_notification(frappe.session.user, tm_email, content)
+	for tm_email in doc.get_task_managers_emails():
+		doc.send_chat_notification(frappe.session.user, tm_email, content)
 
 	return {"message": "Task closed successfully", "status": doc.status}
 
@@ -614,11 +631,10 @@ def accept_task(task_name):
 	})
 
 	doc.save()
-	
-	# Send Chat Notification
-	tm_email = "taskmanager@gmail.com"
+	# Send Chat Notification to all Task Managers
 	content = f"Task Accepted: {doc.title}. Work has started."
-	doc.send_chat_notification(frappe.session.user, tm_email, content)
+	for tm_email in doc.get_task_managers_emails():
+		doc.send_chat_notification(frappe.session.user, tm_email, content)
 
 	return {"message": "Task accepted successfully", "status": doc.status}
 
