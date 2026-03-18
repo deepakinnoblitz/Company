@@ -1821,37 +1821,15 @@ def get_employee_dashboard_data(attendance_range="This Month"):
             "total_days": 0
         }
 
-    # 4. Missing Timesheets (Current Month-to-Date - All Working Days)
+    # 4. Missing Timesheets (Current Month-to-Date - All Working Days)  
     try:
         today_date = frappe.utils.getdate(today)
         month_start_date = frappe.utils.get_first_day(today_date)
         curr_ptr = month_start_date
         potential_working_days = []
         
-        # Get holiday dates for this month
-        holiday_list = None
-        try:
-            # Check if holiday_list field exists in Employee
-            columns = frappe.db.get_table_columns("Employee")
-            if "holiday_list" in columns:
-                holiday_list = frappe.db.get_value("Employee", employee, "holiday_list")
-            
-            if not holiday_list:
-                # Try to get first available holiday list if no default field or value
-                holiday_list = frappe.db.get_value("Holiday List", {}, "name")
-        except Exception:
-            holiday_list = None
-        
-        month_holidays = []
-        if holiday_list:
-            try:
-                h_records = frappe.get_all("Holidays",
-                    filters={"parent": holiday_list, "holiday_date": ["between", [month_start_date, today_date]]},
-                    fields=["holiday_date"]
-                )
-                month_holidays = [str(h.holiday_date) for h in h_records]
-            except Exception:
-                month_holidays = []
+        # Use the holiday dates already calculated from the Calendar logic
+        month_holidays = list(holiday_dates) if 'holiday_dates' in locals() else []
 
         # Get leave dates for this month
         leave_dates = []
@@ -1918,6 +1896,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         # Find missing dates from working days
         missing_dates = sorted([d for d in potential_working_days if d not in timesheet_dates_set])
         data["missing_timesheets"] = [{"date": date} for date in missing_dates]
+        data["leave_dates"] = list(leave_dates_set)
         
     except Exception as e:
         import traceback
