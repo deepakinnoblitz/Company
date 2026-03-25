@@ -425,6 +425,18 @@ def update_doc_status(doctype, name, workflow_state, update_data=None):
 
 
 @frappe.whitelist()
+def rename_doc(doctype, old, new, merge=False):
+    """
+    Rename a document. 
+    Wrapper for frappe.rename_doc with permission checks.
+    """
+    if not frappe.has_permission(doctype, "write"):
+        frappe.throw(_("Not permitted to rename {0}").format(doctype), frappe.PermissionError)
+
+    return frappe.rename_doc(doctype, old, new, merge=merge)
+
+
+@frappe.whitelist()
 def get_today_activities():
     """
     Fetch today's calls and meetings.

@@ -719,8 +719,11 @@ def get_assignees(task_names):
 	if not task_names:
 		return []
 
-	return frappe.get_all(
-		"Task Manager Assignee",
-		filters={"parent": ["in", task_names]},
-		fields=["name", "parent", "employee", "employee_name", "user"]
-	)
+	return frappe.db.sql("""
+		SELECT 
+			tma.name, tma.parent, tma.employee, tma.employee_name, tma.user,
+			emp.profile_picture as profile_pic
+		FROM `tabTask Manager Assignee` tma
+		LEFT JOIN `tabEmployee` emp ON tma.employee = emp.name
+		WHERE tma.parent IN %s
+	""", (task_names,), as_dict=1)
