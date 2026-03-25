@@ -80,8 +80,8 @@ doc_events = {
         ],
         "after_insert": "company.company.api.auto_submit_leave_application"
     },
-    "Personality Event": {
-        "after_insert": "company.company.api.auto_submit_personality_event"
+    "Employee Evaluation": {
+        "after_insert": "company.company.api.auto_submit_employee_evaluation"
     },
     # "Attendance": {
     #     "on_update": "company.company.api.update_leave_allocation_from_attendance",
@@ -109,7 +109,8 @@ doc_events = {
 
 scheduler_events = {
     "daily": [
-        "company.company.api.update_expired_renewals"
+        "company.company.api.update_expired_renewals",
+        "company.company.presence_api.daily_reset"
     ]
 }
 
@@ -130,7 +131,7 @@ spa_routes = [
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
-    "invoice-collections", "purchase-collections", "reports", "access-denied", "sign-in", "salary-slips", "profile", "task-manager", "personality-evaluation"
+    "invoice-collections", "purchase-collections", "reports", "access-denied", "sign-in", "salary-slips", "profile", "task-manager", "employee-evaluation"
 ]
 
 website_route_rules = []
