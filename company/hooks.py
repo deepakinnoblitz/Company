@@ -30,7 +30,7 @@ app_include_js = [
     "/assets/company/js/default_phone_no.js",
     "/assets/company/js/logo.js",
     "/assets/company/js/clear_cache.js?v=1",
-    "/assets/company/js/profile_picture.js",
+    # "/assets/company/js/profile_picture.js",
     "/assets/company/js/event_popup.js",
     "/assets/company/js/parent_sidebar.js?v=1",
     "/assets/company/js/global_list_actions.js",
@@ -110,7 +110,8 @@ doc_events = {
 scheduler_events = {
     "daily": [
         "company.company.api.update_expired_renewals",
-        "company.company.presence_api.daily_reset"
+        "company.company.presence_api.daily_reset",
+        "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards"
     ]
 }
 

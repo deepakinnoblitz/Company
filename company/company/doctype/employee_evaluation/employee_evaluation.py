@@ -74,7 +74,7 @@ class EmployeeEvaluation(Document):
 			"previous_score": current_score,
 			"change": self.score_change,
 			"new_score": new_score,
-			"reason": f"{self.evaluation_type} on {self.trait}",
+			"reason": f"{self.evaluation_type} on {self.trait}{': ' + self.remarks if self.remarks else ''}",
 			"employee_evaluation": self.name,
 			"date": now_datetime()
 		})
@@ -106,7 +106,7 @@ class EmployeeEvaluation(Document):
 			"previous_score": current_score,
 			"change": -(self.score_change or 0),
 			"new_score": new_score,
-			"reason": f"CANCELLED: {self.evaluation_type} on {self.trait}",
+			"reason": f"CANCELLED: {self.evaluation_type} on {self.trait}{': ' + self.remarks if self.remarks else ''}",
 			"employee_evaluation": self.name,
 			"date": now_datetime()
 		})
