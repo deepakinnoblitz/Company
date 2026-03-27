@@ -8,6 +8,7 @@
  "field_order": [
   "from_time",
   "to_time",
+  "status",
   "duration_seconds"
  ],
  "fields": [
@@ -23,6 +24,12 @@
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "To Time"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Status"
   },
   {
    "fieldname": "duration_seconds",

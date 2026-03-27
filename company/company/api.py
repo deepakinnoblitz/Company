@@ -1988,15 +1988,32 @@ def extend_bootinfo(bootinfo):
         bootinfo["site_config"]["firebase"] = firebase_config
 
 
+def _get_unread_data(user: str):
+    """Internal helper to get counts and IDs of unread HR items."""
+    unread_items = frappe.db.get_all("HR Read Tracker",
+        filters={"is_read": 0, "read_by": user},
+        fields=["reference_doctype", "reference_name"]
+    )
+    
+    counts = {}
+    unread_ids = {}
+    
+    for item in unread_items:
+        dt = item.reference_doctype
+        counts[dt] = counts.get(dt, 0) + 1
+        if dt not in unread_ids:
+            unread_ids[dt] = []
+        unread_ids[dt].append(item.reference_name)
+        
+    return {
+        "counts": counts,
+        "unread_ids": unread_ids
+    }
+
+
 def _push_unread_count_update(user: str):
-    """Re-query unread counts for a user and push via Frappe realtime socket."""
-    counts = frappe.db.sql("""
-        SELECT reference_doctype, COUNT(*) as count
-        FROM `tabHR Read Tracker`
-        WHERE is_read = 0 AND read_by = %s
-        GROUP BY reference_doctype
-    """, user, as_dict=True)
-    payload = {row.reference_doctype: row.count for row in counts}
+    """Re-query unread data for a user and push via Frappe realtime socket."""
+    payload = _get_unread_data(user)
     frappe.publish_realtime(
         event="unread_count_updated",
         message=payload,
@@ -2037,8 +2054,6 @@ def create_unread_entry_for_hr(doc, method=None):
         _push_unread_count_update(user)
 
 
-
-
 @frappe.whitelist()
 def mark_hr_item_as_read(doctype, name):
     """Mark document as read for logged-in HR."""
@@ -2060,16 +2075,8 @@ def mark_hr_item_as_read(doctype, name):
 
 @frappe.whitelist()
 def get_unread_count():
-    """Return unread count per doctype for the logged-in HR."""
-    user = frappe.session.user
-    counts = frappe.db.sql("""
-        SELECT reference_doctype, COUNT(*) as count
-        FROM `tabHR Read Tracker`
-        WHERE is_read = 0 AND read_by = %s
-        GROUP BY reference_doctype
-    """, user, as_dict=True)
-
-    return {row.reference_doctype: row.count for row in counts}
+    """Return unread counts and unread IDs per doctype for the logged-in HR."""
+    return _get_unread_data(frappe.session.user)
 
 @frappe.whitelist()
 def get_attendance_stats(range=None, from_date=None, to_date=None):

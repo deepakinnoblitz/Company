@@ -1,3 +1,4 @@
+import re
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, time_diff_in_seconds, flt, today
@@ -84,6 +85,23 @@ def update_presence(status, employee=None, status_message=None):
             "status_message": final_status_message,
             "last_active": now.isoformat()
         }, after_commit=True)
+
+    # ── Interval Splitting Logic ──
+    # If switching between online statuses (e.g., Available -> Busy), split the interval
+    if active_session and status != "Offline" and status != "Break" and old_status != "Offline" and old_status != "Break":
+        # Close current interval
+        if active_session.intervals:
+            last_interval = active_session.intervals[-1]
+            if not last_interval.to_time:
+                last_interval.to_time = now
+                last_interval.duration_seconds = time_diff_in_seconds(now, last_interval.from_time)
+        
+        # Start new interval with the new status
+        active_session.append("intervals", {
+            "from_time": now,
+            "status": status
+        })
+        active_session.save(ignore_permissions=True)
 
     frappe.db.commit()
 
@@ -237,8 +255,12 @@ def create_session(employee, now):
             "intervals": []
         })
     
+    # Get current status to set on the initial interval
+    status = frappe.db.get_value("Employee Presence", employee, "status") or "Available"
+    
     doc.append("intervals", {
-        "from_time": now
+        "from_time": now,
+        "status": status
     })
     doc.save(ignore_permissions=True)
     
@@ -262,6 +284,9 @@ def close_session(session, now):
         if not last_interval.to_time:
             last_interval.to_time = now
             last_interval.duration_seconds = time_diff_in_seconds(now, last_interval.from_time)
+            # Ensure status is set if it was missing (for old records)
+            if not last_interval.status:
+                last_interval.status = frappe.db.get_value("Employee Presence", session.employee, "status") or "Offline"
     
     # Calculate Total Working Hours based on all segments
     total_active_seconds = sum(flt(i.duration_seconds) for i in session.intervals)
@@ -326,37 +351,79 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
     """
     Fetch sessions with their child intervals and related breaks.
     """
-    if not employee:
+    is_hr_or_admin = "HR" in frappe.get_roles() or "Administrator" in frappe.get_roles()
+
+    if not employee and not is_hr_or_admin:
         employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
     
-    if not employee:
+    filters = {}
+    if employee:
+        filters["employee"] = employee
+    elif not is_hr_or_admin:
+        # Fallback for non-HR users who somehow don't have an employee record
         return {"data": [], "total_count": 0}
-
-    filters = {"employee": employee}
     
     if date_search:
-        filters["login_date"] = ["like", f"%{date_search}%"]
+        # Try to reformat DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD
+        if re.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}$", date_search.strip()):
+            try:
+                parts = re.split(r"[-/]", date_search.strip())
+                if len(parts) == 3:
+                    # Format to YYYY-MM-DD
+                    date_search = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+                    filters["login_date"] = date_search
+            except Exception:
+                filters["login_date"] = ["like", f"%{date_search}%"]
+        else:
+            filters["login_date"] = ["like", f"%{date_search}%"]
         
     if status and status != "all":
         filters["status"] = status
         
-    order_by = "login_date desc"
-    if sort_by == "login_date_desc":
-        order_by = "login_date desc"
-    elif sort_by == "login_date_asc":
-        order_by = "login_date asc"
+    # Map sort_by to SQL order by
+    order_by_sql = "s.login_date desc"
+    if sort_by == "login_date_asc":
+        order_by_sql = "s.login_date asc"
     elif sort_by == "working_hours_desc":
-        order_by = "total_work_hours desc"
+        order_by_sql = "s.total_work_hours desc"
     elif sort_by == "working_hours_asc":
-        order_by = "total_work_hours asc"
+        order_by_sql = "s.total_work_hours asc"
 
-    sessions = frappe.get_all("Employee Session", 
-        filters=filters,
-        fields=["name", "login_time", "login_date", "logout_time", "total_work_hours", "status"],
-        order_by=order_by,
-        limit_start=int(limit_start),
-        limit_page_length=int(limit_page_length)
-    )
+    # Build SQL based on filters
+    query_filters = []
+    values = {}
+    
+    if filters.get("employee"):
+        query_filters.append("s.employee = %(employee)s")
+        values["employee"] = filters["employee"]
+        
+    if date_search:
+        query_filters.append("s.login_date LIKE %(date_search)s")
+        values["date_search"] = f"%{date_search}%"
+        
+    if status and status != "all":
+        query_filters.append("s.status = %(status)s")
+        values["status"] = status
+
+    where_clause = f"WHERE {' AND '.join(query_filters)}" if query_filters else ""
+    
+    sessions = frappe.db.sql(f"""
+        SELECT 
+            s.name, s.employee, e.employee_name, s.login_time, s.login_date, s.logout_time, s.total_work_hours, s.status
+        FROM 
+            `tabEmployee Session` s
+        LEFT JOIN 
+            `tabEmployee` e ON s.employee = e.name
+        {where_clause}
+        ORDER BY 
+            {order_by_sql}
+        LIMIT 
+            %(limit_start)s, %(limit_page_length)s
+    """, {
+        **values,
+        "limit_start": int(limit_start),
+        "limit_page_length": int(limit_page_length)
+    }, as_dict=True)
     
     total_count = frappe.db.count("Employee Session", filters=filters)
 
@@ -364,7 +431,7 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
         # Get intervals (child table of Session)
         s.intervals = frappe.get_all("Employee Session Interval",
             filters={"parent": s.name},
-            fields=["from_time", "to_time", "duration_seconds"],
+            fields=["from_time", "to_time", "status", "duration_seconds"],
             order_by="from_time asc"
         )
         # Get breaks (separate DocType linked to Session)
