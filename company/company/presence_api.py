@@ -322,6 +322,20 @@ def create_break(session_name, now, source="Manual", reason=""):
         })
         doc.insert(ignore_permissions=True)
         
+        # Send automated message for Idle breaks
+        if source == "Idle":
+            try:
+                employee = frappe.db.get_value("Employee Session", session_name, "employee")
+                receiver_email = frappe.db.get_value("Employee", employee, "user")
+                employee_name = frappe.db.get_value("Employee", employee, "employee_name")
+                
+                if receiver_email:
+                    from company.company.api import send_automated_chat_message
+                    content = f"Hi {employee_name}, your status has been shifted to 'Break' because you were inactive for a while."
+                    send_automated_chat_message("taskmanager@gmail.com", receiver_email, content)
+            except Exception as e:
+                frappe.log_error(f"Error sending break start message: {str(e)}", "Idle Break Notification Error")
+
         # Publish session update (for break tracking)
         user_id = frappe.db.get_value("Employee", frappe.db.get_value("Employee Session", session_name, "employee"), "user")
         if user_id:
@@ -343,6 +357,20 @@ def close_active_break(session_name, now):
         brk.break_duration = diff_seconds / 60.0
         brk.save(ignore_permissions=True)
         
+        # Send automated message for resumed Idle breaks
+        if brk.source == "Idle":
+            try:
+                employee = frappe.db.get_value("Employee Session", session_name, "employee")
+                receiver_email = frappe.db.get_value("Employee", employee, "user")
+                employee_name = frappe.db.get_value("Employee", employee, "employee_name")
+                
+                if receiver_email:
+                    from company.company.api import send_automated_chat_message
+                    content = f"Welcome back, {employee_name}! Your break has ended, and you are now marked as 'Available'."
+                    send_automated_chat_message("taskmanager@gmail.com", receiver_email, content)
+            except Exception as e:
+                frappe.log_error(f"Error sending break end message: {str(e)}", "Idle Break Notification Error")
+
         # Publish session update (for break tracking)
         user_id = frappe.db.get_value("Employee", frappe.db.get_value("Employee Session", session_name, "employee"), "user")
         if user_id:
