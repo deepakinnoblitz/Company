@@ -108,6 +108,9 @@ doc_events = {
 
 
 scheduler_events = {
+    "all": [
+        "company.company.presence_api.process_auto_breaks"
+    ],
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",

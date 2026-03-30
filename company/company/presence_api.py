@@ -11,7 +11,7 @@ DEFAULT_STATUS_MESSAGES = {
 }
 
 @frappe.whitelist()
-def update_presence(status, employee=None, status_message=None):
+def update_presence(status, employee=None, status_message=None, source="Manual"):
     """
     Update employee presence and handle session/break logic.
     """
@@ -56,7 +56,7 @@ def update_presence(status, employee=None, status_message=None):
     # Handle Break Logic
     if status == "Break":
         if active_session:
-            create_break(active_session.name, now)
+            create_break(active_session.name, now, source=source, reason=status_message)
     else:
         if old_status == "Break":
             close_active_break(active_session.name if active_session else None, now)
@@ -309,14 +309,16 @@ def close_session(session, now):
     if user_id:
         frappe.publish_realtime('session_update', {"user_id": user_id, "name": session.name}, after_commit=True)
 
-def create_break(session_name, now):
+def create_break(session_name, now, source="Manual", reason=""):
     # Ensure no other active break exists
     existing = frappe.db.get_value("Employee Break", {"session": session_name, "break_end": ["is", "not set"]}, "name")
     if not existing:
         doc = frappe.get_doc({
             "doctype": "Employee Break",
             "session": session_name,
-            "break_start": now
+            "break_start": now,
+            "source": source,
+            "reason": reason
         })
         doc.insert(ignore_permissions=True)
         
@@ -437,7 +439,7 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
         # Get breaks (separate DocType linked to Session)
         s.breaks = frappe.get_all("Employee Break",
             filters={"session": s.name},
-            fields=["break_start", "break_end", "break_duration"],
+            fields=["break_start", "break_end", "break_duration", "source", "reason"],
             order_by="break_start asc"
         )
 
@@ -460,3 +462,29 @@ def daily_reset():
     frappe.db.sql("UPDATE `tabEmployee Presence` SET status = 'Offline', last_updated = %s", now)
     
     frappe.db.commit()
+
+def process_auto_breaks():
+    """
+    Background job to identify inactive users and move them to Break status.
+    Threshold: 5 minutes of inactivity (no pings).
+    """
+    from frappe.utils import add_minutes
+    
+    threshold_time = add_minutes(now_datetime(), -5)
+    
+    # Find active presences that haven't been updated for > 5 minutes
+    inactive_presences = frappe.get_all("Employee Presence", 
+        filters={
+            "status": ["not in", ["Offline", "Break"]],
+            "last_updated": ["<", threshold_time]
+        },
+        fields=["employee", "status"]
+    )
+    
+    for p in inactive_presences:
+        # Call update_presence with source="Idle"
+        # status_message will be set to DEFAULT_STATUS_MESSAGES["Break"] automatically
+        update_presence(status="Break", employee=p.employee, source="Idle")
+    
+    if inactive_presences:
+        frappe.db.commit()
