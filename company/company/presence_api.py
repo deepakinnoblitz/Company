@@ -330,9 +330,19 @@ def create_break(session_name, now, source="Manual", reason=""):
                 employee_name = frappe.db.get_value("Employee", employee, "employee_name")
                 
                 if receiver_email:
-                    from company.company.api import send_automated_chat_message
-                    content = f"Hi {employee_name}, your status has been shifted to 'Break' because you were inactive for a while."
-                    send_automated_chat_message("taskmanager@gmail.com", receiver_email, content)
+                    from company.company.api import send_automated_chat_message, send_chat_notification_to_user
+                    
+                    # Fetch threshold for display
+                    idle_threshold_s = frappe.db.get_single_value("Employee Presence Settings", "idle_threshold") or 300
+                    threshold_mins = int(idle_threshold_s / 60)
+                    
+                    content = f"""Hi {employee_name} 👋<br><br>
+We noticed no activity for the last {threshold_mins} minutes, so your status has been automatically set to 'Break'.<br><br>
+⏱️ Inactive Time: {threshold_mins} mins<br>
+☕ Break Status: Active<br><br>
+We'll switch you back to 'Available' as soon as you're active again."""
+                    if send_automated_chat_message(None, receiver_email, content):
+                        send_chat_notification_to_user(receiver_email, "Break Notification", content)
             except Exception as e:
                 frappe.log_error(f"Error sending break start message: {str(e)}", "Idle Break Notification Error")
 
@@ -365,9 +375,20 @@ def close_active_break(session_name, now):
                 employee_name = frappe.db.get_value("Employee", employee, "employee_name")
                 
                 if receiver_email:
-                    from company.company.api import send_automated_chat_message
-                    content = f"Welcome back, {employee_name}! Your break has ended, and you are now marked as 'Available'."
-                    send_automated_chat_message("taskmanager@gmail.com", receiver_email, content)
+                    from company.company.api import send_automated_chat_message, send_chat_notification_to_user
+                    
+                    # Format duration and time
+                    duration_mins = int(brk.break_duration)
+                    end_time = now.strftime("%I:%M %p")
+                    
+                    content = f"""Welcome back, {employee_name}!<br><br>
+Your break has ended, and your status is now 'Available'.<br><br>
+⏱️ Break Duration: {duration_mins} minutes<br>
+🕒 Break Ended At: {end_time}<br><br>
+Your activity has been successfully resumed."""
+                    
+                    if send_automated_chat_message(None, receiver_email, content):
+                        send_chat_notification_to_user(receiver_email, "Welcome Back", content)
             except Exception as e:
                 frappe.log_error(f"Error sending break end message: {str(e)}", "Idle Break Notification Error")
 
@@ -494,13 +515,21 @@ def daily_reset():
 def process_auto_breaks():
     """
     Background job to identify inactive users and move them to Break status.
-    Threshold: 5 minutes of inactivity (no pings).
+    Uses settings from Employee Presence Settings.
     """
-    from frappe.utils import add_minutes
+    from frappe.utils import add_seconds
     
-    threshold_time = add_minutes(now_datetime(), -5)
+    settings = frappe.get_single("Employee Presence Settings")
     
-    # Find active presences that haven't been updated for > 5 minutes
+    # 1. Skip if auto-status is disabled globally
+    if not settings.enable_auto_status:
+        return
+        
+    # 2. Get threshold from settings (default to 300s / 5m if not set)
+    threshold_seconds = settings.idle_threshold or 300
+    threshold_time = add_seconds(now_datetime(), -threshold_seconds)
+    
+    # 3. Find active presences that haven't been updated for > threshold
     inactive_presences = frappe.get_all("Employee Presence", 
         filters={
             "status": ["not in", ["Offline", "Break"]],

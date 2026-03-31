@@ -1908,7 +1908,21 @@ def save_fcm_token(token: str):
     user = frappe.session.user
     if not user or user == "Guest":
         frappe.throw("Login required")
+    
+    # Save to User doctype (existing)
     frappe.db.set_value("User", user, "fcm_token", token)
+    
+    # Sync with ClefinCode Chat Profile (required for chat app)
+    # The chat app stores tokens in 'ClefinCode Chat Profile'
+    # We find the profile linked to this user's email/ID
+    profile_parent = frappe.db.get_value(
+        "ClefinCode Chat Profile Contact Details",
+        {"contact_info": user, "parenttype": "ClefinCode Chat Profile"},
+        "parent"
+    )
+    if profile_parent:
+        frappe.db.set_value("ClefinCode Chat Profile", profile_parent, "registration_token", token)
+
     frappe.db.commit()
     return {"status": "ok", "message": "Token saved", "token": token}
 
@@ -1926,12 +1940,13 @@ def _send_v1_message_to_token(token: str, title: str, body: str, data: dict = No
     message = {
         "message": {
             "token": token,
-            "notification": {"title": title, "body": body}
+            "data": {
+                "title": title,
+                "body": body,
+                **(data or {})
+            }
         }
     }
-    if data:
-        # Optional custom data payload
-        message["message"]["data"] = {k: str(v) for k, v in data.items()}
 
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
     headers = {
@@ -3007,13 +3022,22 @@ def get_expense_tracker_summary(filter_type="", from_date="", to_date="", expens
 
 # =================== Automated Chat Messages ==================
 
+def get_chatbot_user():
+    """Find a user with the 'Chat Bot' role."""
+    return frappe.db.get_value("Has Role", {"role": "Chat Bot", "parenttype": "User"}, "parent")
+
 def send_automated_chat_message(sender_email, receiver_email, content):
+    if not sender_email:
+        sender_email = get_chatbot_user()
+    
+    if not sender_email:
+        return False
     """
     Sends an automated chat message between two users.
     If no direct chat channel exists, it creates one.
     """
     try:
-        from clefincode_chat.api.api_1_0_1.api import check_if_contact_has_chat, create_channel, send
+        from clefincode_chat.api.api_1_2_1.api import check_if_contact_has_chat, create_channel, send
     except ImportError:
         frappe.log_error("clefincode_chat app not found or API path incorrect", "Automated Chat Error")
         return False
@@ -3050,7 +3074,7 @@ def send_automated_chat_message(sender_email, receiver_email, content):
     # 3. Send the message
     if room:
         sender_full_name = frappe.db.get_value("User", sender_email, "full_name") or sender_email
-        send(content, sender_full_name, room, sender_email)
+        send(content, sender_full_name, room, sender_email, skip_notification=1)
         return True
 
     return False
