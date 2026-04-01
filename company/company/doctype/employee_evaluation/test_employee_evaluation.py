@@ -15,28 +15,28 @@ class TestPersonalityEvent(FrappeTestCase):
 				"employee_name": "Test Employee",
 				"email": "test@example.com",
 				"user": "Administrator",
-				"personality_score": 100
+				"evaluation_score": 100
 			}).insert()
 		else:
 			self.employee = frappe.get_doc("Employee", "TEST-EMP-001")
-			self.employee.personality_score = 100
+			self.employee.evaluation_score = 100
 			self.employee.save()
 
 		# Create a test trait
-		if not frappe.db.exists("Personality Trait", "Teamwork"):
+		if not frappe.db.exists("Evaluation Trait", "Teamwork"):
 			self.trait = frappe.get_doc({
-				"doctype": "Personality Trait",
+				"doctype": "Evaluation Trait",
 				"trait_name": "Teamwork",
 				"reward_score": 2,
 				"penalty_score": 5
 			}).insert()
 		else:
-			self.trait = frappe.get_doc("Personality Trait", "Teamwork")
+			self.trait = frappe.get_doc("Evaluation Trait", "Teamwork")
 
 	def test_score_calculation_agree(self):
 		print("Running: test_score_calculation_agree...")
 		event = frappe.get_doc({
-			"doctype": "Personality Event",
+			"doctype": "Employee Evaluation",
 			"employee": self.employee.name,
 			"trait": self.trait.name,
 			"evaluation_type": "Agree"
@@ -47,17 +47,17 @@ class TestPersonalityEvent(FrappeTestCase):
 		
 		# Check employee score
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 100) # Capped at 100
+		self.assertEqual(self.employee.evaluation_score, 100) # Capped at 100
 		print("Result: [SUCCESS] Score remained 100 (capped).")
 
 	def test_score_calculation_disagree(self):
 		print("Running: test_score_calculation_disagree...")
 		# First reduce score
-		self.employee.personality_score = 90
+		self.employee.evaluation_score = 90
 		self.employee.save()
 
 		event = frappe.get_doc({
-			"doctype": "Personality Event",
+			"doctype": "Employee Evaluation",
 			"employee": self.employee.name,
 			"trait": self.trait.name,
 			"evaluation_type": "Disagree"
@@ -68,18 +68,18 @@ class TestPersonalityEvent(FrappeTestCase):
 		
 		# Check employee score
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 85)
-		self.assertEqual(self.employee.personality_status, "Good")
-		print(f"Result: [SUCCESS] Score decreased from 90 to {self.employee.personality_score}.")
+		self.assertEqual(self.employee.evaluation_score, 85)
+		self.assertEqual(self.employee.evaluation_status, "Good")
+		print(f"Result: [SUCCESS] Score decreased from 90 to {self.employee.evaluation_score}.")
 
 	def test_score_limits(self):
 		print("Running: test_score_limits...")
 		# Test minimum limit
-		self.employee.personality_score = 2
+		self.employee.evaluation_score = 2
 		self.employee.save()
 
 		event = frappe.get_doc({
-			"doctype": "Personality Event",
+			"doctype": "Employee Evaluation",
 			"employee": self.employee.name,
 			"trait": self.trait.name,
 			"evaluation_type": "Disagree"
@@ -88,17 +88,17 @@ class TestPersonalityEvent(FrappeTestCase):
 		event.submit()
 		
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 0)
-		self.assertEqual(self.employee.personality_status, "Needs Improvement")
+		self.assertEqual(self.employee.evaluation_score, 0)
+		self.assertEqual(self.employee.evaluation_status, "Needs Improvement")
 		print("Result: [SUCCESS] Score hit floor at 0.")
 
 	def test_score_cancellation(self):
 		print("Running: test_score_cancellation...")
-		self.employee.personality_score = 90
+		self.employee.evaluation_score = 90
 		self.employee.save()
 
 		event = frappe.get_doc({
-			"doctype": "Personality Event",
+			"doctype": "Employee Evaluation",
 			"employee": self.employee.name,
 			"trait": self.trait.name,
 			"evaluation_type": "Disagree"
@@ -107,20 +107,20 @@ class TestPersonalityEvent(FrappeTestCase):
 		event.submit()
 		
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 85)
+		self.assertEqual(self.employee.evaluation_score, 85)
 
 		event.cancel()
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 90) # Should be back to 90
+		self.assertEqual(self.employee.evaluation_score, 90) # Should be back to 90
 		print("Result: [SUCCESS] Score reverted to 90 after cancellation.")
 
 	def test_score_calculation_neutral(self):
 		print("Running: test_score_calculation_neutral...")
-		self.employee.personality_score = 90
+		self.employee.evaluation_score = 90
 		self.employee.save()
 
 		event = frappe.get_doc({
-			"doctype": "Personality Event",
+			"doctype": "Employee Evaluation",
 			"employee": self.employee.name,
 			"trait": self.trait.name,
 			"evaluation_type": "Neutral"
@@ -130,7 +130,7 @@ class TestPersonalityEvent(FrappeTestCase):
 		event.submit()
 		
 		self.employee.reload()
-		self.assertEqual(self.employee.personality_score, 90)
+		self.assertEqual(self.employee.evaluation_score, 90)
 		print("Result: [SUCCESS] Score remained 90 for Neutral evaluation.")
 
 	def tearDown(self):

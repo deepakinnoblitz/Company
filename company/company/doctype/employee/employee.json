@@ -28,8 +28,8 @@
   "designation",
   "status",
   "user",
-  "personality_score",
-  "personality_status",
+  "evaluation_score",
+  "evaluation_status",
   "section_break_zuyd",
   "ctc",
   "salary_details_section",
@@ -233,14 +233,14 @@
   },
   {
    "default": "100",
-   "fieldname": "personality_score",
+   "fieldname": "evaluation_score",
    "fieldtype": "Int",
-   "label": "Personality Score"
+   "label": "Evaluation Score"
   },
   {
-   "fieldname": "personality_status",
+   "fieldname": "evaluation_status",
    "fieldtype": "Select",
-   "label": "Personality Status",
+   "label": "Evaluation Status",
    "options": "Excellent\nGood\nAverage\nNeeds Improvement",
    "read_only": 1
   },

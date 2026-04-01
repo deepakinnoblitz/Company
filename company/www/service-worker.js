@@ -23,12 +23,17 @@ console.log("🔥 [Service Worker] Firebase Initialized & Background Handler Rea
 messaging.onBackgroundMessage((payload) => {
     console.log("🔥 [Service Worker] Received background message:", payload);
 
-    const notificationTitle = payload.notification.title;
+    const data = payload.data || {};
+    const notification = payload.notification || {};
+
+    const notificationTitle = notification.title || data.title || data.notification_title || "New Notification";
+    const notificationBody = notification.body || data.body || data.notification_body || "";
+
     const notificationOptions = {
-        body: payload.notification.body,
+        body: notificationBody,
         icon: "https://erp.innoblitz.in/assets/Innoblitz%20Logo%20Full.png", // Customize this icon path
         badge: "https://erp.innoblitz.in/assets/Innoblitz%20Logo%20Full.png", // Customize this badge path
-        data: payload.data, // Pass data for click handling
+        data: data, // Pass data for click handling
     };
 
     self.registration.showNotification(notificationTitle, notificationOptions);
@@ -38,7 +43,7 @@ messaging.onBackgroundMessage((payload) => {
 // 🌐 PWA CACHING LOGIC
 // ===============================
 
-const CACHE_NAME = "erpnext-cache-v3";
+const CACHE_NAME = "erpnext-cache-v4";
 
 self.addEventListener("install", event => {
     event.waitUntil(

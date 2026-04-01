@@ -4,7 +4,7 @@
 import frappe
 from frappe.model.document import Document
 
-class PersonalityScoreLog(Document):
+class EmployeeEvaluationScoreLog(Document):
 	def autoname(self):
-		count = frappe.db.count("Personality Score Log", {"employee": self.employee})
+		count = frappe.db.count("Employee Evaluation Score Log", {"employee": self.employee})
 		self.name = f"PSL-{self.employee}-{count + 1}"

@@ -27,8 +27,7 @@
   {
    "fieldname": "designation_code",
    "fieldtype": "Data",
-   "label": "Designation Code",
-   "reqd": 1
+   "label": "Designation Code"
   },
   {
    "fieldname": "department",
@@ -66,7 +65,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-25 10:29:30.435639",
+ "modified": "2026-03-25 12:35:20.524202",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Designation",

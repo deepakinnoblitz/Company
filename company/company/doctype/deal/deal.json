@@ -79,9 +79,9 @@
   },
   {
    "fieldname": "source_lead",
-   "fieldtype": "Link",
+   "fieldtype": "Select",
    "label": "Source Lead",
-   "options": "Lead"
+   "options": "Other"
   },
   {
    "fieldname": "notes",
@@ -126,7 +126,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-28 16:08:24.381931",
+ "modified": "2026-03-20 15:28:07.985762",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Deal",
