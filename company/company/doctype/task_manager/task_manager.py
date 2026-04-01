@@ -122,12 +122,24 @@ class TaskManager(Document):
 		
 		# Send Chat Notification from current user
 		if self.assignees:
+			sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
 			for row in self.assignees:
 				receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
-				if receiver:
-					content = f"New Task Assigned: {self.title}. Due Date: {self.due_date}"
-					for tm_email in self.get_task_managers_emails():
-						self.send_chat_notification(tm_email, receiver, content)
+				if receiver and receiver != sender:
+					# Get first name for the greeting
+					emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
+					first_name = emp_name.split(" ")[0]
+					
+					formatted_date = frappe.utils.format_date(self.due_date, "dd MMM YYYY") if self.due_date else "N/A"
+					project_info = f"{self.project}: " if self.project else ""
+					
+					content = (
+						f"<b>Hi {first_name} 👋</b><br><br>"
+						f"<b>New Task Assigned:</b> {project_info}{self.title}<br>"
+						f"<b>Due Date:</b> {formatted_date}<br><br>"
+						f"Please review the task details and proceed accordingly."
+					)
+					self.send_chat_notification(sender, receiver, content)
 
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "insert"})
 
@@ -145,28 +157,40 @@ class TaskManager(Document):
 			if new_status == "Completed":
 				# Notify Task Manager (HR) only via email — not the assignees
 				self.notify_hr("completed")
-				# Send Chat Notification to all Task Managers
-				content = f"Task Completed: {self.title} by {frappe.session.user}"
-				for tm_email in self.get_task_managers_emails():
-					self.send_chat_notification(frappe.session.user, tm_email, content)
+				# Send Chat Notification to the Task Creator (Owner)
+				content = f"<b>Task Completed:</b> {self.title} by {frappe.session.user}"
+				sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+				if self.owner and self.owner != sender:
+					self.send_chat_notification(sender, self.owner, content)
 
 			elif new_status == "Reopened":
 				self.notify_assignees("reopened")
-				# Send Chat Notification from Task Managers
+				# Send Chat Notification from Task Manager who reopened it
 				if self.assignees:
+					sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
 					for row in self.assignees:
 						receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
-						if receiver:
-							content = f"Task Reopened: {self.title}. Please review."
-							for tm_email in self.get_task_managers_emails():
-								self.send_chat_notification(tm_email, receiver, content)
+						if receiver and receiver != sender:
+							# Get first name for the greeting
+							emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
+							first_name = emp_name.split(" ")[0]
+							
+							project_info = f"{self.project}: " if self.project else ""
+							
+							content = (
+								f"<b>Hi {first_name} 👋</b><br><br>"
+								f"<b>Task Reopened:</b> {project_info}{self.title}<br><br>"
+								f"Please review the task and take necessary action."
+							)
+							self.send_chat_notification(sender, receiver, content)
 
 			elif new_status == "In Progress":
 				self.notify_hr("in_progress")
-				# Send Chat Notification to all Task Managers
-				content = f"Task In Progress: {self.title} by {frappe.session.user}"
-				for tm_email in self.get_task_managers_emails():
-					self.send_chat_notification(frappe.session.user, tm_email, content)
+				# Send Chat Notification to the Task Creator (Owner)
+				content = f"<b>Task In Progress:</b> {self.title} by {frappe.session.user}"
+				sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+				if self.owner and self.owner != sender:
+					self.send_chat_notification(sender, self.owner, content)
 
 	def on_trash(self):
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "trash"})
@@ -274,24 +298,15 @@ class TaskManager(Document):
 			)
 
 	def notify_hr(self, event):
-		"""Notify Task Manager users about task updates."""
-		hr_managers = frappe.get_all(
-			"Has Role",
-			filters={"role": "Task Manager", "parenttype": "User"},
-			pluck="parent",
-		)
-
-		if not hr_managers:
+		"""Notify the Task Creator about task updates."""
+		if not self.owner:
 			return
-
-		emails = [
-			frappe.db.get_value("User", u, "email")
-			for u in hr_managers
-			if frappe.db.get_value("User", u, "email")
-		]
-
-		if not emails:
+		
+		# Only notify if owner is not the current user
+		if self.owner == frappe.session.user:
 			return
+		
+		emails = [self.owner]
 
 		assignee_names = ", ".join([r.employee_name or r.employee for r in self.assignees])
 
@@ -576,10 +591,11 @@ def close_task(task_name, hours_spent, remarks, attachment=None):
 	})
 
 	doc.save()
-	# Send Chat Notification to all Task Managers
-	content = f"Task Closed: {doc.title}. Hours Spent: {hours_spent}. Remarks: {remarks}"
-	for tm_email in doc.get_task_managers_emails():
-		doc.send_chat_notification(frappe.session.user, tm_email, content)
+	# Send Chat Notification to the Task Creator (Owner)
+	content = f"<b>Task Closed:</b> {doc.title}<br><b>Hours Spent:</b> {hours_spent}<br><b>Remarks:</b> {remarks}"
+	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+	if doc.owner and doc.owner != sender:
+		doc.send_chat_notification(sender, doc.owner, content)
 
 	return {"message": "Task closed successfully", "status": doc.status}
 
@@ -592,11 +608,11 @@ def reopen_task(task_name, remarks):
 	if doc.status != "Completed":
 		frappe.throw(_("Only Completed tasks can be Reopened."))
 
-	# Check if the caller is Task Manager or System Manager
-	allowed_roles = ["Task Manager", "System Manager"]
+	# Check if the caller is Task Manager, HR, or System Manager
+	allowed_roles = ["Task Manager", "HR", "System Manager", "Administrator"]
 	user_roles = frappe.get_roles(frappe.session.user)
 	if not any(r in user_roles for r in allowed_roles):
-		frappe.throw(_("Only Task Managers can Reopen a task."))
+		frappe.throw(_("Access denied. Only Task Managers can Reopen a task."))
 
 	if not remarks:
 		frappe.throw(_("Please enter <b>Remarks</b> before reopening the task."))
@@ -630,11 +646,13 @@ def accept_task(task_name):
 		"remarks": _("Task accepted and work started.")
 	})
 
+	# Send Chat Notification to the Task Creator (Owner) before save triggers on_update
+	content = f"<b>Task Accepted:</b> {doc.title}<br>Work has started."
+	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+	if doc.owner and doc.owner != sender:
+		doc.send_chat_notification(sender, doc.owner, content)
+
 	doc.save()
-	# Send Chat Notification to all Task Managers
-	content = f"Task Accepted: {doc.title}. Work has started."
-	for tm_email in doc.get_task_managers_emails():
-		doc.send_chat_notification(frappe.session.user, tm_email, content)
 
 	return {"message": "Task accepted successfully", "status": doc.status}
 
@@ -705,7 +723,23 @@ def get_employees_from_department(department):
 			"department": department,
 			"status": "Active"
 		},
-		fields=["name", "employee_name", "user", "department"]
+		fields=["name", "employee_name", "user", "department"],
+		ignore_permissions=True
+	)
+
+
+@frappe.whitelist()
+def get_all_active_employees():
+	"""Return all active employees, bypassing user permissions.
+	Used by the Task Manager assignee dropdown so Team Leads can assign
+	tasks to any employee, not just those visible under their own permissions.
+	"""
+	return frappe.get_all(
+		"Employee",
+		filters={"status": "Active"},
+		fields=["name", "employee_name", "user"],
+		order_by="employee_name asc",
+		ignore_permissions=True
 	)
 
 

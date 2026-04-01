@@ -2015,7 +2015,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
 
         data["monthly_attendance_list"] = attendance_events
     except Exception as e:
-        frappe.log_error(f"Error fetching monthly attendance list: {str(e)}", "Calendar Data Error")
         data["monthly_attendance_list"] = []
 
     return data

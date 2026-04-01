@@ -13,6 +13,9 @@
  "field_order": [
   "enable_auto_status",
   "idle_threshold",
+  "away_threshold",
+  "break_threshold",
+  "enable_auto_resume_break",
   "event_mousemove",
   "event_keydown",
   "event_scroll",
@@ -31,6 +34,27 @@
    "fieldname": "idle_threshold",
    "fieldtype": "Int",
    "label": "Idle Threshold (Seconds)",
+   "depends_on": "eval:doc.enable_auto_status == 1"
+  },
+  {
+   "default": "300",
+   "fieldname": "away_threshold",
+   "fieldtype": "Int",
+   "label": "Away Threshold (Seconds)",
+   "depends_on": "eval:doc.enable_auto_status == 1"
+  },
+  {
+   "default": "900",
+   "fieldname": "break_threshold",
+   "fieldtype": "Int",
+   "label": "Break Threshold (Seconds)",
+   "depends_on": "eval:doc.enable_auto_status == 1"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_auto_resume_break",
+   "fieldtype": "Check",
+   "label": "Enable Auto Resume from Break",
    "depends_on": "eval:doc.enable_auto_status == 1"
   },
   {

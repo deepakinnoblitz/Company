@@ -10,8 +10,23 @@ DEFAULT_STATUS_MESSAGES = {
     "Away": "Stepped away",
 }
 
+def format_duration_hms(seconds):
+    """
+    Format duration into 'X mins Y Sec' or 'X Sec'.
+    """
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds} Sec"
+    
+    mins = seconds // 60
+    secs = seconds % 60
+    
+    if decimal_secs := seconds % 60:
+         return f"{mins} mins {secs} Sec"
+    return f"{mins} mins"
+
 @frappe.whitelist()
-def update_presence(status, employee=None, status_message=None, source="Manual"):
+def update_presence(status, employee=None, status_message=None, source="Manual", start_time=None):
     """
     Update employee presence and handle session/break logic.
     """
@@ -23,6 +38,18 @@ def update_presence(status, employee=None, status_message=None, source="Manual")
 
     now = now_datetime()
     
+    # Parse start_time if provided as ISO string
+    if start_time and isinstance(start_time, str):
+        from frappe.utils import get_datetime, convert_utc_to_system_timezone
+        parsed = get_datetime(start_time)
+        # MySQL DATETIME uses local server time (no timezone).
+        # The frontend sends UTC (ISO 8601 with Z), so we must convert UTC → local time
+        # before stripping tzinfo. Using .replace(tzinfo=None) directly would keep the
+        # UTC value, making it look earlier than all local-time interval rows.
+        if parsed.tzinfo is not None:
+            parsed = convert_utc_to_system_timezone(parsed).replace(tzinfo=None)
+        start_time = parsed
+
     # Get or create current presence record
     if not frappe.db.exists("Employee Presence", employee):
         presence = frappe.get_doc({
@@ -51,14 +78,50 @@ def update_presence(status, employee=None, status_message=None, source="Manual")
             create_session(employee, now)
         else:
             active_session.last_seen = now
-            active_session.save()
+            try:
+                active_session.save()
+            except Exception:
+                # Re-fetch in case of concurrent modification
+                active_session = get_active_session(employee)
+                if active_session:
+                    active_session.last_seen = now
+                    active_session.save(ignore_permissions=True)
 
-    # Handle Break Logic
+    # Handle Break logic
     if status == "Break":
         if active_session:
-            create_break(active_session.name, now, source=source, reason=status_message)
+            actual_source = source if source != "Manual" else "Manual"
+            
+            # Use start_time for retroactive breaks
+            break_start = start_time if (start_time and source in ("Idle", "Away")) else now
+            create_break(active_session.name, break_start, source=actual_source, reason=status_message)
+            
+            # --- Interval Cleanup Logic ---
+            # Retroactively close/trim intervals that are now covered by the break period.
+            if break_start and break_start < now:
+                # Re-fetch fresh copy to avoid TimestampMismatchError
+                fresh_session = frappe.get_doc("Employee Session", active_session.name)
+                rows_to_remove = []
+                for interval in fresh_session.intervals:
+                    overlaps = (not interval.to_time) or (interval.to_time > break_start)
+                    if overlaps:
+                        if interval.from_time < break_start:
+                            # Truncate the interval to end at break_start
+                            interval.to_time = break_start
+                            interval.duration_seconds = time_diff_in_seconds(break_start, interval.from_time)
+                        else:
+                            # Interval started AFTER break_start → fully covered by break, delete it
+                            rows_to_remove.append(interval)
+                
+                # Use Frappe's proper child-row removal
+                for row in rows_to_remove:
+                    fresh_session.remove(row)
+                
+                fresh_session.save(ignore_permissions=True)
     else:
-        if old_status == "Break":
+        # If we are coming BACK from a break (Break or Away was the old logic)
+        # We need to close the active break.
+        if old_status in ("Break", "Away"):
             close_active_break(active_session.name if active_session else None, now)
 
     # Resolve status message
@@ -86,21 +149,31 @@ def update_presence(status, employee=None, status_message=None, source="Manual")
             "last_active": now.isoformat()
         }, after_commit=True)
 
-    # ── Interval Splitting Logic ──
-    # If switching between online statuses (e.g., Available -> Busy), split the interval
-    if active_session and status != "Offline" and status != "Break" and old_status != "Offline" and old_status != "Break":
-        # Close current interval
-        if active_session.intervals:
-            last_interval = active_session.intervals[-1]
-            if not last_interval.to_time:
+    # ── Interval Handling ──
+    if active_session and status not in ("Offline", "Break"):
+        last_interval = active_session.intervals[-1] if active_session.intervals else None
+        
+        if last_interval and not last_interval.to_time:
+            # We have an open interval
+            if old_status not in ("Offline", "Break"):
+                # Normal transition between active statuses: split
                 last_interval.to_time = now
                 last_interval.duration_seconds = time_diff_in_seconds(now, last_interval.from_time)
-        
-        # Start new interval with the new status
-        active_session.append("intervals", {
-            "from_time": now,
-            "status": status
-        })
+                active_session.append("intervals", {
+                    "from_time": now,
+                    "status": status
+                })
+            else:
+                # Resuming from a non-active status: just update the status of the open interval
+                # Or start a new one if the open one is actually old? (Usually just update is fine)
+                last_interval.status = status
+        else:
+            # No open interval (e.g. after retroactive cleanup or first login of session)
+            active_session.append("intervals", {
+                "from_time": now,
+                "status": status
+            })
+            
         active_session.save(ignore_permissions=True)
 
     frappe.db.commit()
@@ -334,11 +407,11 @@ def create_break(session_name, now, source="Manual", reason=""):
                     
                     # Fetch threshold for display
                     idle_threshold_s = frappe.db.get_single_value("Employee Presence Settings", "idle_threshold") or 300
-                    threshold_mins = int(idle_threshold_s / 60)
+                    threshold_display = format_duration_hms(idle_threshold_s)
                     
                     content = f"""Hi {employee_name} 👋<br><br>
-We noticed no activity for the last {threshold_mins} minutes, so your status has been automatically set to 'Break'.<br><br>
-⏱️ Inactive Time: {threshold_mins} mins<br>
+We noticed no activity for the last {threshold_display}, so your status has been automatically set to 'Break'.<br><br>
+⏱️ Inactive Time: {threshold_display}<br>
 ☕ Break Status: Active<br><br>
 We'll switch you back to 'Available' as soon as you're active again."""
                     if send_automated_chat_message(None, receiver_email, content):
@@ -378,12 +451,13 @@ def close_active_break(session_name, now):
                     from company.company.api import send_automated_chat_message, send_chat_notification_to_user
                     
                     # Format duration and time
-                    duration_mins = int(brk.break_duration)
+                    diff_seconds = time_diff_in_seconds(now, brk.break_start)
+                    duration_display = format_duration_hms(diff_seconds)
                     end_time = now.strftime("%I:%M %p")
                     
                     content = f"""Welcome back, {employee_name}!<br><br>
 Your break has ended, and your status is now 'Available'.<br><br>
-⏱️ Break Duration: {duration_mins} minutes<br>
+⏱️ Break Duration: {duration_display}<br>
 🕒 Break Ended At: {end_time}<br><br>
 Your activity has been successfully resumed."""
                     
@@ -514,7 +588,7 @@ def daily_reset():
 
 def process_auto_breaks():
     """
-    Background job to identify inactive users and move them to Break status.
+    Background job to identify inactive users and move them to Away or Break status.
     Uses settings from Employee Presence Settings.
     """
     from frappe.utils import add_seconds
@@ -525,23 +599,39 @@ def process_auto_breaks():
     if not settings.enable_auto_status:
         return
         
-    # 2. Get threshold from settings (default to 300s / 5m if not set)
-    threshold_seconds = settings.idle_threshold or 300
-    threshold_time = add_seconds(now_datetime(), -threshold_seconds)
+    now = now_datetime()
     
-    # 3. Find active presences that haven't been updated for > threshold
-    inactive_presences = frappe.get_all("Employee Presence", 
+    # 2. Get thresholds
+    away_threshold = settings.away_threshold or 300
+    break_threshold = settings.break_threshold or 900
+    
+    # 3. Find active presences that haven't been updated for > away_threshold
+    # Transition Available -> Away
+    away_time = add_seconds(now, -away_threshold)
+    inactive_productive = frappe.get_all("Employee Presence", 
         filters={
-            "status": ["not in", ["Offline", "Break"]],
-            "last_updated": ["<", threshold_time]
+            "status": ["not in", ["Offline", "Break", "Away"]],
+            "last_updated": ["<", away_time]
         },
         fields=["employee", "status"]
     )
     
-    for p in inactive_presences:
-        # Call update_presence with source="Idle"
-        # status_message will be set to DEFAULT_STATUS_MESSAGES["Break"] automatically
+    for p in inactive_productive:
+        update_presence(status="Away", employee=p.employee, source="Idle")
+    
+    # 4. Find Away presences that haven't been updated for > break_threshold
+    # Transition Away -> Break
+    break_time = add_seconds(now, -break_threshold)
+    inactive_away = frappe.get_all("Employee Presence",
+        filters={
+            "status": "Away",
+            "last_updated": ["<", break_time]
+        },
+        fields=["employee", "status"]
+    )
+    
+    for p in inactive_away:
         update_presence(status="Break", employee=p.employee, source="Idle")
     
-    if inactive_presences:
+    if inactive_productive or inactive_away:
         frappe.db.commit()
