@@ -1462,15 +1462,15 @@ def auto_submit_leave_application(doc, method=None):
         frappe.log_error(frappe.get_traceback(), "Auto Submit Leave Application Error")
 
 
-def auto_submit_personality_event(doc, method=None):
+def auto_submit_employee_evaluation(doc, method=None):
     """
-    Automatically submit Personality Event after save.
+    Automatically submit Employee Evaluation after save.
     """
     try:
         if doc.docstatus == 0:
             doc.submit()
     except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "Auto Submit Personality Event Error")
+        frappe.log_error(frappe.get_traceback(), "Auto Submit Employee Evaluation Error")
 
 
 @frappe.whitelist()
@@ -1908,7 +1908,21 @@ def save_fcm_token(token: str):
     user = frappe.session.user
     if not user or user == "Guest":
         frappe.throw("Login required")
+    
+    # Save to User doctype (existing)
     frappe.db.set_value("User", user, "fcm_token", token)
+    
+    # Sync with ClefinCode Chat Profile (required for chat app)
+    # The chat app stores tokens in 'ClefinCode Chat Profile'
+    # We find the profile linked to this user's email/ID
+    profile_parent = frappe.db.get_value(
+        "ClefinCode Chat Profile Contact Details",
+        {"contact_info": user, "parenttype": "ClefinCode Chat Profile"},
+        "parent"
+    )
+    if profile_parent:
+        frappe.db.set_value("ClefinCode Chat Profile", profile_parent, "registration_token", token)
+
     frappe.db.commit()
     return {"status": "ok", "message": "Token saved", "token": token}
 
@@ -1926,12 +1940,13 @@ def _send_v1_message_to_token(token: str, title: str, body: str, data: dict = No
     message = {
         "message": {
             "token": token,
-            "notification": {"title": title, "body": body}
+            "data": {
+                "title": title,
+                "body": body,
+                **(data or {})
+            }
         }
     }
-    if data:
-        # Optional custom data payload
-        message["message"]["data"] = {k: str(v) for k, v in data.items()}
 
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
     headers = {
@@ -1988,15 +2003,32 @@ def extend_bootinfo(bootinfo):
         bootinfo["site_config"]["firebase"] = firebase_config
 
 
+def _get_unread_data(user: str):
+    """Internal helper to get counts and IDs of unread HR items."""
+    unread_items = frappe.db.get_all("HR Read Tracker",
+        filters={"is_read": 0, "read_by": user},
+        fields=["reference_doctype", "reference_name"]
+    )
+    
+    counts = {}
+    unread_ids = {}
+    
+    for item in unread_items:
+        dt = item.reference_doctype
+        counts[dt] = counts.get(dt, 0) + 1
+        if dt not in unread_ids:
+            unread_ids[dt] = []
+        unread_ids[dt].append(item.reference_name)
+        
+    return {
+        "counts": counts,
+        "unread_ids": unread_ids
+    }
+
+
 def _push_unread_count_update(user: str):
-    """Re-query unread counts for a user and push via Frappe realtime socket."""
-    counts = frappe.db.sql("""
-        SELECT reference_doctype, COUNT(*) as count
-        FROM `tabHR Read Tracker`
-        WHERE is_read = 0 AND read_by = %s
-        GROUP BY reference_doctype
-    """, user, as_dict=True)
-    payload = {row.reference_doctype: row.count for row in counts}
+    """Re-query unread data for a user and push via Frappe realtime socket."""
+    payload = _get_unread_data(user)
     frappe.publish_realtime(
         event="unread_count_updated",
         message=payload,
@@ -2037,8 +2069,6 @@ def create_unread_entry_for_hr(doc, method=None):
         _push_unread_count_update(user)
 
 
-
-
 @frappe.whitelist()
 def mark_hr_item_as_read(doctype, name):
     """Mark document as read for logged-in HR."""
@@ -2060,16 +2090,8 @@ def mark_hr_item_as_read(doctype, name):
 
 @frappe.whitelist()
 def get_unread_count():
-    """Return unread count per doctype for the logged-in HR."""
-    user = frappe.session.user
-    counts = frappe.db.sql("""
-        SELECT reference_doctype, COUNT(*) as count
-        FROM `tabHR Read Tracker`
-        WHERE is_read = 0 AND read_by = %s
-        GROUP BY reference_doctype
-    """, user, as_dict=True)
-
-    return {row.reference_doctype: row.count for row in counts}
+    """Return unread counts and unread IDs per doctype for the logged-in HR."""
+    return _get_unread_data(frappe.session.user)
 
 @frappe.whitelist()
 def get_attendance_stats(range=None, from_date=None, to_date=None):
@@ -3000,13 +3022,22 @@ def get_expense_tracker_summary(filter_type="", from_date="", to_date="", expens
 
 # =================== Automated Chat Messages ==================
 
+def get_chatbot_user():
+    """Find a user with the 'Chat Bot' role."""
+    return frappe.db.get_value("Has Role", {"role": "Chat Bot", "parenttype": "User"}, "parent")
+
 def send_automated_chat_message(sender_email, receiver_email, content):
+    if not sender_email:
+        sender_email = get_chatbot_user()
+    
+    if not sender_email:
+        return False
     """
     Sends an automated chat message between two users.
     If no direct chat channel exists, it creates one.
     """
     try:
-        from clefincode_chat.api.api_1_0_1.api import check_if_contact_has_chat, create_channel, send
+        from clefincode_chat.api.api_1_2_1.api import check_if_contact_has_chat, create_channel, send
     except ImportError:
         frappe.log_error("clefincode_chat app not found or API path incorrect", "Automated Chat Error")
         return False
@@ -3043,7 +3074,7 @@ def send_automated_chat_message(sender_email, receiver_email, content):
     # 3. Send the message
     if room:
         sender_full_name = frappe.db.get_value("User", sender_email, "full_name") or sender_email
-        send(content, sender_full_name, room, sender_email)
+        send(content, sender_full_name, room, sender_email, skip_notification=1)
         return True
 
     return False

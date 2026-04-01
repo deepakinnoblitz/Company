@@ -98,11 +98,16 @@ scriptApp.onload = () => {
 
       // Browser notification
       if (Notification.permission === "granted") {
-        const notificationTitle = payload.notification ? payload.notification.title : (payload.data ? payload.data.title : "New Notification");
+        const data = payload.data || {};
+        const notification = payload.notification || {};
+
+        const notificationTitle = notification.title || data.title || data.notification_title || "New Notification";
+        const notificationBody = notification.body || data.body || data.notification_body || "";
+
         const notificationOptions = {
-          body: payload.notification ? payload.notification.body : (payload.data ? payload.data.body : ""),
+          body: notificationBody,
           icon: "https://erp.innoblitz.in/assets/Innoblitz%20Logo%20Full.png",
-          data: payload.data
+          data: data
         };
         new Notification(notificationTitle, notificationOptions);
       }

@@ -425,6 +425,18 @@ def update_doc_status(doctype, name, workflow_state, update_data=None):
 
 
 @frappe.whitelist()
+def rename_doc(doctype, old, new, merge=False):
+    """
+    Rename a document. 
+    Wrapper for frappe.rename_doc with permission checks.
+    """
+    if not frappe.has_permission(doctype, "write"):
+        frappe.throw(_("Not permitted to rename {0}").format(doctype), frappe.PermissionError)
+
+    return frappe.rename_doc(doctype, old, new, merge=merge)
+
+
+@frappe.whitelist()
 def get_today_activities():
     """
     Fetch today's calls and meetings.
@@ -2003,7 +2015,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
 
         data["monthly_attendance_list"] = attendance_events
     except Exception as e:
-        frappe.log_error(f"Error fetching monthly attendance list: {str(e)}", "Calendar Data Error")
         data["monthly_attendance_list"] = []
 
     return data
@@ -2190,3 +2201,75 @@ def preview_salary_slip(employee, start_date, end_date):
         "professional_tax": emp.professional_tax,
         "loan_recovery": emp.loan_recovery
     }
+
+@frappe.whitelist()
+def get_personality_dashboard_data():
+    """
+    Fetch personality dashboard data for the logged-in employee.
+    Sends the current total score and the last 5 unique traits evaluated.
+    """
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
+
+    if not employee:
+        return {
+            "totalScore": 100,
+            "status": "Excellent",
+            "traits": []
+        }
+
+    recent_evals = frappe.db.sql("""
+        SELECT trait, score_change, creation
+        FROM `tabEmployee Evaluation`
+        WHERE employee = %s
+        ORDER BY creation DESC
+        LIMIT 5
+    """, (employee.name,), as_dict=True)
+
+    if not recent_evals:
+        return {
+            "totalScore": 100,
+            "status": "Excellent",
+            "lastUpdated": None,
+            "traits": []
+        }
+
+    trait_scores = []
+
+    for ev in recent_evals:
+        trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name")
+        trait_scores.append({
+            "trait": trait_name or ev.trait,
+            "score": ev.score_change or 0
+        })
+
+    # Get timestamp of the most recent evaluation for this employee
+    last_eval = frappe.db.get_value(
+        "Employee Evaluation",
+        {"employee": employee.name},
+        "creation",
+        order_by="creation desc"
+    )
+
+    # Calculate current total score based on ALL evaluations (starting from 100)
+    total_change = frappe.db.sql("""
+        SELECT SUM(score_change)
+        FROM `tabEmployee Evaluation`
+        WHERE employee = %s
+    """, (employee.name,))[0][0] or 0
+    calculated_total = 100 + total_change
+    calculated_total = max(0, min(100, calculated_total))
+
+    # Determine status based on calculated score
+    if calculated_total >= 90: status = "Excellent"
+    elif calculated_total >= 75: status = "Good"
+    elif calculated_total >= 60: status = "Average"
+    else: status = "Needs Improvement"
+
+    return {
+        "totalScore": calculated_total,
+        "status": status,
+        "lastUpdated": str(last_eval) if last_eval else None,
+        "traits": trait_scores
+    }
+
