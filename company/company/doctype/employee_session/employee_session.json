@@ -11,6 +11,7 @@
   "login_date",
   "logout_time",
   "total_work_hours",
+  "total_break_hours",
   "status",
   "intervals",
   "last_seen"
@@ -46,6 +47,12 @@
    "fieldname": "total_work_hours",
    "fieldtype": "Float",
    "label": "Total Work Hours",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_break_hours",
+   "fieldtype": "Float",
+   "label": "Total Break Hours",
    "read_only": 1
   },
   {
