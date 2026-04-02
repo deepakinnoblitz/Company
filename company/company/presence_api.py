@@ -74,8 +74,13 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
         if active_session:
             close_session(active_session, now)
     else:
+        # Update Presence BEFORE creating session to ensure correct status in initial interval
+        presence.status = status
+        presence.last_updated = now
+        presence.save()
+
         if not active_session:
-            create_session(employee, now)
+            create_session(employee, now, status=status)
         else:
             active_session.last_seen = now
             try:
@@ -96,9 +101,8 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
             break_start = start_time if (start_time and source in ("Idle", "Away")) else now
             create_break(active_session.name, break_start, source=actual_source, reason=status_message)
             
-            # --- Interval Cleanup Logic ---
             # Retroactively close/trim intervals that are now covered by the break period.
-            if break_start and break_start < now:
+            if break_start:
                 # Re-fetch fresh copy to avoid TimestampMismatchError
                 fresh_session = frappe.get_doc("Employee Session", active_session.name)
                 rows_to_remove = []
@@ -133,9 +137,10 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
     else:
         final_status_message = DEFAULT_STATUS_MESSAGES.get(status, "")
 
-    # Update Presence
-    presence.status = status
-    presence.last_updated = now
+    # Update Presence status message (status handled above for non-Offline)
+    if status == "Offline":
+        presence.status = status
+        presence.last_updated = now
     presence.status_message = final_status_message
     presence.save()
     
@@ -254,7 +259,8 @@ def get_presence(employee=None):
         "session": {
             "name": active_session.name if active_session else None,
             "login_time": active_session.login_time if active_session else None,
-            "total_active_seconds": total_active_seconds
+            "total_active_seconds": total_active_seconds,
+            "total_break_seconds": get_live_break_seconds(active_session) if active_session else 0
         },
         "break": active_break
     }
@@ -281,26 +287,36 @@ def get_live_active_seconds(session):
         return 0
     
     now = now_datetime()
-    # 1. Sum up all completed intervals
-    total_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.to_time)
+    # 1. Sum up all completed intervals (excluding Offline, Break, Away)
+    total_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.to_time and i.status not in ("Offline", "Break", "Away"))
     
-    # 2. Add current interval if it's open
+    # 2. Add current interval if it's open (excluding Offline/Break)
     if session.intervals and not session.intervals[-1].to_time:
-        total_seconds += time_diff_in_seconds(now, session.intervals[-1].from_time)
+        last = session.intervals[-1]
+        if last.status not in ("Offline", "Break", "Away"):
+            total_seconds += time_diff_in_seconds(now, last.from_time)
     
-    # 3. Subtract all breaks
+    return total_seconds
+
+def get_live_break_seconds(session):
+    if not session:
+        return 0
+    
+    now = now_datetime()
+    # 1. Sum up all completed breaks for this session
     breaks = frappe.get_all("Employee Break", 
         filters={"session": session.name}, 
         fields=["break_duration", "break_start", "break_end"])
     
+    total_seconds = 0
     for b in breaks:
         if b.break_end:
-            total_seconds -= flt(b.break_duration) * 60.0
+            total_seconds += flt(b.break_duration) * 60.0
         else:
             # Current active break
-            total_seconds -= time_diff_in_seconds(now, b.break_start)
-    
-    return max(0, total_seconds)
+            total_seconds += time_diff_in_seconds(now, b.break_start)
+            
+    return total_seconds
 
 def get_active_session(employee):
     session_name = frappe.db.get_value("Employee Session", {"employee": employee, "status": "Active"}, "name")
@@ -308,7 +324,7 @@ def get_active_session(employee):
         return frappe.get_doc("Employee Session", session_name)
     return None
 
-def create_session(employee, now):
+def create_session(employee, now, status=None):
     today_date = today()
     existing_session_name = frappe.db.get_value("Employee Session", {"employee": employee, "login_date": today_date}, "name")
     
@@ -328,9 +344,15 @@ def create_session(employee, now):
             "intervals": []
         })
     
-    # Get current status to set on the initial interval
-    status = frappe.db.get_value("Employee Presence", employee, "status") or "Available"
+    if not status:
+        # Get current status to set on the initial interval
+        status = frappe.db.get_value("Employee Presence", employee, "status") or "Available"
     
+    # Close any open Offline interval from a previous session on the same day
+    if doc.intervals and not doc.intervals[-1].to_time and doc.intervals[-1].status == "Offline":
+        doc.intervals[-1].to_time = now
+        doc.intervals[-1].duration_seconds = time_diff_in_seconds(now, doc.intervals[-1].from_time)
+
     doc.append("intervals", {
         "from_time": now,
         "status": status
@@ -359,22 +381,23 @@ def close_session(session, now):
             last_interval.duration_seconds = time_diff_in_seconds(now, last_interval.from_time)
             # Ensure status is set if it was missing (for old records)
             if not last_interval.status:
-                last_interval.status = frappe.db.get_value("Employee Presence", session.employee, "status") or "Offline"
+                last_interval.status = frappe.db.get_value("Employee Presence", session.employee, "status") or "Available"
+        
+    # Append Offline interval to track time until next login
+    session.append("intervals", {
+        "from_time": now,
+        "status": "Offline"
+    })
     
-    # Calculate Total Working Hours based on all segments
-    total_active_seconds = sum(flt(i.duration_seconds) for i in session.intervals)
+    # Calculate Total Working Hours based on active segments only (excl. Offline, Break, Away)
+    total_active_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.status not in ("Offline", "Break", "Away"))
     
-    # Sum up all breaks for this session
-    breaks = frappe.get_all("Employee Break", 
-        filters={"session": session.name}, 
-        fields=["break_duration"])
+    session.total_work_hours = max(0, flt(total_active_seconds) / 3600.0)
     
-    total_break_mins = sum(flt(b.break_duration) for b in breaks)
+    # Calculate Total Break Hours
+    total_break_seconds = get_live_break_seconds(session)
+    session.total_break_hours = flt(total_break_seconds) / 3600.0
     
-    # Working hours = (Total Active Seconds / 3600) - (Total Break Mins / 60)
-    working_hours = (total_active_seconds / 3600.0) - (total_break_mins / 60.0)
-    
-    session.total_work_hours = max(0, working_hours)
     session.save(ignore_permissions=True)
     
     # Publish session update
@@ -534,7 +557,7 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
     
     sessions = frappe.db.sql(f"""
         SELECT 
-            s.name, s.employee, e.employee_name, s.login_time, s.login_date, s.logout_time, s.total_work_hours, s.status
+            s.name, s.employee, e.employee_name, s.login_time, s.login_date, s.logout_time, s.total_work_hours, s.total_break_hours, s.status
         FROM 
             `tabEmployee Session` s
         LEFT JOIN 
