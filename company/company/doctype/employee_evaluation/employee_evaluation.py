@@ -7,8 +7,8 @@ from frappe.utils import now_datetime
 
 class EmployeeEvaluation(Document):
 	def autoname(self):
-		count = frappe.db.count("Employee Evaluation", {"employee": self.employee})
-		self.name = f"EE-{self.employee}-{count + 1}"
+		# Better naming using a standard series to avoid collisions after deletions
+		self.name = frappe.model.naming.make_autoname(f"EE-{self.employee}-.#####")
 
 	def before_insert(self):
 		if not self.hr_user:
@@ -51,7 +51,7 @@ class EmployeeEvaluation(Document):
 		# Robust database check to prevent duplicate logs for the same event
 		if frappe.db.exists("Employee Evaluation Score Log", {"employee_evaluation": self.name}):
 			return
-
+		
 		employee = frappe.get_doc("Employee", self.employee)
 		current_score = employee.evaluation_score if employee.evaluation_score is not None else 100
 		new_score = current_score + (self.score_change or 0)
@@ -79,7 +79,9 @@ class EmployeeEvaluation(Document):
 			"date": now_datetime()
 		})
 		log.insert(ignore_permissions=True)
+		frappe.log_error(f"Score Log inserted for {self.name} with ID {log.name}", "Employee Evaluation Debug")
 		self._score_log_created = True
+		frappe.db.commit() # Force commit for debug visibility
 
 	def revert_employee_score(self):
 		employee = frappe.get_doc("Employee", self.employee)
@@ -123,7 +125,7 @@ class EmployeeEvaluation(Document):
 			return "Needs Improvement"
 
 @frappe.whitelist()
-def reset_all_employee_scores(password):
+def reset_employee_scores(password, employees=None):
 	# Verify against Administrator password
 	from frappe.utils.password import check_password
 	try:
@@ -131,12 +133,23 @@ def reset_all_employee_scores(password):
 	except frappe.AuthenticationError:
 		frappe.throw("Incorrect Administrator Password")
 	
-	employees = frappe.get_all("Employee", filters={"status": "Active"}, fields=["name", "employee_name", "evaluation_score"])
+	if isinstance(employees, str):
+		import json
+		employees = json.loads(employees)
+		
+	filters = {"status": "Active"}
+	if employees:
+		filters["name"] = ["in", employees]
+		
+	employees_list = frappe.get_all("Employee", filters=filters, fields=["name", "employee_name", "evaluation_score"])
 	
 	results = []
-	for emp in employees:
+	for emp in employees_list:
 		prev_score = emp.evaluation_score if emp.evaluation_score is not None else 100
-		if prev_score == 100:
+		
+		# If specific employees are provided, we reset even if they are at 100 to ensure consistency.
+		# If no employees provided (Reset All), we skip those who are already at 100.
+		if not employees and prev_score == 100:
 			continue
 			
 		# Update Employee
@@ -152,7 +165,7 @@ def reset_all_employee_scores(password):
 			"previous_score": prev_score,
 			"change": 100 - prev_score,
 			"new_score": 100,
-			"reason": "Administrative Reset to 100",
+			"reason": "Administrative Reset to 100" if not employees else f"Administrative Reset for {emp.employee_name} to 100",
 			"date": now_datetime()
 		})
 		log.insert(ignore_permissions=True)
@@ -166,4 +179,16 @@ def reset_all_employee_scores(password):
 	
 	return results
 	
-	return "Successfully reset all employee scores to 100"
+@frappe.whitelist()
+def hard_delete_evaluation(name):
+	# Check for delete permission
+	if not frappe.has_permission("Employee Evaluation", ptype="delete", doc=name):
+		frappe.throw("You do not have permission to delete this Evaluation.", frappe.PermissionError)
+	
+	# Force delete ignoring links for the main doc
+	frappe.delete_doc("Employee Evaluation", name, force=True, ignore_permissions=False)
+	
+	# Clean up orphaned score logs for this name
+	frappe.db.delete("Employee Evaluation Score Log", {"employee_evaluation": name})
+	
+	return "Successfully deleted"
