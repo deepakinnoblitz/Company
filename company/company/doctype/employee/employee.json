@@ -51,7 +51,6 @@
    "in_list_view": 1,
    "label": "Employee ID",
    "read_only": 1,
-   "reqd": 1,
    "unique": 1
   },
   {
@@ -278,8 +277,8 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-13 14:20:02.563841",
- "modified_by": "hr@innoblitz.global",
+ "modified": "2026-04-04 14:17:39.102899",
+ "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",
  "naming_rule": "Expression (old style)",
