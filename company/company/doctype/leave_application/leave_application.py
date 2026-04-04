@@ -11,7 +11,14 @@ class LeaveApplication(Document):
         self.send_submit_mail_to_hr()
 
     def validate(self):
+        self.validate_dates()
         self.validate_probation_period()
+
+    def validate_dates(self):
+        from frappe.utils import getdate
+        if self.from_date and self.to_date:
+            if getdate(self.to_date) < getdate(self.from_date):
+                frappe.throw("To Date cannot be before From Date")
 
     def validate_probation_period(self):
         if self.leave_type == "Paid Leave":
