@@ -2273,3 +2273,85 @@ def get_personality_dashboard_data():
         "traits": trait_scores
     }
 
+
+@frappe.whitelist()
+def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=None):
+    """
+    Returns daily present and absent counts for a given filter range (Last 7 Days, This Month, Last Month, Custom).
+    Source (Attendance or Daily Log) is determined by HRMS Settings.
+    """
+    from datetime import timedelta
+    from frappe.utils import getdate, nowdate, add_months, get_first_day, get_last_day
+    
+    today_dt = getdate(nowdate())
+
+    # 1. Determine Date Range
+    if filter_type == "This Month":
+        start_date = getdate(get_first_day(today_dt))
+        end_date = today_dt
+    elif filter_type == "Last Month":
+        last_month_dt = add_months(today_dt, -1)
+        start_date = getdate(get_first_day(last_month_dt))
+        end_date = getdate(get_last_day(last_month_dt))
+    elif filter_type == "Custom" and from_date and to_date:
+        start_date = getdate(from_date)
+        end_date = getdate(to_date)
+    else: # Default: Last 7 Days
+        start_date = today_dt - timedelta(days=6)
+        end_date = today_dt
+
+    # 2. Get Settings and Baseline
+    settings = frappe.get_doc("HRMS Settings")
+    source = settings.get("weekly_chart_source") or "Attendance"
+    total_active_employees = frappe.db.count("Employee", {"status": "Active"})
+
+    # 3. Optimized Bulk Fetch
+    present_counts_map = {}
+    
+    # We only fetch if start_date exists and range is reasonable
+    if start_date <= end_date:
+        if source == "Attendance":
+            # For Attendance source, count Present and Half Day statuses
+            attendance_data = frappe.db.sql("""
+                SELECT attendance_date, COUNT(*) as count
+                FROM `tabAttendance`
+                WHERE attendance_date BETWEEN %s AND %s
+                AND status IN ('Present', 'Half Day')
+                GROUP BY attendance_date
+            """, (start_date, end_date), as_dict=True)
+            present_counts_map = {str(d.attendance_date): d.count for d in attendance_data}
+        else: # Daily Log source
+            # For Daily Log source, count unique employees per day
+            daily_log_data = frappe.db.sql("""
+                SELECT login_date, COUNT(DISTINCT employee) as count
+                FROM `tabEmployee Session`
+                WHERE login_date BETWEEN %s AND %s
+                GROUP BY login_date
+            """, (start_date, end_date), as_dict=True)
+            present_counts_map = {str(d.login_date): d.count for d in daily_log_data}
+
+    # 4. Generate Result Array
+    result = []
+    num_days = (end_date - start_date).days + 1
+    
+    # Safety limit to prevent massive ranges from crashing frontend (e.g. 5 years)
+    if num_days > 400:
+        num_days = 400
+        end_date = start_date + timedelta(days=399)
+
+    for i in range(num_days):
+        curr_date = start_date + timedelta(days=i)
+        curr_date_str = curr_date.strftime('%Y-%m-%d')
+        day_name = curr_date.strftime('%a')
+        
+        present_count = present_counts_map.get(curr_date_str, 0)
+        absent_count = max(0, total_active_employees - present_count)
+        
+        result.append({
+            "date": curr_date_str,
+            "day": day_name,
+            "present": present_count,
+            "absent": absent_count
+        })
+        
+    return result
