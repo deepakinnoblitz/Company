@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-04 09:46:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "logo_tab",
+  "app_logo",
+  "dashboard_tab",
+  "weekly_chart_source"
+ ],
+ "fields": [
+  {
+   "fieldname": "logo_tab",
+   "fieldtype": "Tab Break",
+   "label": "Logo"
+  },
+  {
+   "fieldname": "app_logo",
+   "fieldtype": "Attach Image",
+   "label": "App Logo"
+  },
+  {
+   "fieldname": "dashboard_tab",
+   "fieldtype": "Tab Break",
+   "label": "Dashboard"
+  },
+  {
+   "default": "Attendance",
+   "fieldname": "weekly_chart_source",
+   "fieldtype": "Select",
+   "label": "Weekly Chart Source",
+   "options": "Attendance\nDaily Log"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-04-04 15:18:40.334840",
+ "modified_by": "Administrator",
+ "module": "Company",
+ "name": "HRMS Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
