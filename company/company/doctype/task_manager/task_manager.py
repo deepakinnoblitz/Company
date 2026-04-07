@@ -229,6 +229,10 @@ class TaskManager(Document):
 
 	def notify_assignees(self, event):
 		"""Send an email notification to ALL assignees."""
+		from company.company.api import is_hrms_notification_enabled
+		if not is_hrms_notification_enabled("task_notification"):
+			return
+
 		if not self.assignees:
 			return
 
@@ -299,6 +303,10 @@ class TaskManager(Document):
 
 	def notify_hr(self, event):
 		"""Notify the Task Creator about task updates."""
+		from company.company.api import is_hrms_notification_enabled
+		if not is_hrms_notification_enabled("task_notification"):
+			return
+
 		if not self.owner:
 			return
 		
