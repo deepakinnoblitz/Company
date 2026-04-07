@@ -495,21 +495,18 @@ Your activity has been successfully resumed."""
             frappe.publish_realtime('session_update', {"user_id": user_id, "name": session_name}, after_commit=True)
 
 @frappe.whitelist()
-def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, date_search="", status="all", sort_by="login_date_desc"):
+def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, date_search="", status="all", sort_by="login_date_desc", day=None, date=None):
     """
     Fetch sessions with their child intervals and related breaks.
     """
     is_hr_or_admin = "HR" in frappe.get_roles() or "Administrator" in frappe.get_roles()
 
-    if not employee and not is_hr_or_admin:
+    if not is_hr_or_admin:
+        # Non-HR/Admin users MUST be restricted to their own ID
         employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
-    
-    filters = {}
-    if employee:
-        filters["employee"] = employee
-    elif not is_hr_or_admin:
-        # Fallback for non-HR users who somehow don't have an employee record
-        return {"data": [], "total_count": 0}
+        if not employee:
+            return {"data": [], "total_count": 0}
+    # For HR/Admin, 'employee' is already either None (all) or from param (specific)
     
     if date_search:
         # Try to reformat DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD
@@ -541,17 +538,45 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
     query_filters = []
     values = {}
     
-    if filters.get("employee"):
-        query_filters.append("s.employee = %(employee)s")
-        values["employee"] = filters["employee"]
-        
     if date_search:
-        query_filters.append("s.login_date LIKE %(date_search)s")
-        values["date_search"] = f"%{date_search}%"
+        # Check if it looks like a date (DD-MM-YYYY or DD/MM/YYYY)
+        if re.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}$", date_search.strip()):
+            try:
+                parts = re.split(r"[-/]", date_search.strip())
+                if len(parts) == 3:
+                     # Add equality check for the date
+                     # We use an OR because we want to match either the login_date strictly
+                     # or fallback to string search if the name contains these numbers (unlikely but safe)
+                     formatted_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+                     query_filters.append("(s.login_date = %(formatted_date)s OR s.employee LIKE %(search)s OR e.employee_name LIKE %(search)s)")
+                     values["formatted_date"] = formatted_date
+                     values["search"] = f"%{date_search}%"
+                else:
+                     query_filters.append("(s.employee LIKE %(search)s OR e.employee_name LIKE %(search)s OR s.login_date LIKE %(search)s)")
+                     values["search"] = f"%{date_search}%"
+            except Exception:
+                query_filters.append("(s.employee LIKE %(search)s OR e.employee_name LIKE %(search)s OR s.login_date LIKE %(search)s)")
+                values["search"] = f"%{date_search}%"
+        else:
+            # Not a specific date format, search name or ID or login_date string
+            query_filters.append("(s.employee LIKE %(search)s OR e.employee_name LIKE %(search)s OR s.login_date LIKE %(search)s)")
+            values["search"] = f"%{date_search}%"
         
     if status and status != "all":
         query_filters.append("s.status = %(status)s")
         values["status"] = status
+
+    if day and day != "all":
+        query_filters.append("DAYNAME(s.login_date) = %(day)s")
+        values["day"] = day
+
+    if date:
+        query_filters.append("s.login_date = %(date)s")
+        values["date"] = date
+
+    if employee and employee != "all":
+        query_filters.append("s.employee = %(employee)s")
+        values["employee"] = employee
 
     where_clause = f"WHERE {' AND '.join(query_filters)}" if query_filters else ""
     
@@ -573,7 +598,14 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
         "limit_page_length": int(limit_page_length)
     }, as_dict=True)
     
-    total_count = frappe.db.count("Employee Session", filters=filters)
+    # Get count using the same where_clause
+    count_res = frappe.db.sql(f"""
+        SELECT COUNT(*)
+        FROM `tabEmployee Session` s
+        LEFT JOIN `tabEmployee` e ON s.employee = e.name
+        {where_clause}
+    """, values)
+    total_count = count_res[0][0] if count_res else 0
 
     for s in sessions:
         # Get intervals (child table of Session)
