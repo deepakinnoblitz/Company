@@ -271,6 +271,9 @@ class LeaveApplication(Document):
         sender=None,
         reply_to=None
     ):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("leave_notification"):
+            return
         
         # Determine background color for leave details block
         bg_color = "#f0fff4" # default green-ish

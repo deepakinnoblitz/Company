@@ -18,6 +18,18 @@ from calendar import monthrange
 from frappe.utils import get_bench_path
 from frappe.utils.file_manager import save_file
 
+@frappe.whitelist()
+def is_hrms_notification_enabled(fieldname):
+    """
+    Check if a specific HRMS notification is enabled.
+    """
+    try:
+        enabled = frappe.db.get_single_value("HRMS Settings", fieldname)
+        # Checkboxes in Frappe are 1 (True) or 0 (False)
+        return bool(enabled)
+    except Exception:
+        return True  # Default to True to avoid missing important emails
+
 # =================== ESTIMATION REFERENCE ===================
 @frappe.whitelist()
 def get_next_estimation_preview():

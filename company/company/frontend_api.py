@@ -1448,7 +1448,7 @@ def get_crm_expense_tracker_stats(start_date=None, end_date=None):
     return stats
 
 @frappe.whitelist()
-def apply_workflow_action(doctype, name, action, comment=None, payment_details=None):
+def apply_workflow_action(doctype, name, action, comment=None, payment_details=None, update_data=None):
     """
     Apply a workflow action to a document.
     """
@@ -1485,10 +1485,16 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
         if "paid_by" in pd:
             doc.paid_by = pd.get("paid_by")
         
-    # Determine paid status based on action
-    if action == "Pay":
-         doc.paid = 1
-         
+    # Handle optional update_data
+    if update_data:
+        import json
+        if isinstance(update_data, str):
+            ud = json.loads(update_data)
+        else:
+            ud = update_data
+        doc.update(ud)
+        doc.save(ignore_permissions=True) # Save updates before advancing workflow
+
     apply_workflow(doc, action)
     
     # Reload doc to ensure we get the latest state including paid field

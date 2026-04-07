@@ -151,6 +151,9 @@ class WFHAttendance(Document):
 
     def notify_hr_for_approval(self):
         """Send email notification to HR when employee submits WFH Attendance"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
@@ -255,6 +258,9 @@ class WFHAttendance(Document):
 
     def notify_employee_on_approval(self):
         """Send mail to employee when HR approves"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
@@ -328,6 +334,9 @@ class WFHAttendance(Document):
 
     def notify_employee_on_rejection(self):
         """Send mail to employee when HR rejects"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")

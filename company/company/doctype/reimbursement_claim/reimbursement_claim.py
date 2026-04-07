@@ -87,6 +87,10 @@ class ReimbursementClaim(Document):
     # 1️⃣ Email — Notify HR on Submission (Blue Theme)
     # -------------------------------------------------------------------
     def notify_hr_on_submission(self):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("reimbursement_notification"):
+            return
+
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
         cc_emails = hr_settings.get("hr_cc_emails")
@@ -154,6 +158,9 @@ class ReimbursementClaim(Document):
     # 2️⃣ Email — Notify Employee on Approval (Green Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_approval(self, approver_name, approver_email):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("reimbursement_notification"):
+            return
 
         company_email = frappe.db.get_value("Employee", self.employee, "email")
         personal_email = frappe.db.get_value("Employee", self.employee, "personal_email")
@@ -218,6 +225,9 @@ class ReimbursementClaim(Document):
     # 3️⃣ Email — Notify Employee on Rejection (Red Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_rejection(self, rejector_name, rejector_email):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("reimbursement_notification"):
+            return
 
         company_email = frappe.db.get_value("Employee", self.employee, "email")
         personal_email = frappe.db.get_value("Employee", self.employee, "personal_email")
@@ -282,6 +292,9 @@ class ReimbursementClaim(Document):
     # 4️⃣ Email — Notify Employee on Payment (Green-Blue Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_payment(self, approver_name, approver_email):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("reimbursement_notification"):
+            return
 
         company_email = frappe.db.get_value("Employee", self.employee, "email")
         personal_email = frappe.db.get_value("Employee", self.employee, "personal_email")
