@@ -46,7 +46,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "\nActive\nInactive"
+   "options": "Active\nInactive"
   },
   {
    "fieldname": "description",
@@ -65,7 +65,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-25 12:35:20.524202",
+ "modified": "2026-04-07 16:35:40.250029",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Designation",

@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:account_number",
+ "autoname": "field:bank_account_name",
  "creation": "2025-09-24 16:33:31.300366",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -19,7 +19,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Bank Account Name",
-   "reqd": 1
+   "reqd": 1,
+   "unique": 1
   },
   {
    "fieldname": "account_number",
@@ -51,13 +52,13 @@
    "fieldname": "account_type",
    "fieldtype": "Select",
    "label": "Account Type",
-   "options": "\nSavings\nCurrent\nOther"
+   "options": "\nSavings\nCurrent\nSalary Account\nOther"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-24 16:37:37.062348",
+ "modified": "2026-04-07 16:01:55.532219",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Bank Account",

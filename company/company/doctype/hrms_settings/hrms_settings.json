@@ -8,7 +8,15 @@
   "logo_tab",
   "app_logo",
   "dashboard_tab",
-  "weekly_chart_source"
+  "weekly_chart_source",
+  "present_threshold",
+  "half_day_threshold",
+  "notification_tab",
+  "leave_notification",
+  "wfh_notification",
+  "request_notification",
+  "reimbursement_notification",
+  "task_notification"
  ],
  "fields": [
   {
@@ -32,6 +40,53 @@
    "fieldtype": "Select",
    "label": "Weekly Chart Source",
    "options": "Attendance\nDaily Log"
+  },
+  {
+   "default": "5",
+   "fieldname": "present_threshold",
+   "fieldtype": "Float",
+   "label": "Present Threshold (Hours)"
+  },
+  {
+   "default": "3",
+   "fieldname": "half_day_threshold",
+   "fieldtype": "Float",
+   "label": "Half Day Threshold (Hours)"
+  },
+  {
+   "fieldname": "notification_tab",
+   "fieldtype": "Tab Break",
+   "label": "Notifications"
+  },
+  {
+   "default": "1",
+   "fieldname": "leave_notification",
+   "fieldtype": "Check",
+   "label": "Leave Application Mail"
+  },
+  {
+   "default": "1",
+   "fieldname": "wfh_notification",
+   "fieldtype": "Check",
+   "label": "WFH Attendance Mail"
+  },
+  {
+   "default": "1",
+   "fieldname": "request_notification",
+   "fieldtype": "Check",
+   "label": "Request List Mail"
+  },
+  {
+   "default": "1",
+   "fieldname": "reimbursement_notification",
+   "fieldtype": "Check",
+   "label": "Reimbursement List Mail"
+  },
+  {
+   "default": "1",
+   "fieldname": "task_notification",
+   "fieldtype": "Check",
+   "label": "Task Manager Mail"
   }
  ],
  "issingle": 1,

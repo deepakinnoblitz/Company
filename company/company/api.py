@@ -3166,6 +3166,20 @@ def process_chat_message_queue():
         
         frappe.db.commit()
 
+
+def _get_attendance_status(hours, p_threshold, h_threshold):
+    """Categorize hours into Present, Half Day, or Absent."""
+    hours = float(hours or 0)
+    p_threshold = float(p_threshold or 5.0)
+    h_threshold = float(h_threshold or 3.0)
+    
+    if hours >= p_threshold:
+        return "Present"
+    elif hours >= h_threshold:
+        return "Half Day"
+    else:
+        return "Absent"
+
 @frappe.whitelist()
 def get_month_calendar_data(month=None, year=None):
     """
@@ -3218,29 +3232,57 @@ def get_month_calendar_data(month=None, year=None):
     start_date = f"{year}-{month:02d}-01"
     end_date = get_last_day(getdate(start_date))
     
-    # Helper to convert timedelta to time str
-    def td_to_str(td):
-        if not td: return None
-        total_seconds = int(td.total_seconds())
-        return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+    settings = frappe.get_doc("HRMS Settings")
+    source = settings.get("weekly_chart_source") or "Attendance"
+    p_threshold = settings.get("present_threshold") or 5.0
+    h_threshold = settings.get("half_day_threshold") or 3.0
 
-    att_records = frappe.get_all("Attendance",
-        filters={
-            "employee": employee_id,
-            "attendance_date": ["between", [start_date, end_date]]
-        },
-        fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
-        order_by="attendance_date asc"
-    )
+    if source == "Daily Log":
+        # Fetch Session records
+        session_records = frappe.db.sql("""
+            SELECT 
+                login_date as date,
+                login_time,
+                logout_time,
+                total_work_hours as working_hours
+            FROM `tabEmployee Session`
+            WHERE employee = %s
+            AND login_date BETWEEN %s AND %s
+            ORDER BY login_date ASC
+        """, (employee_id, start_date, end_date), as_dict=True)
 
-    for att in att_records:
-        attendance.append({
-            "date": str(att.attendance_date),
-            "status": att.status,
-            "in_time": td_to_str(att.in_time),
-            "out_time": td_to_str(att.out_time),
-            "working_hours": att.working_hours or 0
-        })
+        for record in session_records:
+            attendance.append({
+                "date": str(record.date),
+                "status": _get_attendance_status(record.working_hours, p_threshold, h_threshold),
+                "in_time": record.login_time.strftime("%H:%M:%S") if record.login_time else None,
+                "out_time": record.logout_time.strftime("%H:%M:%S") if record.logout_time else None,
+                "working_hours": record.working_hours or 0
+            })
+    else:
+        # Helper to convert timedelta to time str
+        def td_to_str(td):
+            if not td: return None
+            total_seconds = int(td.total_seconds())
+            return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+
+        att_records = frappe.get_all("Attendance",
+            filters={
+                "employee": employee_id,
+                "attendance_date": ["between", [start_date, end_date]]
+            },
+            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+            order_by="attendance_date asc"
+        )
+
+        for att in att_records:
+            attendance.append({
+                "date": str(att.attendance_date),
+                "status": att.status,
+                "in_time": td_to_str(att.in_time),
+                "out_time": td_to_str(att.out_time),
+                "working_hours": att.working_hours or 0
+            })
 
     # 3. Build Full Month Timeline
     calendar_data = []
