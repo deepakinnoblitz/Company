@@ -2234,13 +2234,14 @@ def preview_salary_slip(employee, start_date, end_date):
     lop_amount = gross_pay * (unpaid_leave_days / working_days) if working_days else 0
     total_deductions = base_deductions + lop_amount
 
-    return {
+    res = {
         "employee": emp.name,
+        "employee_id": emp.employee_id,
         "employee_name": emp.employee_name,
+        "phone_number": emp.phone,
         "designation": emp.designation,
         "department": emp.department,
         "date_of_joining": emp.date_of_joining,
-        "bank_name": emp.bank_name,
         "email": emp.email,
         "personal_email": emp.personal_email,
         "pay_period_start": start_date,
@@ -2265,6 +2266,23 @@ def preview_salary_slip(employee, start_date, end_date):
         "professional_tax": emp.professional_tax,
         "loan_recovery": emp.loan_recovery
     }
+
+    if emp.bank_account:
+        try:
+            ba = frappe.get_doc("Bank Account", emp.bank_account)
+            res.update({
+                "bank_account_name": ba.bank_account_name,
+                "account_number": ba.account_number,
+                "bank_name": ba.bank_name or emp.bank_name,
+                "branch": ba.branch,
+                "ifsc_code": ba.ifsc_code,
+            })
+        except Exception:
+            res["bank_name"] = emp.bank_name
+    else:
+        res["bank_name"] = emp.bank_name
+
+    return res
 
 @frappe.whitelist()
 def get_personality_dashboard_data():
