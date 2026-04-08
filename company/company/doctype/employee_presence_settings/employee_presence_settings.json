@@ -15,6 +15,7 @@
   "idle_threshold",
   "away_threshold",
   "break_threshold",
+  "offline_threshold",
   "enable_auto_resume_break",
   "event_mousemove",
   "event_keydown",
@@ -48,6 +49,13 @@
    "fieldname": "break_threshold",
    "fieldtype": "Int",
    "label": "Break Threshold (Seconds)",
+   "depends_on": "eval:doc.enable_auto_status == 1"
+  },
+  {
+   "default": "3600",
+   "fieldname": "offline_threshold",
+   "fieldtype": "Int",
+   "label": "Auto-Offline Threshold (Seconds)",
    "depends_on": "eval:doc.enable_auto_status == 1"
   },
   {

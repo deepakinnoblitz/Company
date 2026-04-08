@@ -1,7 +1,9 @@
 import re
+import time
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, time_diff_in_seconds, flt, today
+from frappe.exceptions import TimestampMismatchError
 
 DEFAULT_STATUS_MESSAGES = {
     "Busy": "In a meeting",
@@ -63,6 +65,7 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
         presence = frappe.get_doc("Employee Presence", employee)
     
     old_status = presence.status
+    old_last_updated = presence.last_updated
     
     if old_status == status:
         return {"status": "No change"}
@@ -70,27 +73,26 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
     # Handle Session Logic
     active_session = get_active_session(employee)
     
-    if status == "Offline":
-        if active_session:
-            close_session(active_session, now)
+    # Resolution: For system-triggered offline transitions (cleanup), 
+    # use the last confirmed activity time for the session closure.
+    effective_now = now
+    if status == "Offline" and source == "System":
+        last_confirmed_time = frappe.db.get_value("Employee Presence", employee, "last_updated")
+        if last_confirmed_time:
+            effective_now = last_confirmed_time
+
+    # Close session if going Offline
+    if status == "Offline" and active_session:
+        close_session(active_session, effective_now)
     else:
-        # Update Presence BEFORE creating session to ensure correct status in initial interval
+        # Update Presence status and timestamp
         presence.status = status
         presence.last_updated = now
-        presence.save()
 
         if not active_session:
-            create_session(employee, now, status=status)
+            active_session = create_session(employee, now, status=status)
         else:
             active_session.last_seen = now
-            try:
-                active_session.save()
-            except Exception:
-                # Re-fetch in case of concurrent modification
-                active_session = get_active_session(employee)
-                if active_session:
-                    active_session.last_seen = now
-                    active_session.save(ignore_permissions=True)
 
     # Handle Break logic
     if status == "Break":
@@ -103,10 +105,8 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
             
             # Retroactively close/trim intervals that are now covered by the break period.
             if break_start:
-                # Re-fetch fresh copy to avoid TimestampMismatchError
-                fresh_session = frappe.get_doc("Employee Session", active_session.name)
                 rows_to_remove = []
-                for interval in fresh_session.intervals:
+                for interval in active_session.intervals:
                     overlaps = (not interval.to_time) or (interval.to_time > break_start)
                     if overlaps:
                         if interval.from_time < break_start:
@@ -119,14 +119,29 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
                 
                 # Use Frappe's proper child-row removal
                 for row in rows_to_remove:
-                    fresh_session.remove(row)
-                
-                fresh_session.save(ignore_permissions=True)
+                    active_session.remove(row)
     else:
         # If we are coming BACK from a break (Break or Away was the old logic)
         # We need to close the active break.
+        # Resolve resumption message duration before closing break
+        resumed_duration = 0
         if old_status in ("Break", "Away"):
+            active_break_name = frappe.db.get_value("Employee Break", {"session": active_session.name if active_session else None, "break_end": ["is", "not set"]}, "name")
+            if active_break_name:
+                brk_start = frappe.db.get_value("Employee Break", active_break_name, "break_start")
+                resumed_duration = time_diff_in_seconds(now, brk_start)
+            elif active_session and active_session.intervals:
+                # If no break record (Away status), use the start of the current interval
+                resumed_duration = time_diff_in_seconds(now, active_session.intervals[-1].from_time)
+            else:
+                # Fallback to the previous last_updated
+                resumed_duration = time_diff_in_seconds(now, old_last_updated)
+
             close_active_break(active_session.name if active_session else None, now)
+            
+            # Send resumption message if moving back to Available
+            if status == "Available":
+                notify_auto_resume(employee, resumed_duration)
 
     # Resolve status message
     final_status_message = ""
@@ -137,12 +152,28 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
     else:
         final_status_message = DEFAULT_STATUS_MESSAGES.get(status, "")
 
-    # Update Presence status message (status handled above for non-Offline)
-    if status == "Offline":
-        presence.status = status
-        presence.last_updated = now
-    presence.status_message = final_status_message
-    presence.save()
+    # Update Presence status message and save with retry
+    for i in range(3):
+        try:
+            # Re-fetch to ensure we have the latest timestamp before the final save
+            presence = frappe.get_doc("Employee Presence", employee)
+            if status == "Offline":
+                presence.status = status
+                presence.last_updated = now
+            else:
+                presence.status = status
+                presence.last_updated = now
+            
+            presence.status_message = final_status_message
+            presence.save(ignore_permissions=True)
+            break
+        except TimestampMismatchError:
+            if i == 2: raise
+            time.sleep(0.05)
+    
+    # Send automated Away message if triggered by inactivity
+    if status == "Away" and source == "Idle":
+        notify_auto_status_change(employee, "Away")
     
     # Publish real-time update for Chat UI
     user_id = frappe.db.get_value("Employee", employee, "user")
@@ -170,7 +201,6 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
                 })
             else:
                 # Resuming from a non-active status: just update the status of the open interval
-                # Or start a new one if the open one is actually old? (Usually just update is fine)
                 last_interval.status = status
         else:
             # No open interval (e.g. after retroactive cleanup or first login of session)
@@ -179,7 +209,27 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
                 "status": status
             })
             
-        active_session.save(ignore_permissions=True)
+    # Single save for the active session at the end with retry logic
+    if active_session:
+        for i in range(3):
+            try:
+                # If we're retrying, we need the latest session doc 
+                # but we MUST preserve the changes we just made (intervals, etc.)
+                # In most cases, a simple save(ignore_permissions) is enough 
+                # if we reload properly or handle pings via db_set.
+                active_session.save(ignore_permissions=True)
+                break
+            except TimestampMismatchError:
+                if i == 2: raise
+                time.sleep(0.05)
+                # Re-fetch and re-apply basic fields, intervals are more complex 
+                # but usually the conflict is just the 'modified' timestamp from a ping
+                new_session = frappe.get_doc("Employee Session", active_session.name)
+                # Transfer our local changes to the new session object
+                new_session.last_seen = active_session.last_seen
+                new_session.intervals = active_session.intervals
+                new_session.status = active_session.status
+                active_session = new_session
 
     frappe.db.commit()
 
@@ -219,11 +269,10 @@ def ping_presence(employee=None):
     # Update Presence last_updated
     frappe.db.set_value("Employee Presence", employee, "last_updated", now)
     
-    # Update Active Session last_seen
+    # Update Active Session last_seen using db_set for higher concurrency resilience
     active_session = get_active_session(employee)
     if active_session:
-        active_session.last_seen = now
-        active_session.save()
+        active_session.db_set("last_seen", now)
         frappe.db.commit()
         return {"status": "success", "session": active_session.name}
     
@@ -405,6 +454,65 @@ def close_session(session, now):
     if user_id:
         frappe.publish_realtime('session_update', {"user_id": user_id, "name": session.name}, after_commit=True)
 
+def notify_auto_status_change(employee, status):
+    """
+    Send automated chat message when user goes Idle.
+    """
+    try:
+        receiver_email = frappe.db.get_value("Employee", employee, "user")
+        employee_name = frappe.db.get_value("Employee", employee, "employee_name")
+        
+        if receiver_email:
+            from company.company.api import send_automated_chat_message, send_chat_notification_to_user
+            
+            # Fetch the threshold that actually triggered this status
+            settings = frappe.get_single("Employee Presence Settings")
+            if status == "Away":
+                threshold_s = settings.away_threshold or 300
+            elif status == "Break":
+                threshold_s = settings.break_threshold or 900
+            else:
+                threshold_s = settings.idle_threshold or 60
+                
+            threshold_display = format_duration_hms(threshold_s)
+            
+            content = f"""Hi {employee_name} 👋<br><br>
+We noticed no activity for the last {threshold_display}, so your status has been automatically set to 'Break'.<br><br>
+⏱️ Inactive Time: {threshold_display}<br>
+Status: Active<br><br>
+We'll switch you back to 'Available' as soon as you're active again."""
+            
+            if send_automated_chat_message(None, receiver_email, content):
+                send_chat_notification_to_user(receiver_email, "Break Notification", content)
+    except Exception as e:
+        frappe.log_error(f"Error sending auto status message: {str(e)}", "Auto Status Notification Error")
+
+def notify_auto_resume(employee, duration_seconds):
+    """
+    Send welcome back message when user becomes active.
+    """
+    try:
+        receiver_email = frappe.db.get_value("Employee", employee, "user")
+        employee_name = frappe.db.get_value("Employee", employee, "employee_name")
+        
+        if receiver_email:
+            from company.company.api import send_automated_chat_message, send_chat_notification_to_user
+            
+            duration_display = format_duration_hms(duration_seconds)
+            now = now_datetime()
+            end_time = now.strftime("%I:%M %p")
+            
+            content = f"""Welcome back, {employee_name}!<br><br>
+Your status is now 'Available'.<br><br>
+⏱️ Inactive Duration: {duration_display}<br>
+🕒 Resumed At: {end_time}<br><br>
+Your activity has been successfully resumed."""
+            
+            if send_automated_chat_message(None, receiver_email, content):
+                send_chat_notification_to_user(receiver_email, "Welcome Back", content)
+    except Exception as e:
+        frappe.log_error(f"Error sending auto resume message: {str(e)}", "Auto Resume Notification Error")
+
 def create_break(session_name, now, source="Manual", reason=""):
     # Ensure no other active break exists
     existing = frappe.db.get_value("Employee Break", {"session": session_name, "break_end": ["is", "not set"]}, "name")
@@ -417,30 +525,6 @@ def create_break(session_name, now, source="Manual", reason=""):
             "reason": reason
         })
         doc.insert(ignore_permissions=True)
-        
-        # Send automated message for Idle breaks
-        if source == "Idle":
-            try:
-                employee = frappe.db.get_value("Employee Session", session_name, "employee")
-                receiver_email = frappe.db.get_value("Employee", employee, "user")
-                employee_name = frappe.db.get_value("Employee", employee, "employee_name")
-                
-                if receiver_email:
-                    from company.company.api import send_automated_chat_message, send_chat_notification_to_user
-                    
-                    # Fetch threshold for display
-                    idle_threshold_s = frappe.db.get_single_value("Employee Presence Settings", "idle_threshold") or 300
-                    threshold_display = format_duration_hms(idle_threshold_s)
-                    
-                    content = f"""Hi {employee_name} 👋<br><br>
-We noticed no activity for the last {threshold_display}, so your status has been automatically set to 'Break'.<br><br>
-⏱️ Inactive Time: {threshold_display}<br>
-☕ Break Status: Active<br><br>
-We'll switch you back to 'Available' as soon as you're active again."""
-                    if send_automated_chat_message(None, receiver_email, content):
-                        send_chat_notification_to_user(receiver_email, "Break Notification", content)
-            except Exception as e:
-                frappe.log_error(f"Error sending break start message: {str(e)}", "Idle Break Notification Error")
 
         # Publish session update (for break tracking)
         user_id = frappe.db.get_value("Employee", frappe.db.get_value("Employee Session", session_name, "employee"), "user")
@@ -462,32 +546,6 @@ def close_active_break(session_name, now):
         diff_seconds = time_diff_in_seconds(now, brk.break_start)
         brk.break_duration = diff_seconds / 60.0
         brk.save(ignore_permissions=True)
-        
-        # Send automated message for resumed Idle breaks
-        if brk.source == "Idle":
-            try:
-                employee = frappe.db.get_value("Employee Session", session_name, "employee")
-                receiver_email = frappe.db.get_value("Employee", employee, "user")
-                employee_name = frappe.db.get_value("Employee", employee, "employee_name")
-                
-                if receiver_email:
-                    from company.company.api import send_automated_chat_message, send_chat_notification_to_user
-                    
-                    # Format duration and time
-                    diff_seconds = time_diff_in_seconds(now, brk.break_start)
-                    duration_display = format_duration_hms(diff_seconds)
-                    end_time = now.strftime("%I:%M %p")
-                    
-                    content = f"""Welcome back, {employee_name}!<br><br>
-Your break has ended, and your status is now 'Available'.<br><br>
-⏱️ Break Duration: {duration_display}<br>
-🕒 Break Ended At: {end_time}<br><br>
-Your activity has been successfully resumed."""
-                    
-                    if send_automated_chat_message(None, receiver_email, content):
-                        send_chat_notification_to_user(receiver_email, "Welcome Back", content)
-            except Exception as e:
-                frappe.log_error(f"Error sending break end message: {str(e)}", "Idle Break Notification Error")
 
         # Publish session update (for break tracking)
         user_id = frappe.db.get_value("Employee", frappe.db.get_value("Employee Session", session_name, "employee"), "user")
@@ -659,6 +717,7 @@ def process_auto_breaks():
     # 2. Get thresholds
     away_threshold = settings.away_threshold or 300
     break_threshold = settings.break_threshold or 900
+    offline_threshold = getattr(settings, "offline_threshold", 3600) or 3600
     
     # 3. Find active presences that haven't been updated for > away_threshold
     # Transition Available -> Away
@@ -687,6 +746,37 @@ def process_auto_breaks():
     
     for p in inactive_away:
         update_presence(status="Break", employee=p.employee, source="Idle")
+        
+    # 5. Find any non-offline presences that haven't been updated for > offline_threshold
+    # Transition -> Offline (Computer shutdown/restart case)
+    offline_time = add_seconds(now, -offline_threshold)
+    inactive_any = frappe.get_all("Employee Presence",
+        filters={
+            "status": ["!=", "Offline"],
+            "last_updated": ["<", offline_time]
+        },
+        fields=["employee", "status"]
+    )
     
-    if inactive_productive or inactive_away:
+    for p in inactive_any:
+        update_presence(status="Offline", employee=p.employee, source="System")
+    
+    if inactive_productive or inactive_away or inactive_any:
         frappe.db.commit()
+
+@frappe.whitelist()
+def force_offline_all():
+    """
+    Cron job to set all employees to Offline at the end of the day.
+    Uses last_updated as the effective logout time for accuracy.
+    """
+    active_presences = frappe.get_all("Employee Presence",
+        filters={"status": ["!=", "Offline"]},
+        fields=["employee"]
+    )
+    
+    for p in active_presences:
+        # source="System" ensures update_presence uses last_updated for session closure
+        update_presence(status="Offline", employee=p.employee, source="System")
+        
+    frappe.db.commit()

@@ -274,8 +274,8 @@ class TaskManager(Document):
 			if not user_id:
 				continue
 
-			# Get email preferentially from User, then Employee
-			user_email = user_id if "@" in user_id else (frappe.db.get_value("User", user_id, "email") or frappe.db.get_value("Employee", row.employee, "email"))
+			# Get email preferentially from Employee, then User
+			user_email = frappe.db.get_value("Employee", row.employee, "email") or (user_id if "@" in user_id else frappe.db.get_value("User", user_id, "email"))
 			if not user_email:
 				continue
 
