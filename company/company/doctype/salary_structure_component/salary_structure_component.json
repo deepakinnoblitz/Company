@@ -9,7 +9,8 @@
   "component_name",
   "type",
   "percentage",
-  "static_amount"
+  "static_amount",
+  "is_default"
  ],
  "fields": [
   {
@@ -38,12 +39,18 @@
    "fieldtype": "Currency",
    "label": "Static Amount",
    "precision": "2"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-15 12:43:00.619297",
+ "modified": "2026-04-15 14:25:56.743411",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Salary Structure Component",
