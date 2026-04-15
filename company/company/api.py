@@ -15,6 +15,35 @@ from frappe.utils import (
 )
 from datetime import datetime, timedelta
 from calendar import monthrange
+
+@frappe.whitelist()
+def bootstrap_salary_components():
+    """Bootstrap default salary components"""
+    defaults = [
+        {"component_name": "Basic Pay", "type": "Earning", "percentage": 50},
+        {"component_name": "HRA", "type": "Earning", "percentage": 20},
+        {"component_name": "Conveyance Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "Medical Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "Other Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "PF", "type": "Deduction", "static_amount": 1800},
+        {"component_name": "ESI/Health Insurance", "type": "Deduction", "percentage": 0.75},
+        {"component_name": "Professional Tax", "type": "Deduction", "static_amount": 200},
+        {"component_name": "Loan Recovery", "type": "Deduction", "static_amount": 0},
+    ]
+
+    for d in defaults:
+        if not frappe.db.exists("Salary Structure Component", d["component_name"]):
+            doc = frappe.get_doc({
+                "doctype": "Salary Structure Component",
+                "component_name": d["component_name"],
+                "type": d["type"],
+                "percentage": d.get("percentage", 0),
+                "static_amount": d.get("static_amount", 0)
+            })
+            doc.insert(ignore_permissions=True)
+    
+    return "Bootstrap completed"
+
 from frappe.utils import get_bench_path
 from frappe.utils.file_manager import save_file
 
@@ -29,6 +58,34 @@ def is_hrms_notification_enabled(fieldname):
         return bool(enabled)
     except Exception:
         return True  # Default to True to avoid missing important emails
+
+@frappe.whitelist()
+def get_hrms_settings():
+    """Retrieve HRMS Settings singleton values with global fallbacks"""
+    try:
+        settings = frappe.get_single("HRMS Settings")
+        data = settings.as_dict()
+        
+        # Fallback to system defaults if not set in HRMS Settings
+        if not data.get("default_currency"):
+            data["default_currency"] = frappe.defaults.get_global_default("currency") or "INR"
+        
+        # Pull the currency symbol from the Frappe Currency DocType
+        if data.get("default_currency"):
+            data["currency_symbol"] = frappe.db.get_value("Currency", data["default_currency"], "symbol") or "₹"
+        
+        if not data.get("default_locale"):
+            data["default_locale"] = "en-IN"
+
+        return data
+    except Exception as e:
+        frappe.log_error(f"Error fetching HRMS Settings: {str(e)}")
+        # Ultimate fail-safe defaults
+        return {
+            "default_currency": "INR",
+            "currency_symbol": "₹",
+            "default_locale": "en-IN"
+        }
 
 # =================== ESTIMATION REFERENCE ===================
 @frappe.whitelist()
@@ -529,7 +586,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
         frappe.throw(f"Error in auto leave allocation: {e}")
 
 
-# =================== SALARY SLIP GENERATION REFERENCE ===================
+# =================== SALARY SLIP GENERATION ===================
 
 @frappe.whitelist()
 def generate_salary_slips_from_employee(year=None, month=None, employees=None):
@@ -746,118 +803,6 @@ def generate_salary_slips_from_employee(year=None, month=None, employees=None):
 
     return result_msg
 
-@frappe.whitelist()
-def salary_slip_after_submit(doc, method):
-    """Triggered automatically when a Salary Slip is submitted (approved)."""
-
-    try:
-        # Get Month-Year for display
-        month_year = frappe.utils.formatdate(doc.pay_period_start, "MMMM yyyy")
-
-        # -------------------------
-        # 1️⃣ Create Notification Log
-        # -------------------------
-        if doc.user:
-            notification_doc = frappe.get_doc({
-                "doctype": "Notification Log",
-                "subject": f"Salary Slip for {month_year}",
-                "email_content": f"Your salary slip for {month_year} has been approved.",
-                "for_user": doc.user,
-                "document_type": "Salary Slip",
-                "document_name": doc.name,
-                "from_user": frappe.session.user,
-                "type": "Alert",
-                "seen": 0,
-            })
-            notification_doc.insert(ignore_permissions=True)
-
-            # Real-time bell refresh
-            frappe.publish_realtime(
-                event="notification",
-                message={"type": "New Notification"},
-                user=doc.user,
-                after_commit=True
-            )
-
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "Salary Slip Notification Error")
-
-    # -------------------------
-    # 2️⃣ Firebase Push Notification
-    # -------------------------
-    try:
-        from company.company.api import send_push_notification_to_user
-
-        if doc.user:
-            result = send_push_notification_to_user(
-                user=doc.user,
-                title=f"Salary Slip for {month_year}",
-                body=f"Your salary slip for {month_year} has been approved successfully.",
-                data={"salary_slip": doc.name}
-            )
-
-            frappe.log_error(
-                message=f"Push notification sent successfully to {doc.user}\nResponse: {result}",
-                title=f"Firebase Push Success for {doc.employee_name}"
-            )
-
-    except Exception as e:
-        frappe.log_error(
-            message=f"Error while sending push notification: {str(e)}",
-            title=f"Firebase Push Error for {doc.employee_name}"
-        )
-
-    # -------------------------
-    # 3️⃣ Email Notification
-    # -------------------------
-    try:
-        recipients = []
-        if doc.email:
-            recipients.append(doc.email)
-        if doc.personal_email:
-            recipients.append(doc.personal_email)
-
-        if recipients:
-            print_format = frappe.get_meta("Salary Slip").default_print_format or "Standard"
-            pdf_content = frappe.get_print(
-                "Salary Slip",
-                doc.name,
-                print_format=print_format,
-                as_pdf=True
-            )
-
-            message = f"""
-            <div style="font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif; background:#f4f6f8; padding:30px;">
-                <div style="max-width:600px; margin:auto; background:white; border-radius:12px;
-                            box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden;">
-                    <div style="background:#007bff; color:white; padding:18px 24px; font-size:18px; font-weight:600; text-align:center;">
-                        Your Salary Slip for {month_year}
-                    </div>
-                    <div style="padding:24px; color:#333; font-size:14px; line-height:1.6;">
-                        <p>Dear <b>{doc.employee_name}</b>,</p>
-                        <p>Your salary slip for <b>{month_year}</b> has been Released. Please find the attached PDF below.</p>
-                        <p style="margin-top:20px;">Best regards,<br>
-                        <b style="color:#007bff;">HR Team</b></p>
-                    </div>
-                </div>
-            </div>
-            """
-
-            frappe.sendmail(
-                recipients=recipients,
-                subject=f"Salary Slip for {month_year}",
-                message=message,
-                attachments=[{
-                    "fname": f"Salary_Slip_{doc.employee}_{month_year}.pdf",
-                    "fcontent": pdf_content
-                }],
-                reference_doctype="Salary Slip",
-                reference_name=doc.name
-            )
-
-    except Exception as e:
-        frappe.log_error(message=str(e), title=f"Email Error for {doc.employee_name}")
-        
 
 def get_holiday_dates_for_month(year, month):
     """

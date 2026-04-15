@@ -553,7 +553,7 @@ def close_active_break(session_name, now):
             frappe.publish_realtime('session_update', {"user_id": user_id, "name": session_name}, after_commit=True)
 
 @frappe.whitelist()
-def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, date_search="", status="all", sort_by="login_date_desc", day=None, date=None):
+def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, date_search="", status="all", sort_by="login_date_desc", day=None, date=None, from_date=None, to_date=None):
     """
     Fetch sessions with their child intervals and related breaks.
     """
@@ -631,6 +631,17 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
     if date:
         query_filters.append("s.login_date = %(date)s")
         values["date"] = date
+        
+    if from_date and to_date:
+        query_filters.append("s.login_date BETWEEN %(from_date)s AND %(to_date)s")
+        values["from_date"] = from_date
+        values["to_date"] = to_date
+    elif from_date:
+        query_filters.append("s.login_date >= %(from_date)s")
+        values["from_date"] = from_date
+    elif to_date:
+        query_filters.append("s.login_date <= %(to_date)s")
+        values["to_date"] = to_date
 
     if employee and employee != "all":
         query_filters.append("s.employee = %(employee)s")

@@ -92,9 +92,9 @@ doc_events = {
     "Request": {
         "on_submit": "company.company.api.create_unread_entry_for_hr"
     },
-    "Salary Slip": {
-        "on_submit": "company.company.api.salary_slip_after_submit"
-    },
+    # "Salary Slip": {
+    #     "on_submit": "company.company.api.salary_slip_after_submit"
+    # },
     "Event": {
         "on_update": [
             "company.company.crm_api.sync_event_to_call",

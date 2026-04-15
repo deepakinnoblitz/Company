@@ -7,7 +7,6 @@
  "engine": "InnoDB",
  "field_order": [
   "component_name",
-  "field_name",
   "type",
   "percentage",
   "static_amount"
@@ -22,11 +21,6 @@
    "unique": 1
   },
   {
-   "fieldname": "field_name",
-   "fieldtype": "Data",
-   "label": "Field Name"
-  },
-  {
    "fieldname": "type",
    "fieldtype": "Select",
    "label": "Type",
@@ -39,6 +33,7 @@
    "precision": "2"
   },
   {
+   "default": "0",
    "fieldname": "static_amount",
    "fieldtype": "Currency",
    "label": "Static Amount",
@@ -48,7 +43,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-10 18:02:49.397000",
+ "modified": "2026-04-15 12:43:00.619297",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Salary Structure Component",
