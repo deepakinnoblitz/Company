@@ -25,7 +25,11 @@
   "task_notification",
   "currency_tab",
   "default_currency",
-  "default_locale"
+  "default_locale",
+  "call_tab",
+  "livekit_url",
+  "livekit_api_key",
+  "livekit_api_secret"
  ],
  "fields": [
   {
@@ -152,6 +156,26 @@
    "fieldtype": "Select",
    "label": "Default Locale",
    "options": "en-IN\nen-US\nen-GB\nde-DE\nfr-FR\nja-JP"
+  },
+  {
+   "fieldname": "call_tab",
+   "fieldtype": "Tab Break",
+   "label": "Call Integration"
+  },
+  {
+   "fieldname": "livekit_url",
+   "fieldtype": "Data",
+   "label": "LiveKit Server URL"
+  },
+  {
+   "fieldname": "livekit_api_key",
+   "fieldtype": "Data",
+   "label": "LiveKit API Key"
+  },
+  {
+   "fieldname": "livekit_api_secret",
+   "fieldtype": "Password",
+   "label": "LiveKit API Secret"
   }
  ],
  "issingle": 1,

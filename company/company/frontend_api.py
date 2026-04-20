@@ -1,6 +1,7 @@
 import frappe
 from frappe.auth import LoginManager
 from frappe import _
+from livekit import api
 
 
 @frappe.whitelist(allow_guest=True)
@@ -2254,3 +2255,43 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
         })
         
     return result
+
+@frappe.whitelist()
+def get_livekit_token(room_name):
+    """Generates an Access Token for a LiveKit room."""
+    user = frappe.session.user
+    
+    # Read credentials from HRMS Settings
+    try:
+        settings = frappe.get_doc("HRMS Settings")
+        url = settings.livekit_url
+        api_key = settings.livekit_api_key
+        api_secret = settings.get_password("livekit_api_secret")
+    except Exception:
+        frappe.throw("Failed to read LiveKit settings from HRMS Settings")
+    
+    if not api_key or not api_secret:
+        frappe.throw("LiveKit API Key or Secret not configured in HRMS Settings")
+
+    # Define grants (explicitly including publish/subscribe)
+    grant = api.VideoGrants(
+        room_join=True,
+        room=room_name,
+        can_publish=True,
+        can_subscribe=True,
+        can_publish_data=True
+    )
+    
+    # Create clean identity (remove spaces/special chars if any)
+    safe_identity = "".join(c for c in user if c.isalnum() or c in "._-")
+    
+    # Create AccessToken
+    token = api.AccessToken(api_key, api_secret) \
+        .with_grants(grant) \
+        .with_identity(safe_identity) \
+        .with_name(frappe.db.get_value("User", user, "full_name") or user)
+        
+    return {
+        "token": token.to_jwt(),
+        "server_url": url
+    }
