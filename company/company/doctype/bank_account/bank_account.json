@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:bank_account_name",
+ "autoname": "field:account_number",
  "creation": "2025-09-24 16:33:31.300366",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -58,7 +58,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-07 16:01:55.532219",
+ "modified": "2026-04-10 12:59:18.087870",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Bank Account",

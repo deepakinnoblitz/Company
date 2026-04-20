@@ -14,7 +14,6 @@
   "city",
   "date_of_joining",
   "skip_probation",
-  "bank_name",
   "bank_account",
   "dob",
   "pf_number",
@@ -30,19 +29,17 @@
   "user",
   "evaluation_score",
   "evaluation_status",
-  "section_break_zuyd",
+  "section_break_salary_details",
   "ctc",
   "salary_details_section",
-  "basic_pay",
-  "hra",
-  "conveyance_allowances",
-  "medical_allowances",
-  "other_allowances",
-  "column_break_jfqq",
-  "pf",
-  "health_insurance",
-  "professional_tax",
-  "loan_recovery"
+  "earnings",
+  "column_break_earnings",
+  "deductions",
+  "section_break_summary",
+  "total_earnings",
+  "column_break_summary",
+  "total_deductions",
+  "net_salary"
  ],
  "fields": [
   {
@@ -128,26 +125,6 @@
    "label": "Salary Details"
   },
   {
-   "fieldname": "basic_pay",
-   "fieldtype": "Currency",
-   "label": "Basic Pay",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "hra",
-   "fieldtype": "Currency",
-   "label": "HRA",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "pf",
-   "fieldtype": "Currency",
-   "label": "PF",
-   "precision": "2"
-  },
-  {
    "fieldname": "dob",
    "fieldtype": "Date",
    "label": "Date of Birth"
@@ -162,58 +139,6 @@
    "fieldname": "esi_no",
    "fieldtype": "Data",
    "label": "ESI No",
-   "read_only": 1
-  },
-  {
-   "fieldname": "bank_name",
-   "fieldtype": "Data",
-   "label": "Bank Name",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_jfqq",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "conveyance_allowances",
-   "fieldtype": "Currency",
-   "label": "Conveyance Allowances",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "medical_allowances",
-   "fieldtype": "Currency",
-   "label": "Medical Allowances",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "other_allowances",
-   "fieldtype": "Currency",
-   "label": "Other Allowances",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_insurance",
-   "fieldtype": "Currency",
-   "label": "ESI/Health Insurance",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "professional_tax",
-   "fieldtype": "Currency",
-   "label": "Professional Tax",
-   "precision": "2",
-   "read_only": 1
-  },
-  {
-   "fieldname": "loan_recovery",
-   "fieldtype": "Currency",
-   "label": "Loan Recovery",
-   "precision": "2",
    "read_only": 1
   },
   {
@@ -249,8 +174,9 @@
    "label": "Office Phone Number"
   },
   {
-   "fieldname": "section_break_zuyd",
-   "fieldtype": "Section Break"
+   "fieldname": "section_break_salary_details",
+   "fieldtype": "Section Break",
+   "label": "CTC Details"
   },
   {
    "fieldname": "ctc",
@@ -272,12 +198,55 @@
    "fieldname": "city",
    "fieldtype": "Select",
    "label": "City"
+  },
+  {
+   "fieldname": "earnings",
+   "fieldtype": "Table",
+   "label": "Earnings",
+   "options": "Salary Structure"
+  },
+  {
+   "fieldname": "column_break_earnings",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deductions",
+   "fieldtype": "Table",
+   "label": "Deductions",
+   "options": "Salary Structure"
+  },
+  {
+   "fieldname": "section_break_summary",
+   "fieldtype": "Section Break",
+   "label": "Salary Summary"
+  },
+  {
+   "fieldname": "total_earnings",
+   "fieldtype": "Currency",
+   "label": "Total Earnings",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_deductions",
+   "fieldtype": "Currency",
+   "label": "Total Deductions",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_salary",
+   "fieldtype": "Currency",
+   "label": "Net Salary",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-04 14:17:39.102899",
+ "modified": "2026-04-10 13:06:46.306642",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",
