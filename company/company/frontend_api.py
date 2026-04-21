@@ -2295,3 +2295,112 @@ def get_livekit_token(room_name):
         "token": token.to_jwt(),
         "server_url": url
     }
+
+
+@frappe.whitelist()
+def get_open_jobs(search=None, filters=None, limit_start=0, limit_page_length=10, order_by="posted_on desc"):
+    """Fetch active job openings for employees to refer candidates."""
+    frappe_filters = {"status": "Open"}
+    or_filters = []
+    
+    if search:
+        or_filters = [
+            ["job_title", "like", f"%{search}%"],
+            ["designation", "like", f"%{search}%"],
+            ["name", "like", f"%{search}%"]
+        ]
+        
+    if filters:
+        import json
+        if isinstance(filters, str):
+            filters = json.loads(filters)
+        if filters.get("location") and filters["location"] != "all":
+            frappe_filters["location"] = filters["location"]
+            
+    return frappe.get_all(
+        "Job Opening",
+        filters=frappe_filters,
+        or_filters=or_filters,
+        fields=[
+            "name", "job_title", "designation", "experience", "location", 
+            "small_description", "description", "posted_on", "closes_on", 
+            "status", "shift", "lower_range", "upper_range", "salary_per", "skills_required"
+        ],
+        limit_start=limit_start,
+        limit_page_length=limit_page_length,
+        order_by=order_by
+    )
+
+
+
+@frappe.whitelist()
+def get_my_referrals(search=None, filters=None, limit_start=0, limit_page_length=10, order_by="creation desc"):
+    """Fetch referrals submitted by the currently logged-in employee."""
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, "name")
+    
+    if not employee:
+        return []
+        
+    frappe_filters = {"referrer": employee}
+    or_filters = []
+    
+    if search:
+        or_filters = [
+            ["candidate_name", "like", f"%{search}%"],
+            ["candidate_email", "like", f"%{search}%"],
+            ["job_opening", "like", f"%{search}%"]
+        ]
+        
+    if filters:
+        import json
+        if isinstance(filters, str):
+            filters = json.loads(filters)
+        if filters.get("status") and filters["status"] != "all":
+            frappe_filters["status"] = filters["status"]
+        if filters.get("job_opening") and filters["job_opening"] != "all":
+            frappe_filters["job_opening"] = filters["job_opening"]
+
+    return frappe.get_all(
+        "Employee Referral",
+        filters=frappe_filters,
+        or_filters=or_filters,
+        fields=["name", "candidate_name", "candidate_email", "job_opening", "status", "creation", "job_applicant"],
+        order_by=order_by,
+        limit_start=limit_start,
+        limit_page_length=limit_page_length
+    )
+
+
+@frappe.whitelist()
+def submit_referral(candidate_name, candidate_email, job_opening, resume, candidate_phone=None, relationship=None, notes=None):
+    """Submit a new candidate referral."""
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, "name")
+    
+    if not employee:
+        frappe.throw(_("Employee record not found for the current user."))
+        
+    doc = frappe.get_doc({
+        "doctype": "Employee Referral",
+        "referrer": employee,
+        "job_opening": job_opening,
+        "candidate_name": candidate_name,
+        "candidate_email": candidate_email,
+        "candidate_phone": candidate_phone,
+        "resume": resume,
+        "relationship": relationship,
+        "notes": notes,
+        "status": "Pending"
+    })
+    
+    doc.insert(ignore_permissions=True)
+    return doc.as_dict()
+
+@frappe.whitelist()
+def handle_create_job_applicant(referral_name):
+    """API wrapper to call create_job_applicant method on Employee Referral doc."""
+    doc = frappe.get_doc("Employee Referral", referral_name)
+    return doc.create_job_applicant()
+
+
