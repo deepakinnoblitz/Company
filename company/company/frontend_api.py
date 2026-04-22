@@ -421,6 +421,11 @@ def update_doc_status(doctype, name, workflow_state, update_data=None):
             event="leave_application_updated",
             message={"name": name, "workflow_state": workflow_state},
         )
+    elif doctype == "Asset Request":
+        frappe.publish_realtime(
+            event="asset_request_updated",
+            message={"name": name, "workflow_state": workflow_state},
+        )
 
     return doc.as_dict()
 
@@ -1287,6 +1292,61 @@ def upload_profile_image():
 
     except Exception as e:
         frappe.log_error(f"Error uploading profile image: {str(e)}")
+        return {"status": "failed", "message": str(e)}
+
+
+@frappe.whitelist()
+def upload_employee_image():
+    """
+    Upload and update profile image for the employee linked to the current user.
+    Also automatically updates the User record via the Employee on_update hook.
+    """
+    user_email = frappe.session.user
+
+    if user_email == "Guest":
+        return {"status": "failed", "message": "Please login to upload profile image"}
+
+    try:
+        # Get Employee ID linked to this user
+        employee_id = frappe.db.get_value("Employee", {"user": user_email}, "name")
+        if not employee_id:
+            return {"status": "failed", "message": "No Employee record found for current user"}
+
+        # 'file' is the key in FormData
+        file = frappe.request.files.get("file")
+        if not file:
+             return {"status": "failed", "message": "No file uploaded"}
+
+        from frappe.utils.file_manager import save_file
+
+        # Save the file and attach to Employee record
+        fname = file.filename
+        content = file.stream.read()
+
+        saved_file = save_file(
+            fname,
+            content,
+            "Employee",
+            employee_id,
+            decode=False,
+            is_private=0,
+            df="profile_picture"
+        )
+
+        # Update employee record
+        # This will trigger the 'on_update' hook in employee.py which syncs to the User record
+        employee_doc = frappe.get_doc("Employee", employee_id)
+        employee_doc.profile_picture = saved_file.file_url
+        employee_doc.save(ignore_permissions=True)
+
+        return {
+            "status": "success",
+            "message": "Employee profile image updated and synced to User",
+            "file_url": saved_file.file_url
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error uploading employee image: {str(e)}")
         return {"status": "failed", "message": str(e)}
 
 
@@ -2402,5 +2462,234 @@ def handle_create_job_applicant(referral_name):
     """API wrapper to call create_job_applicant method on Employee Referral doc."""
     doc = frappe.get_doc("Employee Referral", referral_name)
     return doc.create_job_applicant()
+
+# --- ASSET REQUEST APIs ---
+
+@frappe.whitelist()
+def submit_asset_request(request_type, priority, purpose, asset_category=None, asset=None, asset_name=None, asset_tag=None, employee=None, return_attachment=None):
+    # Check if current user is HR or System Manager
+    current_user = frappe.session.user
+    user_roles = frappe.get_roles(current_user)
+    is_hr = any(role in user_roles for role in ["HR Manager", "HR", "System Manager", "Administrator"])
+
+    target_employee = None
+
+    if is_hr and employee:
+        # Validate that the provided employee exists
+        if not frappe.db.exists("Employee", employee):
+            frappe.throw(_("Employee {0} not found").format(employee))
+        target_employee = employee
+    else:
+        # Default to the employee linked to the session user
+        target_employee = frappe.db.get_value("Employee", {"user": current_user}, "name")
+
+    if not target_employee:
+        frappe.throw(_("Employee profile not found for the current user. Please select an employee."))
+
+    doc = frappe.get_doc({
+        "doctype": "Asset Request",
+        "employee": target_employee,
+        "request_type": request_type,
+        "priority": priority,
+        "purpose": purpose,
+        "asset_category": asset_category,
+        "asset": asset,
+        "asset_name": asset_name,
+        "asset_tag": asset_tag,
+        "return_attachment": return_attachment
+    })
+    doc.insert(ignore_permissions=True)
+    
+    # Automatically promote to Pending Approval so it appears in HR dashboard
+    doc.workflow_state = "Pending Approval"
+    doc.status = "Pending Approval"
+    doc.save(ignore_permissions=True)
+    
+    frappe.publish_realtime(
+        event="asset_request_updated",
+        message={"name": doc.name, "workflow_state": doc.workflow_state},
+    )
+
+    frappe.db.commit()
+    return {"message": "Asset Request submitted successfully.", "name": doc.name}
+
+@frappe.whitelist()
+def get_my_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+    employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
+    if not employee:
+        return {"data": [], "total": 0}
+        
+    filters = [["Asset Request", "employee", "=", employee]]
+    if request_type and request_type != 'all':
+        filters.append(["Asset Request", "request_type", "=", request_type])
+    if status and status != 'all':
+        filters.append(["Asset Request", "status", "=", status])
+    if category:
+        filters.append(["Asset Request", "asset_category", "=", category])
+    if asset:
+        filters.append(["Asset Request", "asset", "like", f"%{asset}%"])
+    if priority:
+        filters.append(["Asset Request", "priority", "=", priority])
+    if start_date:
+        filters.append(["Asset Request", "modified", ">=", start_date])
+    if end_date:
+        filters.append(["Asset Request", "modified", "<=", end_date + " 23:59:59"])
+        
+    start = (int(page) - 1) * int(limit)
+    total = frappe.db.count("Asset Request", filters)
+    
+    requests = frappe.get_all(
+        "Asset Request",
+        filters=filters,
+        fields=["name", "request_type", "asset_category", "asset_name", "asset", "status", "priority", "creation", "modified", "purpose"],
+        order_by=sort_by,
+        limit_start=start,
+        limit_page_length=int(limit)
+    )
+
+    # Fetch and populate asset names for Return Requests if empty
+    asset_ids = [r.asset for r in requests if r.asset and not r.asset_name]
+    if asset_ids:
+        asset_map = {a.name: a.asset_name for a in frappe.get_all("Asset", filters={"name": ["in", asset_ids]}, fields=["name", "asset_name"])}
+        for r in requests:
+            if r.asset and not r.asset_name:
+                r.asset_name = asset_map.get(r.asset)
+
+    return {"data": requests, "total": total}
+
+@frappe.whitelist()
+def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+    filters = []
+    if request_type and request_type != 'all':
+        filters.append(["Asset Request", "request_type", "=", request_type])
+    if status and status != 'all':
+        filters.append(["Asset Request", "status", "=", status])
+    if category:
+        filters.append(["Asset Request", "asset_category", "=", category])
+    if asset:
+        filters.append(["Asset Request", "asset", "like", f"%{asset}%"])
+    if priority:
+        filters.append(["Asset Request", "priority", "=", priority])
+    if start_date:
+        filters.append(["Asset Request", "modified", ">=", start_date])
+    if end_date:
+        filters.append(["Asset Request", "modified", "<=", end_date + " 23:59:59"])
+        
+    start = (int(page) - 1) * int(limit)
+    total = frappe.db.count("Asset Request", filters)
+    
+    requests = frappe.get_all(
+        "Asset Request",
+        filters=filters,
+        fields=["name", "employee", "employee_name", "request_type", "asset_category", "asset_name", "asset", "status", "priority", "creation", "modified", "purpose"],
+        order_by=sort_by,
+        limit_start=start,
+        limit_page_length=int(limit)
+    )
+
+    # Fetch and populate asset names for Return Requests if empty
+    asset_ids = [r.asset for r in requests if r.asset and not r.asset_name]
+    if asset_ids:
+        asset_map = {a.name: a.asset_name for a in frappe.get_all("Asset", filters={"name": ["in", asset_ids]}, fields=["name", "asset_name"])}
+        for r in requests:
+            if r.asset and not r.asset_name:
+                r.asset_name = asset_map.get(r.asset)
+
+    return {"data": requests, "total": total}
+
+@frappe.whitelist()
+def approve_declaration(request_name, hr_remarks=None, asset_name=None, asset_tag=None, asset_category=None, purchase_date=None, purchase_cost=None):
+    from frappe.utils import nowdate
+    
+    # 1. Fetch the request
+    req = frappe.get_doc("Asset Request", request_name)
+    if req.workflow_state == "Completed":
+        return {"message": "Request is already completed."}
+        
+    # 2. Create the Asset
+    asset = frappe.get_doc({
+        "doctype": "Asset",
+        "asset_name": asset_name,
+        "asset_tag": asset_tag,
+        "category": asset_category,
+        "purchase_date": purchase_date,
+        "purchase_cost": purchase_cost,
+        "current_status": "Assigned"
+    })
+    asset.insert(ignore_permissions=True)
+    
+    # 3. Create the Assignment
+    assignment = frappe.get_doc({
+        "doctype": "Asset Assignment",
+        "asset": asset.name,
+        "assigned_to": req.employee,
+        "assigned_on": nowdate(),
+        "remarks": hr_remarks or "Generated from Asset Declaration"
+    })
+    assignment.insert(ignore_permissions=True)
+    
+    # 4. Push Request to Completed directly to bypass default on_update auto-creation
+    req.db_set("hr_remarks", hr_remarks)
+    req.db_set("asset", asset.name)
+    req.db_set("assigned_asset", asset.name)
+    req.db_set("status", "Completed")
+    req.db_set("workflow_state", "Completed")
+    
+    frappe.publish_realtime(
+        event="asset_request_updated",
+        message={"name": req.name, "workflow_state": "Completed"},
+    )
+    
+    frappe.db.commit()
+    return {"message": "Declaration approved and Asset registered successfully."}
+
+@frappe.whitelist()
+def get_available_assets_list():
+    """
+    Returns only Assets that reflect truly available status.
+    Must have current_status="Available" AND no active Asset Assignment.
+    """
+    # 1. Get all assets marked as Available
+    available_assets = frappe.get_all(
+        "Asset",
+        filters={"current_status": "Available"},
+        fields=["name", "asset_name", "asset_tag", "category"]
+    )
+    
+    # 2. Get names of assets currently assigned (no returned_on date)
+    assigned_asset_names = frappe.get_all(
+        "Asset Assignment",
+        filters={"returned_on": ["is", "not set"]},
+        pluck="asset"
+    )
+    
+    # 3. Filter out any that might be assigned but still marked Available (safeguard)
+    return [a for a in available_assets if a.name not in assigned_asset_names]
+
+@frappe.whitelist()
+def get_my_assigned_assets(employee=None):
+    """
+    Returns assets currently assigned to the given employee (where returned_on is null).
+    """
+    if not employee:
+        employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+        
+    if not employee:
+        return []
+
+    # Get active assignments for the employee
+    active_assignments = frappe.get_all(
+        "Asset Assignment",
+        filters={
+            "assigned_to": employee,
+            "returned_on": ["is", "not set"]
+        },
+        fields=["asset", "asset_name"]
+    )
+    
+    return active_assignments
+
+
+
 
 
