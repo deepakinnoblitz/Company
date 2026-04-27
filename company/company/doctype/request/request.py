@@ -78,6 +78,25 @@ class Request(Document):
         return {}
 
     # =================================================
+    # GET EMPLOYEE EMAILS
+    # =================================================
+    def get_employee_emails(self):
+        """Fetch both company email and personal email of the employee"""
+        emp = frappe.db.get_value("Employee", self.employee_id, ["email", "personal_email"], as_dict=True)
+        if not emp:
+            return [], None
+        
+        emails = []
+        primary_email = emp.email or emp.personal_email
+        
+        if emp.email:
+            emails.append(emp.email)
+        if emp.personal_email:
+            emails.append(emp.personal_email)
+            
+        return list(set(emails)), primary_email
+
+    # =================================================
     # 1️⃣ EMPLOYEE SUBMIT → HR (Blue Theme)
     # =================================================
     def notify_hr_on_submission(self):
@@ -88,8 +107,8 @@ class Request(Document):
         if not hr_email:
             return
 
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        emp_emails, primary_email = self.get_employee_emails()
+        sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         cc_list = []
         if cc_emails:
@@ -104,7 +123,7 @@ class Request(Document):
             intro=f"{self.employee_name} has submitted a new request for review.",
             color="#0062cc",
             sender=sender,
-            reply_to=employee_email or hr_email
+            reply_to=primary_email or hr_email
         )
 
     # =================================================
@@ -115,8 +134,8 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        if not employee_email: return
+        emp_emails, primary_email = self.get_employee_emails()
+        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -127,7 +146,7 @@ class Request(Document):
         """
 
         self.send_email(
-            recipients=[employee_email],
+            recipients=emp_emails,
             subject=f"✅ Request Approved - {self.subject or ''}",
             header="Request Approved",
             icon="✅",
@@ -146,8 +165,8 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        if not employee_email: return
+        emp_emails, primary_email = self.get_employee_emails()
+        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -158,7 +177,7 @@ class Request(Document):
         """
 
         self.send_email(
-            recipients=[employee_email],
+            recipients=emp_emails,
             subject=f"❌ Request Rejected - {self.subject or ''}",
             header="Request Rejected",
             icon="❌",
@@ -188,9 +207,9 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
+        emp_emails, primary_email = self.get_employee_emails()
         hr_sender = f"{hr_name} <{hr_email}>" if hr_email else None
-        employee_sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        employee_sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         # -------------------------------------------------
         # HR → ASK CLARIFICATION → EMPLOYEE (Yellow)
@@ -199,7 +218,7 @@ class Request(Document):
             hr_msg = self.get_latest_hr_query()
 
             self.send_email(
-                recipients=[employee_email],
+                recipients=emp_emails,
                 subject="📩 Reply from HR - Request",
                 header="Reply from HR",
                 icon="📩",
@@ -231,7 +250,7 @@ class Request(Document):
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
-                reply_to=employee_email or hr_email
+                reply_to=primary_email or hr_email
             )
 
     # =================================================

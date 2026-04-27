@@ -21,14 +21,14 @@ function calculate_total_hours(frm) {
     const to_time = frm.doc.to_time;
 
     if (from_time && to_time) {
-        const start = moment(from_time, "HH:mm:ss");
-        const end = moment(to_time, "HH:mm:ss");
+        const start = moment(from_time, ["HH:mm:ss", "HH:mm"]);
+        const end = moment(to_time, ["HH:mm:ss", "HH:mm"]);
 
         let duration = moment.duration(end.diff(start));
 
         // Handle overnight (e.g., 22:00 → 02:00)
         if (duration.asMinutes() < 0) {
-            duration = moment.duration(end.add(1, "day").diff(start));
+            duration = moment.duration(moment(to_time, ["HH:mm:ss", "HH:mm"]).add(1, "day").diff(start));
         }
 
         const hours = Math.floor(duration.asHours());

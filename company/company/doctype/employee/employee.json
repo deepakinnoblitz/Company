@@ -95,8 +95,7 @@
   {
    "fieldname": "date_of_joining",
    "fieldtype": "Date",
-   "label": "Date of Joining",
-   "read_only": 1
+   "label": "Date of Joining"
   },
   {
    "default": "0",
@@ -116,8 +115,7 @@
    "fieldname": "bank_account",
    "fieldtype": "Link",
    "label": "Bank Account",
-   "options": "Bank Account",
-   "read_only": 1
+   "options": "Bank Account"
   },
   {
    "fieldname": "salary_details_section",
@@ -132,14 +130,12 @@
   {
    "fieldname": "pf_number",
    "fieldtype": "Data",
-   "label": "PF Number",
-   "read_only": 1
+   "label": "PF Number"
   },
   {
    "fieldname": "esi_no",
    "fieldtype": "Data",
-   "label": "ESI No",
-   "read_only": 1
+   "label": "ESI No"
   },
   {
    "fieldname": "personal_email",
@@ -223,8 +219,7 @@
   {
    "fieldname": "total_earnings",
    "fieldtype": "Currency",
-   "label": "Total Earnings",
-   "read_only": 1
+   "label": "Total Earnings"
   },
   {
    "fieldname": "column_break_summary",
@@ -233,20 +228,18 @@
   {
    "fieldname": "total_deductions",
    "fieldtype": "Currency",
-   "label": "Total Deductions",
-   "read_only": 1
+   "label": "Total Deductions"
   },
   {
    "fieldname": "net_salary",
    "fieldtype": "Currency",
-   "label": "Net Salary",
-   "read_only": 1
+   "label": "Net Salary"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-10 13:06:46.306642",
+ "modified": "2026-04-22 18:36:31.197429",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",

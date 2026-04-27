@@ -24,20 +24,32 @@ class WFHAttendance(Document):
                 f"A WFH Attendance request already exists for <b>{self.date}</b> "
             )
 
-        # ✅ Calculate total hours if both times exist
+        # ✅ Calculate total hours
+        self.calculate_total_hours()
+
+    def before_update_after_submit(self):
+        """Recalculate hours even after submission"""
+        self.calculate_total_hours()
+
+    def calculate_total_hours(self):
         if self.from_time and self.to_time:
             from_dt = self._get_datetime(self.from_time)
             to_dt = self._get_datetime(self.to_time)
 
-            # Handle overnight (e.g., 22:00 → 02:00)
-            if to_dt < from_dt:
-                to_dt += timedelta(days=1)
+            if from_dt and to_dt:
+                # Handle overnight (e.g., 22:00 → 02:00)
+                if to_dt < from_dt:
+                    to_dt += timedelta(days=1)
 
-            diff = to_dt - from_dt
-            total_minutes = diff.total_seconds() / 60
-            hours = int(total_minutes // 60)
-            minutes = int(total_minutes % 60)
-            self.total_hours = f"{hours}:{minutes:02d}"
+                diff = to_dt - from_dt
+                total_minutes = int(diff.total_seconds() / 60)
+                hours = total_minutes // 60
+                minutes = total_minutes % 60
+                self.total_hours = f"{hours}:{minutes:02d}"
+            else:
+                self.total_hours = ""
+        else:
+            self.total_hours = ""
 
     def after_insert(self):
         """Auto-submit the document immediately after creation"""
@@ -45,11 +57,14 @@ class WFHAttendance(Document):
             if self.docstatus == 0:
                 frappe.db.commit()  # ensure insert is saved before submit
                 self.submit()
+                
+                # ✅ Set state to Pending AFTER submission
+                frappe.db.set_value(self.doctype, self.name, "workflow_state", "Pending", update_modified=False)
+                
                 frappe.msgprint("✅ WFH Attendance Submitted.")
                 self.notify_hr_for_approval()
         except Exception as e:
             frappe.log_error(frappe.get_traceback(), "WFH Auto Submit Failed")
-
 
     def on_update_after_submit(self):
         """Triggered when HR approves (docstatus=1)"""
@@ -129,14 +144,27 @@ class WFHAttendance(Document):
             attendance.insert(ignore_permissions=True)
 
     def _get_datetime(self, t):
-        """Helper to normalize time field"""
+        """Helper to normalize time field (handles str, timedelta, time)"""
+        if not t:
+            return None
+
+        # Use a fixed base date to ensure all times are compared on the same day
+        base_date = date(1900, 1, 1)
+
         if isinstance(t, str):
-            return datetime.strptime(t, "%H:%M:%S")
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    # strptime defaults to 1900-01-01
+                    return datetime.strptime(t, fmt)
+                except ValueError:
+                    continue
+            frappe.throw(f"Invalid time format: {t}. Expected HH:MM:SS or HH:MM")
         elif isinstance(t, timedelta):
-            return datetime.min + t
+            return datetime.combine(base_date, time.min) + t
         elif isinstance(t, time):
-            return datetime.combine(date.today(), t)
-        frappe.throw(f"Unsupported type for time: {type(t)}")
+            return datetime.combine(base_date, t)
+        
+        return None
 
     def get_hr_settings(self):
         """Fetch HR email and CC from Company Email Settings"""
@@ -403,3 +431,50 @@ class WFHAttendance(Document):
             reference_doctype=self.doctype,
             reference_name=self.name
         )
+
+
+@frappe.whitelist()
+def handle_workflow_action(docname, action):
+    """
+    Whitelisted API to Approve or Reject WFH Attendance.
+    Triggers attendance creation and mail functionality.
+    """
+    if not docname or not action:
+        frappe.throw("Document Name and Action are required")
+
+    # Check for HR or System Manager roles
+    user_roles = frappe.get_roles()
+    if not ("HR" in user_roles or "System Manager" in user_roles):
+        frappe.throw("Only HR or System Managers can approve/reject WFH requests", frappe.PermissionError)
+
+    doc = frappe.get_doc("WFH Attendance", docname)
+
+    if doc.workflow_state != "Pending":
+        frappe.throw(f"Workflow Action is only allowed for 'Pending' requests. Current state: {doc.workflow_state}")
+
+    if action == "Approve":
+        doc.workflow_state = "Approved"
+        # Since it's already submitted, saving it triggers on_update_after_submit
+        doc.save(ignore_permissions=True)
+        
+        # Push real-time update
+        frappe.publish_realtime(
+            event="wfh_attendance_updated",
+            message={"name": docname, "workflow_state": "Approved", "action": "Approve"},
+        )
+        return {"status": "success", "message": f"WFH Attendance {docname} Approved"}
+
+    elif action == "Reject":
+        doc.workflow_state = "Rejected"
+        # Cancelling the document triggers on_cancel hook
+        doc.cancel()
+        
+        # Push real-time update
+        frappe.publish_realtime(
+            event="wfh_attendance_updated",
+            message={"name": docname, "workflow_state": "Rejected", "action": "Reject"},
+        )
+        return {"status": "success", "message": f"WFH Attendance {docname} Rejected"}
+
+    else:
+        frappe.throw(f"Invalid Action: {action}. Expected 'Approve' or 'Reject'")

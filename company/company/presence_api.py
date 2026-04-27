@@ -692,6 +692,37 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
 
     return {"data": sessions, "total_count": total_count}
 
+@frappe.whitelist()
+def get_session_detail(name):
+    """
+    Fetch a single session with its intervals and breaks.
+    """
+    session = frappe.db.get_value("Employee Session", name, 
+        ["name", "employee", "login_time", "login_date", "logout_time", "total_work_hours", "total_break_hours", "status"], 
+        as_dict=True)
+    
+    if not session:
+        return None
+
+    # Get employee name
+    session.employee_name = frappe.db.get_value("Employee", session.employee, "employee_name")
+
+    # Get intervals
+    session.intervals = frappe.get_all("Employee Session Interval",
+        filters={"parent": session.name},
+        fields=["from_time", "to_time", "status", "duration_seconds"],
+        order_by="from_time asc"
+    )
+
+    # Get breaks
+    session.breaks = frappe.get_all("Employee Break",
+        filters={"session": session.name},
+        fields=["break_start", "break_end", "break_duration", "source", "reason"],
+        order_by="break_start asc"
+    )
+
+    return session
+
 def daily_reset():
     """
     Force close all active sessions and reset all statuses to Offline.

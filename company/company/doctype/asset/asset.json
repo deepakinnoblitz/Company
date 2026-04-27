@@ -27,7 +27,8 @@
   {
    "fieldname": "asset_tag",
    "fieldtype": "Data",
-   "label": "Asset Tag / Serial Number"
+   "label": "Asset Tag / Serial Number",
+   "unique": 1
   },
   {
    "fieldname": "category",
@@ -66,7 +67,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-22 11:14:25.632143",
+ "modified": "2026-04-24 16:05:45.398657",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Asset",

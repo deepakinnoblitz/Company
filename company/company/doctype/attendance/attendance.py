@@ -4,7 +4,17 @@ from frappe.model.document import Document
 
 class Attendance(Document):
     def validate(self):
+        self.check_duplicate_attendance()
         self.calculate_working_hours()
+
+    def check_duplicate_attendance(self):
+        existing_attendance = frappe.db.exists("Attendance", {
+            "employee": self.employee,
+            "attendance_date": self.attendance_date,
+            "name": ["!=", self.name]
+        })
+        if existing_attendance:
+            frappe.throw(f"Attendance record already exists for Employee {self.employee} on {self.attendance_date}")
 
     def calculate_working_hours(self):
 
