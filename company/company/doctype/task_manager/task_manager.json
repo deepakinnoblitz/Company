@@ -47,7 +47,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Project",
-   "options": "Project"
+   "options": "Project",
+   "reqd": 1
   },
   {
    "fieldname": "col_break1",
@@ -57,7 +58,8 @@
    "fieldname": "due_date",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "Due Date"
+   "label": "Due Date",
+   "reqd": 1
   },
   {
    "fieldname": "due_time",
@@ -186,10 +188,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-01 11:36:11.147217",
+ "modified": "2026-04-22 17:13:34.154431",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Task Manager",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {

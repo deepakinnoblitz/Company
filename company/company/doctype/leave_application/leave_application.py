@@ -50,11 +50,11 @@ class LeaveApplication(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.get_value("Employee", self.employee, "personal_email")
+        emp_emails, primary_email = self.get_employee_emails()
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
         self.send_email(
-            recipients=[employee_email],
+            recipients=emp_emails,
             subject="❌ Leave Rejected",
             header="Leave Rejected",
             icon="❌",
@@ -79,6 +79,25 @@ class LeaveApplication(Document):
         return {}
 
     # =================================================
+    # GET EMPLOYEE EMAILS
+    # =================================================
+    def get_employee_emails(self):
+        """Fetch both company email and personal email of the employee"""
+        emp = frappe.db.get_value("Employee", self.employee, ["email", "personal_email"], as_dict=True)
+        if not emp:
+            return [], None
+        
+        emails = []
+        primary_email = emp.email or emp.personal_email
+        
+        if emp.email:
+            emails.append(emp.email)
+        if emp.personal_email:
+            emails.append(emp.personal_email)
+            
+        return list(set(emails)), primary_email
+
+    # =================================================
     # 1️⃣ EMPLOYEE SUBMIT → HR
     # =================================================
     def send_submit_mail_to_hr(self):
@@ -89,8 +108,8 @@ class LeaveApplication(Document):
         if not hr_email:
             return
 
-        employee_email = frappe.get_value("Employee", self.employee, "personal_email")
-        sender_name = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        emp_emails, primary_email = self.get_employee_emails()
+        sender_name = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         cc_list = []
         if cc_emails:
@@ -105,7 +124,7 @@ class LeaveApplication(Document):
             intro=f"{self.employee_name} has submitted a leave application.",
             color="#0062cc",
             sender=sender_name,
-            reply_to=employee_email or hr_email
+            reply_to=primary_email or hr_email
         )
 
     # =================================================
@@ -128,9 +147,9 @@ class LeaveApplication(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.get_value("Employee", self.employee, "personal_email")
+        emp_emails, primary_email = self.get_employee_emails()
         hr_sender = f"{hr_name} <{hr_email}>" if hr_email else None
-        employee_sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        employee_sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         # -------------------------------------------------
         # HR → ASK CLARIFICATION → EMPLOYEE
@@ -139,7 +158,7 @@ class LeaveApplication(Document):
             hr_msg = self.get_latest_hr_query()
 
             self.send_email(
-                recipients=[employee_email],
+                recipients=emp_emails,
                 subject="📩 Reply from HR - Leave Application",
                 header="Reply from HR",
                 icon="📩",
@@ -171,7 +190,7 @@ class LeaveApplication(Document):
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
-                reply_to=employee_email or hr_email
+                reply_to=primary_email or hr_email
             )
 
         # -------------------------------------------------
@@ -179,7 +198,7 @@ class LeaveApplication(Document):
         # -------------------------------------------------
         elif current_state == "Approved":
             self.send_email(
-                recipients=[employee_email],
+                recipients=emp_emails,
                 subject="✅ Leave Approved",
                 header="Leave Approved",
                 icon="✅",
