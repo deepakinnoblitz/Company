@@ -566,23 +566,6 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
             return {"data": [], "total_count": 0}
     # For HR/Admin, 'employee' is already either None (all) or from param (specific)
     
-    if date_search:
-        # Try to reformat DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD
-        if re.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}$", date_search.strip()):
-            try:
-                parts = re.split(r"[-/]", date_search.strip())
-                if len(parts) == 3:
-                    # Format to YYYY-MM-DD
-                    date_search = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
-                    filters["login_date"] = date_search
-            except Exception:
-                filters["login_date"] = ["like", f"%{date_search}%"]
-        else:
-            filters["login_date"] = ["like", f"%{date_search}%"]
-        
-    if status and status != "all":
-        filters["status"] = status
-        
     # Map sort_by to SQL order by
     order_by_sql = "s.login_date desc"
     if sort_by == "login_date_asc":
