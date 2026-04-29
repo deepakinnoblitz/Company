@@ -2096,8 +2096,6 @@ def get_attendance_stats(range=None, from_date=None, to_date=None):
     # ============================================================
     return get_employee_attendance_stats(employee, from_date, to_date)
 
-
-
 # ==================================================================
 # 🔹 GLOBAL ATTENDANCE (ALL EMPLOYEES)
 # ==================================================================
