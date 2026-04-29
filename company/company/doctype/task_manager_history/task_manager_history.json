@@ -19,7 +19,7 @@
             "fieldname": "event",
             "label": "Event",
             "fieldtype": "Select",
-            "options": "Closed\nReopened\nAccepted",
+            "options": "Closed\nReopened\nAccepted\nOn Hold\nResumed",
             "in_list_view": 1,
             "reqd": 1
         },

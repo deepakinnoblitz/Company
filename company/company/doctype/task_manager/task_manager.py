@@ -639,6 +639,65 @@ def reopen_task(task_name, remarks):
 
 
 @frappe.whitelist()
+def put_on_hold_task(task_name, remarks):
+	"""API endpoint to move task to On Hold status."""
+	doc = frappe.get_doc("Task Manager", task_name)
+
+	if doc.status == "Completed":
+		frappe.throw(_("Cannot put a Completed task on hold."))
+
+	if doc.status == "On Hold":
+		frappe.throw(_("This task is already On Hold."))
+
+	if not remarks:
+		frappe.throw(_("Please enter <b>Remarks</b> before putting the task on hold."))
+
+	doc.status = "On Hold"
+	doc.append("history", {
+		"event": "On Hold",
+		"done_by": frappe.session.user,
+		"done_on": now_datetime(),
+		"remarks": remarks
+	})
+
+	# Send Chat Notification to the Task Creator (Owner)
+	content = f"<b>Task On Hold:</b> {doc.title}<br><b>Remarks:</b> {remarks}"
+	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+	if doc.owner and doc.owner != sender:
+		doc.send_chat_notification(sender, doc.owner, content)
+
+	doc.save()
+	return {"message": "Task put on hold successfully", "status": doc.status}
+
+@frappe.whitelist()
+def resume_task(task_name, remarks=None):
+	"""API endpoint to move task from On Hold to In Progress status."""
+	doc = frappe.get_doc("Task Manager", task_name)
+
+	if doc.status != "On Hold":
+		frappe.throw(_("Only tasks that are On Hold can be resumed."))
+
+	doc.status = "In Progress"
+	doc.append("history", {
+		"event": "Resumed",
+		"done_by": frappe.session.user,
+		"done_on": now_datetime(),
+		"remarks": remarks or _("Task resumed.")
+	})
+
+	# Send Chat Notification to the Task Creator (Owner)
+	content = f"<b>Task Resumed:</b> {doc.title}"
+	if remarks:
+		content += f"<br><b>Remarks:</b> {remarks}"
+	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
+	if doc.owner and doc.owner != sender:
+		doc.send_chat_notification(sender, doc.owner, content)
+
+	doc.save()
+	return {"message": "Task resumed successfully", "status": doc.status}
+
+
+@frappe.whitelist()
 def accept_task(task_name):
 	"""API endpoint to move task to In Progress status."""
 	doc = frappe.get_doc("Task Manager", task_name)
