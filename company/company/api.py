@@ -1997,7 +1997,9 @@ def _push_unread_count_update(user: str):
 @frappe.whitelist()
 def create_unread_entry_for_hr(doc, method=None):
     # skip if HR created it
-    if "HR" in frappe.get_roles(doc.owner):
+    hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+    owner_roles = frappe.get_roles(doc.owner)
+    if any(role in owner_roles for role in hr_roles):
         return
 
     # avoid duplicates
@@ -2007,25 +2009,29 @@ def create_unread_entry_for_hr(doc, method=None):
     }):
         return
 
-    hr_users = frappe.get_all("Has Role",
-        filters={"role": "HR", "parenttype": "User"},
+    hr_users = list(set(frappe.get_all("Has Role",
+        filters={"role": ["in", hr_roles], "parenttype": "User"},
         pluck="parent"
-    )
+    )))
 
     for user in hr_users:
-        frappe.get_doc({
-            "doctype": "HR Read Tracker",
+        if not frappe.db.exists("HR Read Tracker", {
             "reference_doctype": doc.doctype,
             "reference_name": doc.name,
-            "read_by": user,
-            "is_read": 0
-        }).insert(ignore_permissions=True)
+            "read_by": user
+        }):
+            frappe.get_doc({
+                "doctype": "HR Read Tracker",
+                "reference_doctype": doc.doctype,
+                "reference_name": doc.name,
+                "read_by": user,
+                "is_read": 0
+            }).insert(ignore_permissions=True)
 
     # Push realtime update to each affected HR user
     frappe.db.commit()
     for user in hr_users:
         _push_unread_count_update(user)
-
 
 @frappe.whitelist()
 def mark_hr_item_as_read(doctype, name):
@@ -2090,8 +2096,6 @@ def get_attendance_stats(range=None, from_date=None, to_date=None):
     # 2️⃣ EMPLOYEE-WISE ATTENDANCE
     # ============================================================
     return get_employee_attendance_stats(employee, from_date, to_date)
-
-
 
 # ==================================================================
 # 🔹 GLOBAL ATTENDANCE (ALL EMPLOYEES)

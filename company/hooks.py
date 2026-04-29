@@ -92,8 +92,11 @@ doc_events = {
     "WFH Attendance": {
         "on_submit": "company.company.api.create_unread_entry_for_hr"
     },
+    "Reimbursement Claim": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr"
+    },
     "Request": {
-        "on_submit": "company.company.api.create_unread_entry_for_hr"
+        "after_insert": "company.company.api.create_unread_entry_for_hr"
     },
     # "Salary Slip": {
     #     "on_submit": "company.company.api.salary_slip_after_submit"
