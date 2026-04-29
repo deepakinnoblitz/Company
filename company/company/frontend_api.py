@@ -111,6 +111,10 @@ def mobile_login(username, password):
     login_manager.authenticate(username, password)
     login_manager.post_login()
 
+    # Prevent Frappe from appending home_page and full_name to the root of the API response
+    frappe.local.response.pop('home_page', None)
+    frappe.local.response.pop('full_name', None)
+
     logged_in_user = frappe.session.user
     user = frappe.get_doc("User", logged_in_user)
 
