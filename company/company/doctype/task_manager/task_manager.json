@@ -132,7 +132,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Open\nIn Progress\nCompleted\nReopened",
+   "options": "Open\nIn Progress\nCompleted\nReopened\nOn Hold",
    "read_only": 1
   },
   {
@@ -228,6 +228,10 @@
   {
    "color": "Red",
    "title": "Reopened"
+  },
+  {
+   "color": "Yellow",
+   "title": "On Hold"
   }
  ]
 }
