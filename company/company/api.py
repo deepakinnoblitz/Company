@@ -1421,11 +1421,12 @@ def auto_submit_leave_application(doc, method=None):
 
 def auto_submit_employee_evaluation(doc, method=None):
     """
-    Automatically submit Employee Evaluation after save.
+    Automatically submit Employee Evaluation after save if auto_submit is enabled.
     """
     try:
-        if doc.docstatus == 0:
+        if doc.get("auto_submit") and doc.docstatus == 0:
             doc.submit()
+            frappe.log_error(f"Auto-submitted Employee Evaluation {doc.name}", "Evaluation Automation - Success")
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Auto Submit Employee Evaluation Error")
 

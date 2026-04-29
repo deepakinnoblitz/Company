@@ -73,7 +73,10 @@ doc_events = {
     "Leave Application": {
         "validate": "company.company.api.validate_leave_balance",
         "before_submit": "company.company.api.validate_leave_balance",
-        "on_submit": ["company.company.api.create_unread_entry_for_hr"],
+        "on_submit": [
+            "company.company.api.create_unread_entry_for_hr",
+            "company.company.evaluation_automation.handle_leave_automation"
+        ],
         "on_change": [
             # "company.company.api.update_permission_allocation"
             "company.company.api.update_leave_allocation"
@@ -95,6 +98,17 @@ doc_events = {
     # "Salary Slip": {
     #     "on_submit": "company.company.api.salary_slip_after_submit"
     # },
+    "Attendance": {
+        "after_insert": "company.company.evaluation_automation.handle_attendance_automation",
+        "on_update": "company.company.evaluation_automation.handle_attendance_automation"
+    },
+    "Task Manager": {
+        "on_update": "company.company.evaluation_automation.handle_task_automation"
+    },
+    "Employee Session": {
+        "after_insert": "company.company.evaluation_automation.handle_daily_log_automation",
+        "on_update": "company.company.evaluation_automation.handle_daily_log_automation"
+    },
     "Event": {
         "on_update": [
             "company.company.crm_api.sync_event_to_call",

@@ -39,6 +39,27 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
 
 
 @frappe.whitelist()
+def get_permitted_count(doctype, filters=None, or_filters=None):
+    """
+    Returns the count of documents the user is permitted to see.
+    Standard frappe.client.get_count is not always permission-aware.
+    """
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    if isinstance(or_filters, str):
+        or_filters = json.loads(or_filters)
+
+    return len(frappe.get_list(
+        doctype,
+        filters=filters,
+        or_filters=or_filters,
+        pluck="name",
+        limit=None
+    ))
+
+
+@frappe.whitelist()
 def check_asset_availability(asset, name=None):
     """
     Check if the Asset is already assigned and not yet returned.
