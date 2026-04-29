@@ -15,6 +15,7 @@
   "score_change",
   "hr_user",
   "is_submitted",
+  "auto_submit",
   "section_break_ntcc",
   "remarks"
  ],
@@ -89,6 +90,13 @@
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Is Submitted"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Submit"
   }
  ],
  "grid_page_length": 50,
