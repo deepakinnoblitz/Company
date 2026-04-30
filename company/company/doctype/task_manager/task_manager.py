@@ -99,6 +99,8 @@ class TaskManager(Document):
 			if not self.assignees:
 				frappe.throw(_("Please add at least one <b>Assignee</b> before saving."))
 
+
+
 	def get_task_managers_emails(self):
 		"""Get emails of all active users with the 'Task Manager' role."""
 		manager_users = frappe.get_all(
@@ -567,6 +569,18 @@ a[href^="mailto"],a[href^="tel"],a[href^="sms"]{{color:inherit;text-decoration:n
 		logo_url=logo_url,
 	)
 
+def hhmm_to_float(hhmm):
+	if not hhmm:
+		return 0.0
+	try:
+		parts = hhmm.split(':')
+		if len(parts) != 2:
+			return 0.0
+		h, m = map(int, parts)
+		return h + (m / 60.0)
+	except (ValueError, TypeError):
+		return 0.0
+
 @frappe.whitelist()
 def close_task(task_name, hours_spent, remarks, attachment=None):
 	"""API endpoint called from the frontend Close Task dialog."""
@@ -581,8 +595,8 @@ def close_task(task_name, hours_spent, remarks, attachment=None):
 	if not remarks:
 		frappe.throw(_("Please add <b>Remarks</b> before closing the task."))
 	
-	# Validate HH:MM format (HH: 1-3 digits, MM: 00-59)
-	if not re.match(r"^([0-9]{1,3}):([0-5][0-9])$", hours_spent):
+	# Validate HH:MM format (HH: 1-5 digits, MM: 00-59)
+	if not re.match(r"^([0-9]{1,5}):([0-5][0-9])$", hours_spent):
 		frappe.throw(_("<b>Hours Spent</b> must be in <b>HH:MM</b> format (MM: 00-59). Example: 02:30"))
 		
 	if doc.attachment_required and not attachment:
@@ -828,3 +842,20 @@ def get_assignees(task_names):
 		LEFT JOIN `tabEmployee` emp ON tma.employee = emp.name
 		WHERE tma.parent IN %s
 	""", (task_names,), as_dict=1)
+
+@frappe.whitelist()
+def get_task_histories(task_names):
+	"""API endpoint to fetch history entries for a list of tasks."""
+	if isinstance(task_names, str):
+		import json
+		task_names = json.loads(task_names)
+	
+	if not task_names:
+		return []
+
+	return frappe.get_all(
+		"Task Manager History",
+		filters={"parent": ["in", task_names]},
+		fields=["name", "parent", "event", "done_by", "done_on", "hours_spent", "remarks"],
+		order_by="done_on asc"
+	)
