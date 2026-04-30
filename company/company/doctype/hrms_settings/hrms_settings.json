@@ -29,7 +29,12 @@
   "call_tab",
   "livekit_url",
   "livekit_api_key",
-  "livekit_api_secret"
+  "livekit_api_secret",
+   "sidebar_tab",
+   "show_attendance_list",
+   "show_daily_log",
+   "show_attendance_report",
+   "show_daily_log_report"
  ],
  "fields": [
   {
@@ -176,6 +181,35 @@
    "fieldname": "livekit_api_secret",
    "fieldtype": "Password",
    "label": "LiveKit API Secret"
+  },
+  {
+   "fieldname": "sidebar_tab",
+   "fieldtype": "Tab Break",
+   "label": "Sidebar"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_attendance_list",
+   "fieldtype": "Check",
+   "label": "Show Attendance List"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_daily_log",
+   "fieldtype": "Check",
+   "label": "Show Daily Log"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_attendance_report",
+   "fieldtype": "Check",
+   "label": "Show Attendance Report"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_daily_log_report",
+   "fieldtype": "Check",
+   "label": "Show Daily Log Report"
   }
  ],
  "issingle": 1,
