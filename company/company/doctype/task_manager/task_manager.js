@@ -110,7 +110,7 @@ function validate_hours_format(frm) {
 	// Only validate if a value has been entered
 	if (!val) return true;
 
-	const hhmm_regex = /^([0-9]{1,3}):([0-5][0-9])$/;
+	const hhmm_regex = /^([0-9]{1,5}):([0-5][0-9])$/;
 
 	if (!hhmm_regex.test(val)) {
 		frappe.msgprint({
@@ -185,7 +185,7 @@ function show_close_task_dialog(frm) {
 		primary_action_label: __("Close Task"),
 		primary_action(values) {
 			// Validate HH:MM format inside the dialog
-			const hhmm_regex = /^([0-9]{1,3}):([0-5][0-9])$/;
+			const hhmm_regex = /^([0-9]{1,5}):([0-5][0-9])$/;
 			if (!hhmm_regex.test(values.hours_spent)) {
 				frappe.msgprint({
 					title: __("Invalid Format"),
