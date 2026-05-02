@@ -3,14 +3,7 @@
 
 frappe.ui.form.on("Request", {
     subject(frm) {
-        const field = frm.doc.subject || "";
-        if (field.length > 130) {
-            frappe.msgprint({
-                title: "Character Limit Exceeded",
-                indicator: "red",
-                message: `Subject exceeds 140 characters. Currently ${field.length} characters.`
-            });
-        }
+        // Character limit is now handled by backend validate or can be added here with a higher limit
     },
 
     after_save: function (frm) {

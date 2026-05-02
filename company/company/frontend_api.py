@@ -104,12 +104,15 @@ def mobile_login(username, password):
     from frappe.core.doctype.user.user import generate_keys
 
     if not username or not password:
-        frappe.throw(_("Username and password required"))
+        return {"status": "failed", "message": "Username and password required"}
 
     # --- Authenticate ---
-    login_manager = LoginManager()
-    login_manager.authenticate(username, password)
-    login_manager.post_login()
+    try:
+        login_manager = LoginManager()
+        login_manager.authenticate(username, password)
+        login_manager.post_login()
+    except frappe.AuthenticationError:
+        return {"status": "failed", "message": "Invalid login credentials"}
 
     # Prevent Frappe from appending home_page and full_name to the root of the API response
     frappe.local.response.pop('home_page', None)
@@ -121,9 +124,13 @@ def mobile_login(username, password):
     # --- Return existing keys if already set (do NOT regenerate) ---
     if user.api_key and user.api_secret:
         return {
-            "user":       logged_in_user,
-            "api_key":    user.api_key,
-            "api_secret": user.get_password("api_secret"),  # decrypted plain-text
+            "status": "success",
+            "message": "Login successful",
+            "data": {
+                "user":       logged_in_user,
+                "api_key":    user.api_key,
+                "api_secret": user.get_password("api_secret"),  # decrypted plain-text
+            }
         }
 
     # --- Keys are missing — generate them once via Frappe's built-in generate_keys ---
@@ -217,20 +224,24 @@ def get_current_user_info():
     employee = frappe.db.get_value("Employee", {"user": user.name}, ["name", "employee_name"], as_dict=True)
 
     return {
-        "name": user.name,
-        "first_name": user.first_name,
-        "middle_name": user.middle_name,
-        "last_name": user.last_name,
-        "full_name": user.full_name,
-        "username": user.username,
-        "email": user.email,
-        "time_zone": user.time_zone,
-        "user_image": user.user_image,
-        "roles": [role.role for role in user.roles],
-        "role_profile_name": user.role_profile_name,
-        "allowed_modules": allowed_modules,
-        "employee": employee.get("name") if employee else None,
-        "employee_name": employee.get("employee_name") if employee else None
+        "status": "success",
+        "message": "User info fetched successfully",
+        "data": {
+            "name": user.name,
+            "first_name": user.first_name,
+            "middle_name": user.middle_name,
+            "last_name": user.last_name,
+            "full_name": user.full_name,
+            "username": user.username,
+            "email": user.email,
+            "time_zone": user.time_zone,
+            "user_image": user.user_image,
+            "roles": [role.role for role in user.roles],
+            "role_profile_name": user.role_profile_name,
+            "allowed_modules": allowed_modules,
+            "employee": employee.get("name") if employee else None,
+            "employee_name": employee.get("employee_name") if employee else None
+        }
     }
 
 @frappe.whitelist()
@@ -928,24 +939,18 @@ def get_hr_dashboard_data():
     try:
         # Assuming workflow states 'Pending' or 'Draft' are pending
         data["pending_leaves"] = frappe.db.count("Leave Application", {
-            "workflow_state": ["in", ["Pending", "Draft", "Open"]]
+            "workflow_state": "Pending"
         })
     except Exception:
         data["pending_leaves"] = 0
 
-    # 4. Attendance Stats (Today)
+    # 3.1 Pending Requests Count
     try:
-        data["present_today"] = frappe.db.count("Attendance", {
-            "attendance_date": today,
-            "status": "Present"
+        data["pending_request"] = frappe.db.count("Request", {
+            "workflow_state": "Pending"
         })
-        
-        total_active = data.get("total_employees", 0)
-        marked_attendance = frappe.db.count("Attendance", {"attendance_date": today})
-        data["missing_attendance"] = max(0, total_active - marked_attendance)
     except Exception:
-        data["present_today"] = 0
-        data["missing_attendance"] = 0
+        data["pending_request"] = 0
 
     # 5. Today's Leaves
     try:
@@ -973,24 +978,29 @@ def get_hr_dashboard_data():
     except Exception:
         data["todays_birthdays"] = []
 
-    # 7. Holidays (Current Month)
+    # 8. Pending Leave Applications List
     try:
-        first_day = frappe.utils.get_first_day(today)
-        last_day = frappe.utils.get_last_day(today)
-        
-        holiday_list = frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
-            
-        if holiday_list:
-            data["holidays"] = frappe.db.sql("""
-                SELECT holiday_date as date, description
-                FROM `tabHoliday`
-                WHERE parent = %s
-                AND holiday_date BETWEEN %s AND %s
-            """, (holiday_list, first_day, last_day), as_dict=True)
-        else:
-            data["holidays"] = []
+        data["pending_leaves_list"] = frappe.get_all(
+            "Leave Application",
+            filters={"workflow_state": "Pending"},
+            fields=["name", "employee", "employee_name", "leave_type", "from_date", "to_date", "total_days"],
+            order_by="creation desc",
+            limit=10
+        )
     except Exception:
-        data["holidays"] = []
+        data["pending_leaves_list"] = []
+
+    # 9. Pending Requests List
+    try:
+        data["pending_requests_list"] = frappe.get_all(
+            "Request",
+            filters={"workflow_state": "Pending"},
+            fields=["name", "employee_id", "employee_name", "subject", "creation"],
+            order_by="creation desc",
+            limit=10
+        )
+    except Exception:
+        data["pending_requests_list"] = []
 
     return data
 
@@ -1195,10 +1205,10 @@ def update_my_password(old_password, new_password):
     user = frappe.session.user
 
     if not old_password or not new_password:
-        frappe.throw(_("Old password and new password are required."), frappe.ValidationError)
+        return {"status": "failed", "message": "Old password and new password are required."}
 
     if old_password == new_password:
-        frappe.throw(_("New password must be different from the old password."), frappe.ValidationError)
+        return {"status": "failed", "message": "New password must be different from the old password."}
 
     # Verify old password
     try:
@@ -1210,7 +1220,27 @@ def update_my_password(old_password, new_password):
     frappe.utils.password.update_password(user, new_password)
     frappe.db.commit()
 
-    return {"status": "success", "message": "Password updated successfully"}
+    return {
+        "status": "success", 
+        "message": "Password updated successfully",
+        "data": {
+            "new-password": new_password,
+        }
+    }
+
+@frappe.whitelist(allow_guest=True)
+def mobile_logout():
+    """
+    Logout API for Mobile / App.
+    Ensures a clean response without extra Frappe fields.
+    """
+    frappe.local.login_manager.logout()
+    
+    # Prevent Frappe from appending home_page and full_name to the root of the API response
+    frappe.local.response.pop('home_page', None)
+    frappe.local.response.pop('full_name', None)
+    
+    return {"status": "success", "message": "Logged out successfully"}
 
 
 @frappe.whitelist()

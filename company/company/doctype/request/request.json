@@ -65,7 +65,7 @@
   },
   {
    "fieldname": "subject",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "label": "Subject",
    "reqd": 1
   },
