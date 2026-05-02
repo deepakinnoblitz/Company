@@ -1,0 +1,62 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-05-02 06:56:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enable_hr_reminders",
+  "hr_remainders"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "enable_hr_reminders",
+   "fieldtype": "Check",
+   "label": "Enable HR Reminders"
+  },
+  {
+   "fieldname": "hr_remainders",
+   "fieldtype": "Table",
+   "label": "HR Reminders",
+   "options": "HR Remainder Configuration"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-02 06:56:00.000000",
+ "modified_by": "Administrator",
+ "module": "Company",
+ "name": "Employee Remainder Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "HR",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
