@@ -39,7 +39,9 @@
   "total_earnings",
   "column_break_summary",
   "total_deductions",
-  "net_salary"
+  "net_salary",
+  "section_break_sgcv",
+  "documents"
  ],
  "fields": [
   {
@@ -234,12 +236,23 @@
    "fieldname": "net_salary",
    "fieldtype": "Currency",
    "label": "Net Salary"
+  },
+  {
+   "fieldname": "documents",
+   "fieldtype": "Table",
+   "label": "Documents",
+   "options": "Employee Documents"
+  },
+  {
+   "fieldname": "section_break_sgcv",
+   "fieldtype": "Section Break",
+   "label": "Documents"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-22 18:36:31.197429",
+ "modified": "2026-05-01 11:14:14.832389",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",

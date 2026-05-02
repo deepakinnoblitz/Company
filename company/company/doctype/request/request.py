@@ -5,6 +5,14 @@ from frappe.utils import formatdate, get_url
 
 class Request(Document):
 
+    def validate(self):
+        """Custom validation for request fields."""
+        if self.subject and len(self.subject) > 500:
+            frappe.throw(
+                msg=frappe._("Subject is too long (max 500 characters). Please use the 'Message' field for detailed descriptions."),
+                title=frappe._("Validation Error")
+            )
+
     # =================================================
     # AUTO-SUBMIT AFTER INSERT
     # Python equivalent of JS: frappe.client.submit(doc)
