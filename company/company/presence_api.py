@@ -139,8 +139,8 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
 
             close_active_break(active_session.name if active_session else None, now)
             
-            # Send resumption message if moving back to Available
-            if status == "Available":
+            # Send resumption message if moving back to Available (Only for Automated transitions)
+            if status == "Available" and source != "Manual":
                 notify_auto_resume(employee, resumed_duration)
 
     # Resolve status message
@@ -209,6 +209,16 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
                 "status": status
             })
             
+    # Update live totals before saving
+    if active_session:
+        # Calculate Total Working Hours based on active segments only (excl. Offline, Break, Away)
+        total_active_seconds = sum(flt(i.duration_seconds) for i in active_session.intervals if i.duration_seconds and i.status not in ("Offline", "Break", "Away"))
+        active_session.total_work_hours = max(0, flt(total_active_seconds) / 3600.0)
+        
+        # Calculate Total Break Hours
+        total_break_seconds = get_live_break_seconds(active_session)
+        active_session.total_break_hours = flt(total_break_seconds) / 3600.0
+
     # Single save for the active session at the end with retry logic
     if active_session:
         for i in range(3):
@@ -232,6 +242,13 @@ def update_presence(status, employee=None, status_message=None, source="Manual",
                 active_session = new_session
 
     frappe.db.commit()
+
+    # Immediate check for reminders after status change
+    try:
+        from company.company.employee_remainder_api import check_and_enqueue_reminders
+        check_and_enqueue_reminders()
+    except Exception:
+        pass
 
     return {"status": "success", "message": f"Status updated to {status}"}
 
@@ -345,6 +362,22 @@ def get_live_active_seconds(session):
         if last.status not in ("Offline", "Break", "Away"):
             total_seconds += time_diff_in_seconds(now, last.from_time)
     
+    return total_seconds
+
+def get_live_status_seconds(session, status):
+    if not session:
+        return 0
+    
+    now = now_datetime()
+    # 1. Sum up all completed intervals with this status
+    total_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.to_time and i.status == status)
+    
+    # 2. Add current interval if it matches status and is open
+    if session.intervals and not session.intervals[-1].to_time:
+        last = session.intervals[-1]
+        if last.status == status:
+            total_seconds += time_diff_in_seconds(now, last.from_time)
+            
     return total_seconds
 
 def get_live_break_seconds(session):
@@ -756,7 +789,8 @@ def process_auto_breaks():
     )
     
     for p in inactive_productive:
-        update_presence(status="Away", employee=p.employee, source="Idle")
+        frappe.enqueue("company.company.presence_api.update_presence", 
+                       status="Away", employee=p.employee, source="Idle")
     
     # 4. Find Away presences that haven't been updated for > break_threshold
     # Transition Away -> Break
@@ -770,7 +804,8 @@ def process_auto_breaks():
     )
     
     for p in inactive_away:
-        update_presence(status="Break", employee=p.employee, source="Idle")
+        frappe.enqueue("company.company.presence_api.update_presence", 
+                       status="Break", employee=p.employee, source="Idle")
         
     # 5. Find any non-offline presences that haven't been updated for > offline_threshold
     # Transition -> Offline (Computer shutdown/restart case)
@@ -784,7 +819,8 @@ def process_auto_breaks():
     )
     
     for p in inactive_any:
-        update_presence(status="Offline", employee=p.employee, source="System")
+        frappe.enqueue("company.company.presence_api.update_presence", 
+                       status="Offline", employee=p.employee, source="System")
     
     if inactive_productive or inactive_away or inactive_any:
         frappe.db.commit()
