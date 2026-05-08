@@ -2200,30 +2200,37 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     return data
 
 @frappe.whitelist()
-def get_personality_dashboard_data():
+def get_personality_dashboard_data(employee=None):
     """
-    Fetch personality dashboard data for the logged-in employee.
-    Sends the current total score and the last 5 unique traits evaluated.
+    Fetch personality dashboard data for the specified employee or the logged-in employee.
+    Sends the current total score, the last 5 evaluation traits,
+    and a tallied list of improvement suggestions.
     """
-    user = frappe.session.user
-    employee = frappe.db.get_value("Employee", {"user": user}, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
+    if employee:
+        employee_doc = frappe.db.get_value("Employee", employee, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
+    else:
+        user = frappe.session.user
+        employee_doc = frappe.db.get_value("Employee", {"user": user}, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
 
-    if not employee:
+    if not employee_doc:
         return {
             "totalScore": 100,
             "status": "Excellent",
             "traits": []
         }
 
-    recent_evals = frappe.db.sql("""
-        SELECT trait, score_change, creation
+    employee = employee_doc
+
+    # Fetch last 20 evaluations to provide enough history for tallying trends
+    all_recent_evals = frappe.db.sql("""
+        SELECT trait, score_change, how_to_improve, creation
         FROM `tabEmployee Evaluation`
         WHERE employee = %s
         ORDER BY creation DESC
-        LIMIT 5
+        LIMIT 20
     """, (employee.name,), as_dict=True)
 
-    if not recent_evals:
+    if not all_recent_evals:
         return {
             "totalScore": 100,
             "status": "Excellent",
@@ -2231,42 +2238,72 @@ def get_personality_dashboard_data():
             "traits": []
         }
 
+    # 1. Prepare traits list (Last 5 evaluations only, as per original logic)
     trait_scores = []
-
-    for ev in recent_evals:
+    for ev in all_recent_evals[:5]:
         trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name")
         trait_scores.append({
             "trait": trait_name or ev.trait,
             "score": ev.score_change or 0
         })
 
-    # Get timestamp of the most recent evaluation for this employee
-    last_eval = frappe.db.get_value(
-        "Employee Evaluation",
-        {"employee": employee.name},
-        "creation",
-        order_by="creation desc"
-    )
+    # 2. Calculate tallies for how_to_improve (Based on last 20 evaluations)
+    trait_tally = {}
+    for ev in all_recent_evals:
+        t_id = ev.trait
+        score = ev.score_change or 0
+        if t_id not in trait_tally:
+            # The first entry for each trait is the latest one due to 'ORDER BY creation DESC'
+            trait_tally[t_id] = {
+                "score_sum": 0,
+                "latest_advice": None,
+                "date": ev.get("evaluation_date") or ev.creation
+            }
+        
+        trait_tally[t_id]["score_sum"] += score
+        
+        # Capture the most recent specific advice for this trait from a NEGATIVE evaluation
+        if not trait_tally[t_id]["latest_advice"] and score < 0 and ev.how_to_improve:
+            trait_tally[t_id]["latest_advice"] = ev.how_to_improve
+            trait_tally[t_id]["date"] = ev.get("evaluation_date") or ev.creation
 
-    # Calculate current total score based on ALL evaluations (starting from 100)
-    total_change = frappe.db.sql("""
-        SELECT SUM(score_change)
-        FROM `tabEmployee Evaluation`
-        WHERE employee = %s
-    """, (employee.name,))[0][0] or 0
-    calculated_total = 100 + total_change
+    how_to_improve_list = []
+    from frappe.utils import formatdate
+    for t_id, counts in trait_tally.items():
+        # A trait needs improvement if the net balance is negative
+        if counts["score_sum"] < 0:
+            advice = counts["latest_advice"]
+            trait_name = frappe.db.get_value("Evaluation Trait", t_id, "trait_name") or t_id
+            
+            if not advice:
+                # Fallback to master trait advice
+                advice = frappe.db.get_value("Evaluation Trait", t_id, "how_to_improve")
+            
+            if advice:
+                date_str = formatdate(counts["date"], "dd-mm-yyyy") if counts["date"] else ""
+                formatted_advice = f"{advice} - {trait_name} ({date_str})" if date_str else f"{advice} - {trait_name}"
+                
+                if formatted_advice not in how_to_improve_list:
+                    how_to_improve_list.append(formatted_advice)
+
+    # 3. Final data preparation
+    last_eval_time = all_recent_evals[0].creation
+    
+    calculated_total = employee.evaluation_score if employee.evaluation_score is not None else 100
     calculated_total = max(0, min(100, calculated_total))
 
-    # Determine status based on calculated score
-    if calculated_total >= 90: status = "Excellent"
-    elif calculated_total >= 75: status = "Good"
-    elif calculated_total >= 60: status = "Average"
-    else: status = "Needs Improvement"
+    status = employee.evaluation_status or "Excellent"
+    if not status or status == "":
+        if calculated_total >= 90: status = "Excellent"
+        elif calculated_total >= 75: status = "Good"
+        elif calculated_total >= 60: status = "Average"
+        else: status = "Needs Improvement"
 
     return {
         "totalScore": calculated_total,
         "status": status,
-        "lastUpdated": str(last_eval) if last_eval else None,
+        "howToImprove": how_to_improve_list[:5], # Return top 5 unique improvements
+        "lastUpdated": str(last_eval_time),
         "traits": trait_scores
     }
 

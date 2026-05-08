@@ -9,6 +9,7 @@
         "trait_name",
         "category",
         "description",
+        "how_to_improve",
         "evaluation_scores"
     ],
     "fields": [
@@ -30,6 +31,11 @@
             "fieldname": "description",
             "fieldtype": "Small Text",
             "label": "Description"
+        },
+        {
+            "fieldname": "how_to_improve",
+            "fieldtype": "Small Text",
+            "label": "How to Improve"
         },
         {
             "fieldname": "evaluation_scores",

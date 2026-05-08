@@ -709,6 +709,84 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
     return {"data": sessions, "total_count": total_count}
 
 @frappe.whitelist()
+def update_detailed_session(name, login_time=None, logout_time=None, intervals=None, breaks=None):
+    """
+    Update a session with its intervals and breaks.
+    Only accessible by HR or Admin.
+    """
+    is_hr_or_admin = "HR" in frappe.get_roles() or "Administrator" in frappe.get_roles()
+    if not is_hr_or_admin:
+        frappe.throw(_("Only HR or Admin can update session logs"))
+
+    if isinstance(intervals, str):
+        import json
+        intervals = json.loads(intervals)
+    if isinstance(breaks, str):
+        import json
+        breaks = json.loads(breaks)
+
+    session = frappe.get_doc("Employee Session", name)
+    
+    if login_time:
+        session.login_time = login_time
+    if logout_time:
+        session.logout_time = logout_time
+        session.status = "Inactive" 
+    
+    if intervals is not None:
+        session.set("intervals", [])
+        for i in intervals:
+            f_time = i.get("from_time")
+            t_time = i.get("to_time")
+            dur = i.get("duration_seconds")
+            if t_time and not dur:
+                dur = time_diff_in_seconds(t_time, f_time)
+            
+            session.append("intervals", {
+                "from_time": f_time,
+                "to_time": t_time,
+                "status": i.get("status"),
+                "duration_seconds": dur or 0
+            })
+            
+    session.save(ignore_permissions=True)
+    
+    if breaks is not None:
+        existing_breaks = frappe.get_all("Employee Break", filters={"session": name}, fields=["name"])
+        for b in existing_breaks:
+            frappe.delete_doc("Employee Break", b.name, ignore_permissions=True)
+            
+        for b in breaks:
+            b_start = b.get("break_start")
+            b_end = b.get("break_end")
+            b_dur = b.get("break_duration")
+            if b_end and not b_dur:
+                b_dur = time_diff_in_seconds(b_end, b_start) / 60.0
+
+            doc = frappe.get_doc({
+                "doctype": "Employee Break",
+                "session": name,
+                "break_start": b_start,
+                "break_end": b_end,
+                "source": b.get("source") or "Manual",
+                "reason": b.get("reason"),
+                "break_duration": b_dur or 0
+            })
+            doc.insert(ignore_permissions=True)
+            
+    # Re-calculate totals
+    total_active_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.status not in ("Offline", "Break", "Away"))
+    session.total_work_hours = max(0, flt(total_active_seconds) / 3600.0)
+    
+    total_break_seconds = get_live_break_seconds(session)
+    session.total_break_hours = flt(total_break_seconds) / 3600.0
+    
+    session.save(ignore_permissions=True)
+    frappe.db.commit()
+    
+    return {"status": "success"}
+
+@frappe.whitelist()
 def get_session_detail(name):
     """
     Fetch a single session with its intervals and breaks.
