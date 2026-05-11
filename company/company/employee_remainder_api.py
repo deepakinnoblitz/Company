@@ -679,3 +679,12 @@ def save_reminder_settings(data):
     process_remainder_queue()
     
     return settings
+
+@frappe.whitelist()
+def delete_remainder(name):
+    """Delete a manual reminder."""
+    frappe.db.delete("Employee Remainder", {"name": name})
+    # Also clean up the queue
+    frappe.db.delete("Employee Remainder Queue", {"remainder": name, "status": "Pending"})
+    frappe.db.commit()
+    return True
