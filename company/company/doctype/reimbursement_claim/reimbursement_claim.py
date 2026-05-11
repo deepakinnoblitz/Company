@@ -1,3 +1,4 @@
+import json
 import frappe
 from frappe.model.document import Document
 
@@ -27,6 +28,124 @@ class ReimbursementClaim(Document):
         if settings:
             return settings[0]
         return {}
+
+    def get_employee_user(self):
+        """Get the user linked to the employee"""
+        return frappe.db.get_value("Employee", self.employee, "user")
+
+    def get_hr_users(self):
+        """Get valid HR User IDs for chat notifications"""
+        roles = ["HR"]
+        role_users = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", roles], "parenttype": "User"},
+            pluck="parent"
+        )
+        # Filter unique and active users
+        hr_users = [u for u in set(role_users) if frappe.db.get_value("User", u, "enabled")]
+
+        return list(set(hr_users))
+
+    def send_chat_notification(self, sender, receiver, content):
+        """Send a chat message via clefincode_chat. Create/Verify channel and send message."""
+        log_data = {
+            "sender_id": sender,
+            "receiver_id": receiver,
+            "content": content
+        }
+        
+        try:
+            from clefincode_chat.api.api_1_2_1.api import send, create_channel, share_doctype, get_profile_id
+            
+            # 1. Check if direct room exists (Using system IDs)
+            room_name = frappe.db.sql("""
+                SELECT c.name
+                FROM `tabClefinCode Chat Channel` c
+                JOIN `tabClefinCode Chat Channel User` u1 ON u1.parent = c.name
+                JOIN `tabClefinCode Chat Channel User` u2 ON u2.parent = c.name
+                WHERE c.type = 'Direct'
+                AND c.is_parent = 1
+                AND u1.user = %s
+                AND u2.user = %s
+            """, (sender, receiver), pluck=True)
+
+            if room_name:
+                room_name = room_name[0]
+                log_data["room_name_found"] = room_name
+                # Ensure HR receiver is active and not removed
+                frappe.db.sql("""
+                    UPDATE `tabClefinCode Chat Channel User`
+                    SET is_removed = 0, active = 1
+                    WHERE parent = %s AND user = %s
+                """, (room_name, receiver))
+                # Ensure document sharing is active
+                share_doctype("ClefinCode Chat Channel", room_name, receiver)
+            else:
+                # 2. Create channel using system IDs
+                users = [
+                    {"email": sender, "platform": "Chat"},
+                    {"email": receiver, "platform": "Chat"}
+                ]
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                res = create_channel(
+                    channel_name="", 
+                    users=json.dumps(users),
+                    type="Direct",
+                    last_message=content,
+                    creator_email=sender,
+                    creator=sender_full_name
+                )
+                log_data["create_channel_response"] = res
+                
+                if res and res.get("results"):
+                    room_name = res["results"][0]["room"]
+                    log_data["new_room_name"] = room_name
+                else:
+                    frappe.log_error(title="Reimbursement Claim: Chat Channel Creation Failed", message=frappe.as_json(log_data))
+
+            if room_name:
+                # 3. Diagnostic Logging: Verify Membership State
+                members = frappe.get_all("ClefinCode Chat Channel User", 
+                                        filters={"parent": room_name}, 
+                                        fields=["user", "is_removed", "active"])
+                log_data["channel_members_final"] = members
+
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                
+                # 4. Send the message
+                send_res = send(
+                    content=content,
+                    user=sender_full_name,
+                    room=room_name,
+                    email=sender
+                )
+                log_data["send_response"] = send_res
+                
+                if send_res and isinstance(send_res, dict) and send_res.get("results"):
+                    log_data["message_name"] = send_res["results"][0].get("new_message_name")
+
+                # 5. Force Sidebar Refresh
+                refresh_data = {
+                    "room": room_name,
+                    "realtime_type": "update_room",
+                    "content": content,
+                    "user": sender_full_name,
+                    "sender_email": sender,
+                    "room_type": "Direct"
+                }
+                frappe.publish_realtime(event="update_room", message=refresh_data, user=receiver)
+                frappe.publish_realtime(event="new_chat_notification", message=refresh_data, user=receiver)
+                
+                # Final log to verify success and parameters
+                frappe.log_error(title="Reimbursement Claim Chat Debug", message=frappe.as_json(log_data))
+            else:
+                log_data["error"] = "Room name could not be determined"
+                frappe.log_error(title="Reimbursement Claim Chat Failed", message=frappe.as_json(log_data))
+                
+        except Exception as e:
+            log_data["exception"] = str(e)
+            log_data["traceback"] = frappe.get_traceback()
+            frappe.log_error(title="Reimbursement Claim Chat Notification Exception", message=frappe.as_json(log_data))
 
     # ----------------------------------------
     # 2️⃣ + 3️⃣ + 4️⃣ Handle workflow updates after submit
@@ -87,6 +206,27 @@ class ReimbursementClaim(Document):
     # 1️⃣ Email — Notify HR on Submission (Blue Theme)
     # -------------------------------------------------------------------
     def notify_hr_on_submission(self):
+        # 1️⃣ InnoChat Notification to HR (Separate from email toggle)
+        hr_users = self.get_hr_users()
+        sender_user = frappe.session.user
+        
+        content = (
+            f"<b>🧾 New Reimbursement Claim Submitted</b><br><br>"
+            f"<b>Employee:</b> {self.employee_name}<br>"
+            f"<b>Claim Type:</b> {self.claim_type}<br>"
+            f"<b>Amount:</b> ₹ {self.amount}<br>"
+            f"<b>Date of Expense:</b> {self.date_of_expense}<br><br>"
+            f"Please review and take necessary action."
+        )
+
+        for receiver in hr_users:
+            if receiver != sender_user:
+                try:
+                    self.send_chat_notification(sender_user, receiver, content)
+                except Exception:
+                    frappe.log_error(title="Reimbursement Claim Submit Chat Loop Error", message=frappe.get_traceback())
+
+        # 2️⃣ Email Notification (Toggle Dependent)
         from company.company.api import is_hrms_notification_enabled
         if not is_hrms_notification_enabled("reimbursement_notification"):
             return
@@ -158,6 +298,19 @@ class ReimbursementClaim(Document):
     # 2️⃣ Email — Notify Employee on Approval (Green Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_approval(self, approver_name, approver_email):
+        # 1️⃣ InnoChat Notification to Employee (Separate from email toggle)
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>✅ Reimbursement Approved</b><br><br>"
+                f"<b>Claim Type:</b> {self.claim_type}<br>"
+                f"<b>Amount:</b> ₹ {self.amount}<br><br>"
+                f"Your reimbursement claim has been approved."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
+
+        # 2️⃣ Email Notification (Toggle Dependent)
         from company.company.api import is_hrms_notification_enabled
         if not is_hrms_notification_enabled("reimbursement_notification"):
             return
@@ -225,6 +378,19 @@ class ReimbursementClaim(Document):
     # 3️⃣ Email — Notify Employee on Rejection (Red Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_rejection(self, rejector_name, rejector_email):
+        # 1️⃣ InnoChat Notification to Employee (Separate from email toggle)
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>❌ Reimbursement Rejected</b><br><br>"
+                f"<b>Claim Type:</b> {self.claim_type}<br>"
+                f"<b>Amount:</b> ₹ {self.amount}<br><br>"
+                f"Your reimbursement claim has been rejected."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
+
+        # 2️⃣ Email Notification (Toggle Dependent)
         from company.company.api import is_hrms_notification_enabled
         if not is_hrms_notification_enabled("reimbursement_notification"):
             return
@@ -292,6 +458,20 @@ class ReimbursementClaim(Document):
     # 4️⃣ Email — Notify Employee on Payment (Green-Blue Theme)
     # -------------------------------------------------------------------
     def notify_employee_on_payment(self, approver_name, approver_email):
+        # 1️⃣ InnoChat Notification to Employee (Separate from email toggle)
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>💰 Reimbursement Paid</b><br><br>"
+                f"<b>Claim Type:</b> {self.claim_type}<br>"
+                f"<b>Amount:</b> ₹ {self.amount}<br>"
+                f"<b>Payment Reference:</b> {self.payment_reference or '-'}<br><br>"
+                f"Your reimbursement has been paid."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
+
+        # 2️⃣ Email Notification (Toggle Dependent)
         from company.company.api import is_hrms_notification_enabled
         if not is_hrms_notification_enabled("reimbursement_notification"):
             return
