@@ -1,4 +1,6 @@
+import json
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import formatdate, get_url
 
@@ -64,6 +66,19 @@ class LeaveApplication(Document):
             reply_to=hr_email
         )
 
+        # InnoChat Notification to Employee
+        receiver = frappe.db.get_value("Employee", self.employee, "user")
+        if receiver and receiver != frappe.session.user:
+            content = (
+                f"<b>❌ Leave Rejected</b><br><br>"
+                f"<b>Employee:</b> {self.employee_name}<br>"
+                f"<b>Leave Type:</b> {self.leave_type}<br>"
+                f"<b>From:</b> {frappe.utils.formatdate(self.from_date)}<br>"
+                f"<b>To:</b> {frappe.utils.formatdate(self.to_date)}<br><br>"
+                f"Your leave application has been rejected/cancelled."
+            )
+            self.send_chat_notification(frappe.session.user, receiver, content)
+
     # =================================================
     # GET HR EMAIL SETTINGS
     # =================================================
@@ -77,6 +92,123 @@ class LeaveApplication(Document):
         if settings:
             return settings[0]
         return {}
+
+    def get_hr_users(self):
+        """Get valid HR User IDs for chat notifications"""
+
+        roles = ["HR"]
+        role_users = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", roles], "parenttype": "User"},
+            pluck="parent"
+            )
+        # Filter unique and active users
+        hr_users = [u for u in set(role_users) if frappe.db.get_value("User", u, "enabled")]
+
+        return list(set(hr_users))
+
+    def send_chat_notification(self, sender, receiver, content):
+        """Send a chat message via clefincode_chat. Create/Verify channel and send message."""
+        log_data = {
+            "sender_id": sender,
+            "receiver_id": receiver,
+            "content": content
+        }
+        
+        try:
+            from clefincode_chat.api.api_1_2_1.api import send, create_channel, share_doctype, get_profile_id
+            
+            # 1. Check if direct room exists (Using system IDs)
+            room_name = frappe.db.sql("""
+                SELECT c.name
+                FROM `tabClefinCode Chat Channel` c
+                JOIN `tabClefinCode Chat Channel User` u1 ON u1.parent = c.name
+                JOIN `tabClefinCode Chat Channel User` u2 ON u2.parent = c.name
+                WHERE c.type = 'Direct'
+                AND c.is_parent = 1
+                AND u1.user = %s
+                AND u2.user = %s
+            """, (sender, receiver), pluck=True)
+
+            if room_name:
+                room_name = room_name[0]
+                log_data["room_name_found"] = room_name
+                # Ensure HR receiver is active and not removed
+                frappe.db.sql("""
+                    UPDATE `tabClefinCode Chat Channel User`
+                    SET is_removed = 0, active = 1
+                    WHERE parent = %s AND user = %s
+                """, (room_name, receiver))
+                # Ensure document sharing is active
+                share_doctype("ClefinCode Chat Channel", room_name, receiver)
+            else:
+                # 2. Create channel using system IDs
+                users = [
+                    {"email": sender, "platform": "Chat"},
+                    {"email": receiver, "platform": "Chat"}
+                ]
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                res = create_channel(
+                    channel_name="", 
+                    users=json.dumps(users),
+                    type="Direct",
+                    last_message=content,
+                    creator_email=sender,
+                    creator=sender_full_name
+                )
+                log_data["create_channel_response"] = res
+                
+                if res and res.get("results"):
+                    room_name = res["results"][0]["room"]
+                    log_data["new_room_name"] = room_name
+                else:
+                    frappe.log_error(title="Leave App: Chat Channel Creation Failed", message=frappe.as_json(log_data))
+
+            if room_name:
+                # 3. Diagnostic Logging: Verify Membership State
+                members = frappe.get_all("ClefinCode Chat Channel User", 
+                                        filters={"parent": room_name}, 
+                                        fields=["user", "is_removed", "active"])
+                log_data["channel_members_final"] = members
+
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                
+                # 4. Send the message
+                send_res = send(
+                    content=content,
+                    user=sender_full_name,
+                    room=room_name,
+                    email=sender
+                )
+                log_data["send_response"] = send_res
+                
+                if send_res and isinstance(send_res, dict) and send_res.get("results"):
+                    log_data["message_name"] = send_res["results"][0].get("new_message_name")
+
+                # 5. Force Sidebar Refresh for HR
+                # Explicitly publish to HR user's session to ensure sidebar update
+                refresh_data = {
+                    "room": room_name,
+                    "realtime_type": "update_room",
+                    "content": content,
+                    "user": sender_full_name,
+                    "sender_email": sender,
+                    "room_type": "Direct"
+                }
+                frappe.publish_realtime(event="update_room", message=refresh_data, user=receiver)
+                frappe.publish_realtime(event="new_chat_notification", message=refresh_data, user=receiver)
+                
+                # Final log to verify success and parameters
+                frappe.log_error(title="Leave App Chat Debug", message=frappe.as_json(log_data))
+            else:
+                log_data["error"] = "Room name could not be determined"
+                frappe.log_error(title="Leave App Chat Failed", message=frappe.as_json(log_data))
+                
+        except Exception as e:
+            log_data["exception"] = str(e)
+            log_data["traceback"] = frappe.get_traceback()
+            frappe.log_error(title="Leave Application Chat Notification Exception", message=frappe.as_json(log_data))
+
 
     # =================================================
     # GET EMPLOYEE EMAILS
@@ -127,6 +259,44 @@ class LeaveApplication(Document):
             reply_to=primary_email or hr_email
         )
 
+        # Notication to Chat
+
+        """Send chat notification to HR when employee submits leave"""
+
+        # Get HR users (receivers)
+        hr_users = self.get_hr_users()
+        
+        # SENDER: Use current logged-in Frappe user ID (tabUser.name) directly
+        # This is critical for InnoChat sidebar visibility and Firebase token matching
+        sender = frappe.session.user
+        
+        if not hr_users:
+            frappe.logger().debug(f"Leave App: No valid HR users found for chat notification")
+            return
+
+        content = (
+            f"<b>📩 New Leave Request</b><br><br>"
+            f"<b>Employee:</b> {self.employee_name}<br>"
+            f"<b>Leave Type:</b> {self.leave_type}<br>"
+            f"<b>From:</b> {formatdate(self.from_date)}<br>"
+            f"<b>To:</b> {formatdate(self.to_date)}<br>"
+            f"<b>Reason:</b> {self.reson or 'N/A'}<br><br>"
+            f"Please review and take necessary action."
+        )
+
+        for receiver in hr_users:
+            # Skip sending to self
+            if receiver == sender:
+                continue
+                
+            try:
+                # Log final IDs being used for verification
+                frappe.logger().debug(f"Leave App: Chat Dispatch -> Sender ID: {sender}, Receiver ID: {receiver}")
+                self.send_chat_notification(sender, receiver, content)
+            except Exception as e:
+                frappe.log_error(title="Leave Application Submit Chat Loop Error", message=frappe.get_traceback())
+
+
     # =================================================
     # WORKFLOW MAIL HANDLER
     # =================================================
@@ -169,6 +339,19 @@ class LeaveApplication(Document):
                 reply_to=hr_email
             )
 
+            # InnoChat Notification to Employee
+            receiver = frappe.db.get_value("Employee", self.employee, "user")
+            if receiver and receiver != frappe.session.user:
+                content = (
+                    f"<b>📩 Clarification Requested</b><br><br>"
+                    f"<b>Employee:</b> {self.employee_name}<br>"
+                    f"<b>Leave Type:</b> {self.leave_type}<br>"
+                    f"<b>From:</b> {frappe.utils.formatdate(self.from_date)}<br>"
+                    f"<b>To:</b> {frappe.utils.formatdate(self.to_date)}<br><br>"
+                    f"HR has requested clarification on your leave application."
+                )
+                self.send_chat_notification(frappe.session.user, receiver, content)
+
         # -------------------------------------------------
         # EMPLOYEE → REPLY → HR
         # -------------------------------------------------
@@ -193,6 +376,20 @@ class LeaveApplication(Document):
                 reply_to=primary_email or hr_email
             )
 
+            # InnoChat Notification to HR
+            hr_users = self.get_hr_users()
+            content = (
+                f"<b>📩 Employee Reply</b><br><br>"
+                f"<b>Employee:</b> {self.employee_name}<br>"
+                f"<b>Leave Type:</b> {self.leave_type}<br>"
+                f"<b>From:</b> {frappe.utils.formatdate(self.from_date)}<br>"
+                f"<b>To:</b> {frappe.utils.formatdate(self.to_date)}<br><br>"
+                f"Employee has replied to the clarification request."
+            )
+            for hr_user in hr_users:
+                if hr_user != frappe.session.user:
+                    self.send_chat_notification(frappe.session.user, hr_user, content)
+
         # -------------------------------------------------
         # HR → APPROVE → EMPLOYEE ONLY
         # -------------------------------------------------
@@ -207,6 +404,19 @@ class LeaveApplication(Document):
                 sender=hr_sender,
                 reply_to=hr_email
             )
+
+            # InnoChat Notification to Employee
+            receiver = frappe.db.get_value("Employee", self.employee, "user")
+            if receiver and receiver != frappe.session.user:
+                content = (
+                    f"<b>✅ Leave Approved</b><br><br>"
+                    f"<b>Employee:</b> {self.employee_name}<br>"
+                    f"<b>Leave Type:</b> {self.leave_type}<br>"
+                    f"<b>From:</b> {frappe.utils.formatdate(self.from_date)}<br>"
+                    f"<b>To:</b> {frappe.utils.formatdate(self.to_date)}<br><br>"
+                    f"Your leave application has been approved."
+                )
+                self.send_chat_notification(frappe.session.user, receiver, content)
 
     # =================================================
     # FETCH LATEST HR QUERY
