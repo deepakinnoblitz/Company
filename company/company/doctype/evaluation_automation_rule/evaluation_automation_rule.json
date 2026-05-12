@@ -19,7 +19,8 @@
         "specific_day",
         "specific_date",
         "section_break_desc",
-        "description"
+        "description",
+        "how_to_improve"
     ],
     "fields": [
         {
@@ -118,6 +119,11 @@
             "fieldname": "description",
             "fieldtype": "Small Text",
             "label": "Description"
+        },
+        {
+            "fieldname": "how_to_improve",
+            "fieldtype": "Small Text",
+            "label": "How to Improve"
         }
     ],
     "index_web_pages_for_search": 1,

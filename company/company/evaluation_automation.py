@@ -14,7 +14,7 @@ def trigger_evaluation_automation(employee, event_type, reference_doctype=None, 
     rules = frappe.get_all("Evaluation Automation Rule", filters={
         "event_type": event_type,
         "enabled": 1
-    }, fields=["name", "trait", "evaluation_point", "auto_submit"])
+    }, fields=["name", "trait", "evaluation_point", "auto_submit", "how_to_improve"])
 
     for rule in rules:
         _create_automated_evaluation(employee, rule, event_type, reference_doctype, reference_name, remarks)
@@ -52,7 +52,9 @@ def _create_automated_evaluation(employee, rule, event_type, reference_doctype, 
             "evaluation_type": rule["evaluation_point"],
             "evaluation_date": evaluation_date or now_datetime().date(),
             "remarks": full_remarks,
-            "auto_submit": rule.get("auto_submit", 0)
+            "how_to_improve": rule.get("how_to_improve"),
+            "auto_submit": rule.get("auto_submit", 0),
+            "hr_user": "Administrator"
         })
         evaluation.insert(ignore_permissions=True)
 
@@ -87,7 +89,7 @@ def _check_late_login(doc):
     late_rules = frappe.get_all("Evaluation Automation Rule", filters={
         "event_type": "Late Login",
         "enabled": 1
-    }, fields=["name", "trait", "evaluation_point", "auto_submit", "late_login_after"])
+    }, fields=["name", "trait", "evaluation_point", "auto_submit", "late_login_after", "how_to_improve"])
 
     for rule in late_rules:
         threshold = rule.get("late_login_after")
@@ -125,7 +127,7 @@ def _check_early_exit(doc):
     early_rules = frappe.get_all("Evaluation Automation Rule", filters={
         "event_type": "Early Exit",
         "enabled": 1
-    }, fields=["name", "trait", "evaluation_point", "auto_submit", "early_exit_before"])
+    }, fields=["name", "trait", "evaluation_point", "auto_submit", "early_exit_before", "how_to_improve"])
 
     for rule in early_rules:
         threshold = rule.get("early_exit_before")
@@ -213,7 +215,7 @@ def handle_daily_log_automation(doc, method=None):
     rules = frappe.get_all("Evaluation Automation Rule", filters={
         "event_type": "Daily Log Submission",
         "enabled": 1
-    }, fields=["name", "trait", "evaluation_point", "auto_submit", "late_login_after", "early_exit_before", "break_duration_after"])
+    }, fields=["name", "trait", "evaluation_point", "auto_submit", "late_login_after", "early_exit_before", "break_duration_after", "how_to_improve"])
 
     for rule in rules:
         should_trigger = True
@@ -272,7 +274,7 @@ def handle_leave_automation(doc, method=None):
     rules = frappe.get_all("Evaluation Automation Rule", filters={
         "event_type": ["in", ["Specific Day Leave", "Specific Date Leave"]],
         "enabled": 1
-    }, fields=["name", "trait", "evaluation_point", "auto_submit", "specific_day", "specific_date", "event_type"])
+    }, fields=["name", "trait", "evaluation_point", "auto_submit", "specific_day", "specific_date", "event_type", "how_to_improve"])
 
     if not rules:
         return
