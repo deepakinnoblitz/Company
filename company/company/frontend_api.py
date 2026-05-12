@@ -1655,6 +1655,22 @@ def _get_attendance_status(hours, p_threshold, h_threshold):
         return "Absent"
 
 @frappe.whitelist()
+def check_leave_overlap(employee, from_date, to_date, exclude_doc=None):
+    """
+    Explicitly check for overlapping approved leaves.
+    Used by the frontend before applying workflow actions.
+    """
+    from company.company.api import has_approved_leave
+    
+    if has_approved_leave(employee, from_date, to_date, exclude_doc=exclude_doc):
+        return {
+            "overlap": True,
+            "message": f"Conflict Detected: Employee {employee} already has an approved leave overlapping this period."
+        }
+    
+    return {"overlap": False}
+
+@frappe.whitelist()
 def get_employee_dashboard_data(attendance_range="This Month"):
     """
     Fetch personal dashboard statistics and data for the currently logged-in employee.
