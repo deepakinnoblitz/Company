@@ -248,6 +248,7 @@ class Request(Document):
             header="New Request Submitted",
             icon="📩",
             intro=f"{self.employee_name} has submitted a new request for review.",
+            greeting="Dear HR,",
             color="#0062cc",
             sender=sender,
             reply_to=primary_email or hr_email
@@ -297,6 +298,7 @@ class Request(Document):
             header="Request Approved",
             icon="✅",
             intro="Your request has been approved by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#28a745",
             sender=sender,
@@ -340,6 +342,7 @@ class Request(Document):
             header="Request Rejected",
             icon="❌",
             intro="Your request has been rejected by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#dc3545",
             sender=sender,
@@ -393,6 +396,7 @@ class Request(Document):
                 header="Reply from HR",
                 icon="📩",
                 intro="HR has replied to your request.",
+                greeting=f"Hello {self.employee_name},",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
                 sender=hr_sender,
@@ -429,6 +433,7 @@ class Request(Document):
                 header="Reply Received",
                 icon="📩",
                 intro=f"{self.employee_name} has replied to your clarification request.",
+                greeting="Dear HR,",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
@@ -524,6 +529,7 @@ class Request(Document):
         subject,
         header,
         intro,
+        greeting="Hello,",
         color="#28a745",
         icon="✅",
         cc=None,
@@ -580,7 +586,7 @@ class Request(Document):
                 </div>
                 
                 <div style="padding: 30px; color: #333;">
-                    <p style="font-size: 16px; margin-bottom: 5px;">Hello,</p>
+                    <p style="font-size: 16px; margin-bottom: 5px;">{greeting}</p>
                     <p style="font-size: 15px; line-height: 1.5; color: #555;">{intro}</p>
                     
                     {details}

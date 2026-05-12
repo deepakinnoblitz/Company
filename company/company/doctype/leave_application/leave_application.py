@@ -61,6 +61,7 @@ class LeaveApplication(Document):
             header="Leave Rejected",
             icon="❌",
             intro="Your leave application has been rejected/cancelled.",
+            greeting=f"Hello {self.employee_name},",
             color="#dc3545",
             sender=sender,
             reply_to=hr_email
@@ -254,6 +255,7 @@ class LeaveApplication(Document):
             header="New Leave Request",
             icon="📩",
             intro=f"{self.employee_name} has submitted a leave application.",
+            greeting="Dear HR,",
             color="#0062cc",
             sender=sender_name,
             reply_to=primary_email or hr_email
@@ -333,6 +335,7 @@ class LeaveApplication(Document):
                 header="Reply from HR",
                 icon="📩",
                 intro="HR has replied to your leave application.",
+                greeting=f"Hello {self.employee_name},",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
                 sender=hr_sender,
@@ -370,6 +373,7 @@ class LeaveApplication(Document):
                 header="Reply Received",
                 icon="📩",
                 intro=f"{self.employee_name} has replied to your clarification request.",
+                greeting="Dear HR,",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
@@ -400,6 +404,7 @@ class LeaveApplication(Document):
                 header="Leave Approved",
                 icon="✅",
                 intro="Your leave application has been approved.",
+                greeting=f"Hello {self.employee_name},",
                 color="#28a745",
                 sender=hr_sender,
                 reply_to=hr_email
@@ -493,6 +498,7 @@ class LeaveApplication(Document):
         subject,
         header,
         intro,
+        greeting="Hello,",
         color="#28a745",
         icon="✅",
         cc=None,
@@ -555,7 +561,7 @@ class LeaveApplication(Document):
                 </div>
                 
                 <div style="padding: 30px; color: #333;">
-                    <p style="font-size: 16px; margin-bottom: 5px;">Hello ,</p>
+                    <p style="font-size: 16px; margin-bottom: 5px;">{greeting}</p>
                     <p style="font-size: 15px; line-height: 1.5; color: #555;">{intro}</p>
                     
                     {leave_details}

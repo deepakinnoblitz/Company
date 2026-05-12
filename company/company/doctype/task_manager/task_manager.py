@@ -375,199 +375,128 @@ def get_task_email_html(task_name, task_title, priority, due_date, project, depa
 	}
 	priority_color = priority_colors.get(priority or "Medium", "#d97706")
 
-	return """<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="en">
+	# Format date
+	formatted_due_date = "N/A"
+	if due_date:
+		try:
+			from frappe.utils import format_date
+			formatted_due_date = format_date(due_date, "dd-mm-yyyy")
+		except:
+			try:
+				formatted_due_date = __import__('datetime').datetime.strptime(str(due_date), '%Y-%m-%d').strftime('%d-%m-%Y')
+			except:
+				formatted_due_date = str(due_date)
+
+	return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
 <head>
-<title></title>
-<meta charset="UTF-8" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<!--[if !mso]>-->
-<meta http-equiv="X-UA-Compatible" content="IE=edge" />
-<!--<![endif]-->
-<meta name="x-apple-disable-message-reformatting" content="" />
-<meta content="target-densitydpi=device-dpi" name="viewport" />
-<meta content="true" name="HandheldFriendly" />
-<meta content="width=device-width" name="viewport" />
-<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no" />
+<title>{header}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" type="text/css" />
 <style type="text/css">
-table {{border-collapse:separate;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt}}
-table td {{border-collapse:collapse}}
-.ExternalClass {{width:100%}}
-.ExternalClass, .ExternalClass p, .ExternalClass span, .ExternalClass font, .ExternalClass td, .ExternalClass div {{line-height:100%}}
-body,a,li,p,h1,h2,h3{{-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%}}
-html{{-webkit-text-size-adjust:none!important}}
-body{{min-width:100%;Margin:0px;padding:0px;background-color:#F0F0F0;}}
-body,#innerTable{{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}}
-img{{Margin:0;padding:0;-ms-interpolation-mode:bicubic}}
-h1,h2,h3,p,a{{overflow-wrap:normal;white-space:normal;word-break:break-word}}
-a{{text-decoration:none}}
-h1,h2,h3,p{{min-width:100%!important;width:100%!important;max-width:100%!important;display:inline-block!important;border:0;padding:0;margin:0}}
-a[x-apple-data-detectors]{{color:inherit!important;text-decoration:none!important;font-size:inherit!important;font-family:inherit!important;font-weight:inherit!important;line-height:inherit!important}}
-u + #body a{{color:inherit;text-decoration:none;font-size:inherit;font-family:inherit;font-weight:inherit;line-height:inherit}}
-a[href^="mailto"],a[href^="tel"],a[href^="sms"]{{color:inherit;text-decoration:none}}
+	@media only screen and (max-width: 600px) {{
+		.main-table {{ width: 100% !important; }}
+		.responsive-td {{ display: block !important; width: 100% !important; box-sizing: border-box !important; }}
+		.label-td {{ padding-bottom: 0 !important; padding-top: 10px !important; }}
+		.value-td {{ padding-top: 2px !important; padding-bottom: 10px !important; }}
+		.mobile-padding {{ padding-left: 20px !important; padding-right: 20px !important; }}
+	}}
 </style>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&amp;family=Roboto:wght@400&amp;display=swap" rel="stylesheet" type="text/css" />
 </head>
-<body id="body" style="min-width:100%;Margin:0px;padding:0px;background-color:#F0F0F0;">
-<div style="background-color:#F0F0F0;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
-<tr><td style="font-size:0;line-height:0;background-color:#F0F0F0;" valign="top" align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center" id="innerTable">
-<tr><td align="center">
-<table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-<tr><td width="630" style="width:630px;">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-<tr><td style="background-color:#FFFFFF;padding:40px 60px 40px 60px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
+<body style="margin: 0; padding: 0; background-color: #f6f9fc; font-family: 'Poppins', Arial, sans-serif;">
+	<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f6f9fc;">
+		<tr>
+			<td align="center" style="padding: 40px 0;">
+				<table border="0" cellpadding="0" cellspacing="0" width="600" style="border-collapse: collapse; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); max-width: 600px;" class="main-table">
+					<!-- Logo Section -->
+					<tr>
+						<td align="center" style="padding: 40px 40px 30px 40px;">
+							<img src="{logo_url}" alt="Logo" width="220" style="display: block; max-width: 100%; height: auto;" />
+						</td>
+					</tr>
+					
+					<!-- Header Section -->
+					<tr>
+						<td align="center" style="padding: 0 40px 25px 40px;">
+							<h1 style="color: {header_color}; font-size: 28px; margin: 0; font-weight: 700; line-height: 1.2;">{header}</h1>
+						</td>
+					</tr>
 
-<!-- Logo -->
-<tr><td align="center">
-<table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-<tr><td width="250" style="width:250px;">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-<tr><td><div style="font-size:0px;"><img style="display:block;border:0;height:auto;width:100%;Margin:0;max-width:100%;" width="250" height="163" alt="" src="{logo_url}"/></div></td></tr>
-</table></td></tr></table>
-</td></tr>
+					<!-- Message Section -->
+					<tr>
+						<td class="mobile-padding" style="padding: 20px 40px 30px 40px; color: #4a5568; font-size: 16px; line-height: 26px;">
+							<p style="margin: 0 0 15px 0; color: #2d3748;"><b>{greeting}</b></p>
+							<p style="margin: 0;">{body}</p>
+						</td>
+					</tr>
 
-<!-- Spacer 40px -->
-<tr><td><div style="mso-line-height-rule:exactly;mso-line-height-alt:40px;line-height:40px;font-size:1px;display:block;">&nbsp;&nbsp;</div></td></tr>
+					<!-- Task Details Card -->
+					<tr>
+						<td class="mobile-padding" style="padding: 0 40px 40px 40px;">
+							<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; border-collapse: separate;">
+								<tr>
+									<td style="padding: 25px;">
+										<h2 style="font-size: 18px; margin: 0 0 20px 0; color: #1a202c; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; font-weight: 700;">Task Details</h2>
+										
+										<table border="0" cellpadding="0" cellspacing="0" width="100%">
+											<!-- Title -->
+											<tr>
+												<td class="responsive-td label-td" width="130" valign="top" style="padding: 10px 0; font-weight: 700; color: #718096; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Task Title:</td>
+												<td class="responsive-td value-td" valign="top" style="padding: 10px 0; color: #2d3748; font-size: 15px; font-weight: 600; word-break: break-word;">{task_title}</td>
+											</tr>
+											<!-- Priority -->
+											<tr>
+												<td class="responsive-td label-td" width="130" valign="top" style="padding: 10px 0; font-weight: 700; color: #718096; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Priority:</td>
+												<td class="responsive-td value-td" valign="top" style="padding: 10px 0; color: {priority_color}; font-size: 15px; font-weight: 700;">{priority}</td>
+											</tr>
+											<!-- Due Date -->
+											<tr>
+												<td class="responsive-td label-td" width="130" valign="top" style="padding: 10px 0; font-weight: 700; color: #718096; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Due Date:</td>
+												<td class="responsive-td value-td" valign="top" style="padding: 10px 0; color: #2d3748; font-size: 15px; font-weight: 600;">{formatted_due_date}</td>
+											</tr>
+											<!-- Project -->
+											<tr>
+												<td class="responsive-td label-td" width="130" valign="top" style="padding: 10px 0; font-weight: 700; color: #718096; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Project:</td>
+												<td class="responsive-td value-td" valign="top" style="padding: 10px 0; color: #2d3748; font-size: 15px; font-weight: 600; word-break: break-word;">{project or "N/A"}</td>
+											</tr>
+											<!-- Department -->
+											<tr>
+												<td class="responsive-td label-td" width="130" valign="top" style="padding: 10px 0; font-weight: 700; color: #718096; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Department:</td>
+												<td class="responsive-td value-td" valign="top" style="padding: 10px 0; color: #2d3748; font-size: 15px; font-weight: 600; word-break: break-word;">{department or "N/A"}</td>
+											</tr>
+										</table>
+									</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
 
-<!-- Header Title -->
-<tr><td align="center">
-<table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-<tr><td width="510">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-<tr><td><h1 style="margin:0;Margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:34px;font-weight:700;font-style:normal;font-size:29px;text-decoration:none;text-transform:none;direction:ltr;color:{header_color};text-align:center;mso-line-height-rule:exactly;mso-text-raise:2px;">{header}</h1></td></tr>
-</table></td></tr></table>
-</td></tr>
+					<!-- CTA Button -->
+					<tr>
+						<td align="center" style="padding: 0 40px 50px 40px;">
+							<table border="0" cellpadding="0" cellspacing="0" width="100%">
+								<tr>
+									<td align="center" bgcolor="{header_color}" style="border-radius: 8px;">
+										<a href="{task_url}" target="_blank" style="padding: 18px 30px; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 700; display: block; letter-spacing: 0.025em;">Open Task Details</a>
+									</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
 
-<!-- Spacer 11px -->
-<tr><td><div style="mso-line-height-rule:exactly;mso-line-height-alt:11px;line-height:11px;font-size:1px;display:block;">&nbsp;&nbsp;</div></td></tr>
-<!-- Spacer 21px -->
-<tr><td><div style="mso-line-height-rule:exactly;mso-line-height-alt:21px;line-height:21px;font-size:1px;display:block;">&nbsp;&nbsp;</div></td></tr>
-
-<!-- Greeting + Body -->
-<tr><td align="center">
-<table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-<tr><td>
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-<tr><td><p style="margin:0;Margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:500;font-style:normal;font-size:16px;text-decoration:none;text-transform:none;direction:ltr;color:#333333;text-align:left;mso-line-height-rule:exactly;mso-text-raise:2px;">{greeting}&nbsp; {body}</p></td></tr>
-</table></td></tr></table>
-</td></tr>
-
-<!-- Spacer 4px -->
-<tr><td><div style="mso-line-height-rule:exactly;mso-line-height-alt:4px;line-height:4px;font-size:1px;display:block;">&nbsp;&nbsp;</div></td></tr>
-
-<!-- Task Card Wrapper -->
-<tr><td align="center">
-<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-<tr><td style="padding:30px 0 10px 0;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
-
-  <!-- Task Details Header -->
-  <tr><td align="center">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-  <tr><td style="border:1px solid #E3E3E3;overflow:hidden;padding:30px 30px 30px 30px;border-radius:6px 6px 0 0;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
-  <tr><td align="center">
-  <table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-  <tr><td width="448">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-  <tr><td><p style="margin:0;Margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:22px;font-weight:bold;font-style:normal;font-size:16px;text-decoration:none;text-transform:none;direction:ltr;color:#333333;text-align:left;mso-line-height-rule:exactly;mso-text-raise:2px;">Task Details</p></td></tr>
-  </table></td></tr></table>
-  </td></tr></table>
-  </td></tr></table>
-  </td></tr>
-
-  <!-- Task Details Body — two-column aligned table -->
-  <tr><td>
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-  <tr><td style="border:1px solid #E3E3E3;padding:24px 30px;">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;border-collapse:collapse;">
-
-    <!-- Task Title -->
-    <tr>
-      <td width="120" valign="top" style="padding:14px 12px 14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:13px;font-weight:700;color:#595959;white-space:nowrap;">Task Title:</td>
-      <td valign="top" style="padding:14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:14px;font-weight:700;color:#1A1A1A;">{task_title}</td>
-    </tr>
-
-    <!-- Priority -->
-    <tr>
-      <td width="120" valign="top" style="padding:14px 12px 14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:13px;font-weight:700;color:#595959;white-space:nowrap;">Priority:</td>
-      <td valign="top" style="padding:14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:14px;font-weight:700;color:{priority_color};"><span>{priority}</span></td>
-    </tr>
-
-    <!-- Due Date -->
-    <tr>
-      <td width="120" valign="top" style="padding:14px 12px 14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:13px;font-weight:700;color:#595959;white-space:nowrap;">Due Date:</td>
-      <td valign="top" style="padding:14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:14px;font-weight:700;color:#1A1A1A;">{due_date}</td>
-    </tr>
-
-    <!-- Project -->
-    <tr>
-      <td width="120" valign="top" style="padding:14px 12px 14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:13px;font-weight:700;color:#595959;white-space:nowrap;">Project:</td>
-      <td valign="top" style="padding:14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:14px;font-weight:700;color:#1A1A1A;">{project}</td>
-    </tr>
-
-    <!-- Department -->
-    <tr>
-      <td width="120" valign="top" style="padding:14px 12px 14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:13px;font-weight:700;color:#595959;white-space:nowrap;">Department:</td>
-      <td valign="top" style="padding:14px 0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;font-size:14px;font-weight:700;color:#1A1A1A;">{department}</td>
-    </tr>
-
-  </table>
-  </td></tr></table>
-  </td></tr>
-
-  <!-- Open Task Button -->
-  <tr><td align="center">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-  <tr><td style="border:1px solid #E3E3E3;overflow:hidden;padding:10px 10px 10px 10px;border-radius:0 0 6px 6px;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100% !important;">
-  <tr><td align="center">
-  <table role="presentation" cellpadding="0" cellspacing="0" style="Margin-left:auto;Margin-right:auto;">
-  <tr><td width="488">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="width:100%;">
-  <tr><td style="overflow:hidden;background-color:{header_color};text-align:center;line-height:24px;mso-line-height-rule:exactly;mso-text-raise:2px;padding:18px 14px 18px 14px;border-radius:4px 4px 4px 4px;">
-  <a href="{task_url}" target="_blank" style="display:block;margin:0;Margin:0;font-family:Poppins,BlinkMacSystemFont,Segoe UI,Helvetica Neue,Arial,sans-serif;line-height:24px;font-weight:700;font-style:normal;font-size:16px;text-decoration:none;direction:ltr;color:#FFFFFF;text-align:center;mso-line-height-rule:exactly;mso-text-raise:2px;">Open Task</a>
-  </td></tr>
-  </table></td></tr></table>
-  </td></tr></table>
-  </td></tr></table>
-  </td></tr>
-
-</table>
-</td></tr></table>
-</td></tr>
-
-</table>
-</td></tr></table>
-</td></tr></table>
-</td></tr></table>
-</td></tr></table>
-</td></tr></table>
-
-</td></tr></table>
-
-</div>
+					<!-- Footer -->
+					<tr>
+						<td align="center" style="padding: 30px 40px; background-color: #f7fafc; border-top: 1px solid #edf2f7; color: #a0aec0; font-size: 12px; line-height: 1.5;">
+							<p style="margin: 0;">This is an automated notification from Task Manager.<br/>Please do not reply to this email.</p>
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+	</table>
 </body>
-</html>""".format(
-		header=header,
-		header_color=header_color,
-		greeting=greeting,
-		body=body,
-		task_title=task_title,
-		priority=priority or "N/A",
-		priority_color=priority_color,
-		due_date=(
-			__import__('datetime').datetime.strptime(str(due_date), '%Y-%m-%d').strftime('%d-%m-%Y')
-			if due_date else "N/A"
-		),
-		project=project or "N/A",
-		department=department or "N/A",
-		task_url=task_url,
-		logo_url=logo_url,
-	)
+</html>"""
 
 def hhmm_to_float(hhmm):
 	if not hhmm:
