@@ -81,7 +81,6 @@ class EmployeeEvaluation(Document):
 		log.insert(ignore_permissions=True)
 		frappe.log_error(f"Score Log inserted for {self.name} with ID {log.name}", "Employee Evaluation Debug")
 		self._score_log_created = True
-		frappe.db.commit() # Force commit for debug visibility
 
 	def revert_employee_score(self):
 		employee = frappe.get_doc("Employee", self.employee)

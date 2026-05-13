@@ -1765,7 +1765,7 @@ def get_employee_last_seven_days_attendance():
 
         # Get employee linked to logged-in user
         employee = frappe.db.get_value("Employee", {"user": user}, "name") or \
-                   frappe.db.get_value("Employee", {"user_id": user}, "name")
+                   frappe.db.get_value("Employee", {"user": user}, "name")
 
         if not employee:
             return {"status": "Not Linked", "timeline": []}
@@ -1935,10 +1935,22 @@ def send_chat_notification_to_user(user: str, title: str, body: str):
     try:
         from bs4 import BeautifulSoup
         
-        # Strip HTML tags from body
+        # Strip HTML tags from body while preserving newlines for alignment
         if body:
             soup = BeautifulSoup(body, 'html.parser')
-            body = soup.get_text().strip()
+            
+            # Replace <br> tags with actual newlines
+            for br in soup.find_all("br"):
+                br.replace_with("\n")
+            
+            # Extract text with space separator (explicit <br> handled above will be newlines)
+            body = soup.get_text(separator=" ").strip()
+            
+            # Clean up: collapse multiple spaces but keep single newlines
+            import re
+            body = re.sub(r'[ \t]+', ' ', body) # Collapse horizontal whitespace
+            body = re.sub(r'\n\s*\n', '\n\n', body) # Collapse multiple empty lines to max 2
+            body = body.replace("\n\n\n", "\n\n") # Double safety
         
         # Send the notification with a link to the chat SPA
         return send_push_notification_to_user(user, title, body, data={"url": "/chat"})

@@ -1610,7 +1610,7 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
             ud = update_data
         doc.update(ud)
         doc.save(ignore_permissions=True) # Save updates before advancing workflow
-
+        
     apply_workflow(doc, action)
     
     # Reload doc to ensure we get the latest state including paid field
@@ -1653,6 +1653,22 @@ def _get_attendance_status(hours, p_threshold, h_threshold):
         return "Half Day"
     else:
         return "Absent"
+
+@frappe.whitelist()
+def check_leave_overlap(employee, from_date, to_date, exclude_doc=None):
+    """
+    Explicitly check for overlapping approved leaves.
+    Used by the frontend before applying workflow actions.
+    """
+    from company.company.api import has_approved_leave
+    
+    if has_approved_leave(employee, from_date, to_date, exclude_doc=exclude_doc):
+        return {
+            "overlap": True,
+            "message": f"Conflict Detected: Employee {employee} already has an approved leave overlapping this period."
+        }
+    
+    return {"overlap": False}
 
 @frappe.whitelist()
 def get_employee_dashboard_data(attendance_range="This Month"):
@@ -2153,7 +2169,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         if company:
             holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
         if not holiday_list:
-            holiday_list = frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
+            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
         
         holiday_map = {}
         if holiday_list:
@@ -2225,7 +2241,7 @@ def get_personality_dashboard_data(employee=None):
     all_recent_evals = frappe.db.sql("""
         SELECT trait, score_change, how_to_improve, creation
         FROM `tabEmployee Evaluation`
-        WHERE employee = %s
+        WHERE employee = %s AND docstatus = 1
         ORDER BY creation DESC
         LIMIT 20
     """, (employee.name,), as_dict=True)
@@ -2340,18 +2356,17 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
     total_active_employees = frappe.db.count("Employee", {"status": "Active"})
 
     all_holidays = set()
-    current_month_dt = getdate(get_first_day(start_date))
-    while current_month_dt <= end_date:
-        holiday_list_names = frappe.get_all("Holiday List",
-            filters={"year": current_month_dt.year, "month_year": str(current_month_dt.month)},
-            pluck="name"
-        )
-        for hl_name in holiday_list_names:
-            h_doc = frappe.get_doc("Holiday List", hl_name)
-            for h in h_doc.holidays:
-                if not h.is_working_day:
-                    all_holidays.add(str(h.holiday_date))
-        current_month_dt = getdate(add_months(current_month_dt, 1))
+    # Robust holiday fetching logic
+    try:
+        h_records = frappe.db.sql("""
+            SELECT DISTINCT holiday_date as date
+            FROM `tabHolidays`
+            WHERE holiday_date BETWEEN %s AND %s
+            AND is_working_day = 0
+        """, (start_date, end_date), as_dict=True)
+        all_holidays = {str(h.date) for h in h_records}
+    except Exception:
+        all_holidays = set()
 
     # 4. Optimized Bulk Fetch
     present_counts_map = {}
@@ -2782,6 +2797,29 @@ def get_my_assigned_assets(employee=None):
     return active_assignments
 
 
+@frappe.whitelist()
+def get_hr_task_stats(project=None, department=None, from_date=None, to_date=None):
+    """
+    Fetch task statistics for the HR Dashboard with optional filtering.
+    Returns counts for total, open, in-progress, completed, and on-hold tasks.
+    """
+    if not frappe.has_permission("Task Manager", "read"):
+        return {}
 
+    filters = {}
+    if project and project != 'All':
+        filters["project"] = project
+    if department and department != 'All':
+        filters["department"] = department
+    
+    if from_date and to_date:
+        filters["due_date"] = ["between", [from_date, to_date]]
 
-
+    return {
+        "total": frappe.db.count("Task Manager", filters),
+        "open": frappe.db.count("Task Manager", {**filters, "status": "Open"}),
+        "reopen": frappe.db.count("Task Manager", {**filters, "status": "Reopened"}),
+        "in_progress": frappe.db.count("Task Manager", {**filters, "status": "In Progress"}),
+        "completed": frappe.db.count("Task Manager", {**filters, "status": "Completed"}),
+        "on_hold": frappe.db.count("Task Manager", {**filters, "status": "On Hold"}),
+    }

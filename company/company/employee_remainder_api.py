@@ -393,7 +393,7 @@ def manual_trigger_remainder(queue_name):
     return send_remainder_notification(queue_name)
 
 def send_remainder_notification(queue_name):
-    """Send a chat message for a specific queue entry. Logic based on Task Manager."""
+    """Send a chat message for a specific queue entry."""
     from company.company.api import get_chatbot_user
     
     queue_item = frappe.get_doc("Employee Remainder Queue", queue_name)
@@ -449,6 +449,18 @@ def send_remainder_notification(queue_name):
 
         if room_name:
             sender_name = frappe.db.get_value("User", sender_email, "full_name") or sender_email
+            
+            # 3. Ensure receiver is active in the channel (Pattern from Leave Application)
+            frappe.db.sql("""
+                UPDATE `tabClefinCode Chat Channel User`
+                SET is_removed = 0, active = 1
+                WHERE parent = %s AND user = %s
+            """, (room_name, receiver_email))
+            
+            from clefincode_chat.api.api_1_2_1.api import share_doctype
+            share_doctype("ClefinCode Chat Channel", room_name, receiver_email)
+
+            # 4. Send Message via clefincode_chat
             send(
                 content=content,
                 user=sender_name,
@@ -456,6 +468,19 @@ def send_remainder_notification(queue_name):
                 email=sender_email,
                 skip_notification=0 # IMPORTANT: Enable push notification
             )
+            
+            # 5. Force Realtime Notifications (Pattern from Leave Application)
+            # This ensures both the sidebar updates and push notifications are triggered
+            refresh_data = {
+                "room": room_name,
+                "realtime_type": "update_room",
+                "content": content,
+                "user": sender_name,
+                "sender_email": sender_email,
+                "room_type": "Direct"
+            }
+            frappe.publish_realtime(event="update_room", message=refresh_data, user=receiver_email)
+            frappe.publish_realtime(event="new_chat_notification", message=refresh_data, user=receiver_email)
             
             frappe.db.set_value("Employee Remainder Queue", queue_name, "status", "Sent")
             
