@@ -120,28 +120,12 @@ class TaskManager(Document):
 
 	def after_insert(self):
 		"""Send notification to all assignees when task is created."""
-		self.notify_assignees("assigned")
-		
-		# Send Chat Notification from current user
-		if self.assignees:
-			sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-			for row in self.assignees:
-				receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
-				if receiver and receiver != sender:
-					# Get first name for the greeting
-					emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
-					first_name = emp_name.split(" ")[0]
-					
-					formatted_date = frappe.utils.format_date(self.due_date, "dd MMM YYYY") if self.due_date else "N/A"
-					project_info = f"{self.project}: " if self.project else ""
-					
-					content = (
-						f"<b>Hi {first_name} 👋</b><br><br>"
-						f"<b>New Task Assigned:</b> {project_info}{self.title}<br>"
-						f"<b>Due Date:</b> {formatted_date}<br><br>"
-						f"Please review the task details and proceed accordingly."
-					)
-					self.send_chat_notification(sender, receiver, content)
+		frappe.enqueue(
+			"company.company.doctype.task_manager.task_manager.send_after_insert_notifications",
+			doc_name=self.name,
+			action_user=frappe.session.user,
+			enqueue_after_commit=True
+		)
 
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "insert"})
 
@@ -156,43 +140,14 @@ class TaskManager(Document):
 		new_status = self.status
 
 		if old_status != new_status:
-			if new_status == "Completed":
-				# Notify Task Manager (HR) only via email — not the assignees
-				self.notify_hr("completed")
-				# Send Chat Notification to the Task Creator (Owner)
-				content = f"<b>Task Completed:</b> {self.title} by {frappe.session.user}"
-				sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-				if self.owner and self.owner != sender:
-					self.send_chat_notification(sender, self.owner, content)
-
-			elif new_status == "Reopened":
-				self.notify_assignees("reopened")
-				# Send Chat Notification from Task Manager who reopened it
-				if self.assignees:
-					sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-					for row in self.assignees:
-						receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
-						if receiver and receiver != sender:
-							# Get first name for the greeting
-							emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
-							first_name = emp_name.split(" ")[0]
-							
-							project_info = f"{self.project}: " if self.project else ""
-							
-							content = (
-								f"<b>Hi {first_name} 👋</b><br><br>"
-								f"<b>Task Reopened:</b> {project_info}{self.title}<br><br>"
-								f"Please review the task and take necessary action."
-							)
-							self.send_chat_notification(sender, receiver, content)
-
-			elif new_status == "In Progress":
-				self.notify_hr("in_progress")
-				# Send Chat Notification to the Task Creator (Owner)
-				content = f"<b>Task In Progress:</b> {self.title} by {frappe.session.user}"
-				sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-				if self.owner and self.owner != sender:
-					self.send_chat_notification(sender, self.owner, content)
+			frappe.enqueue(
+				"company.company.doctype.task_manager.task_manager.send_on_update_notifications",
+				doc_name=self.name,
+				action_user=frappe.session.user,
+				old_status=old_status,
+				new_status=new_status,
+				enqueue_after_commit=True
+			)
 
 	def on_trash(self):
 		frappe.publish_realtime(event="task_manager_updated", message={"name": self.name, "event": "trash"})
@@ -544,9 +499,14 @@ def close_task(task_name, hours_spent, remarks, attachment=None):
 	doc.save()
 	# Send Chat Notification to the Task Creator (Owner)
 	content = f"<b>Task Closed:</b> {doc.title}<br><b>Hours Spent:</b> {hours_spent}<br><b>Remarks:</b> {remarks}"
-	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-	if doc.owner and doc.owner != sender:
-		doc.send_chat_notification(sender, doc.owner, content)
+	
+	frappe.enqueue(
+		"company.company.doctype.task_manager.task_manager.send_manual_chat_notification",
+		doc_name=doc.name,
+		action_user=frappe.session.user,
+		content=content,
+		enqueue_after_commit=True
+	)
 
 	return {"message": "Task closed successfully", "status": doc.status}
 
@@ -605,9 +565,14 @@ def put_on_hold_task(task_name, remarks):
 
 	# Send Chat Notification to the Task Creator (Owner)
 	content = f"<b>Task On Hold:</b> {doc.title}<br><b>Remarks:</b> {remarks}"
-	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-	if doc.owner and doc.owner != sender:
-		doc.send_chat_notification(sender, doc.owner, content)
+	
+	frappe.enqueue(
+		"company.company.doctype.task_manager.task_manager.send_manual_chat_notification",
+		doc_name=doc.name,
+		action_user=frappe.session.user,
+		content=content,
+		enqueue_after_commit=True
+	)
 
 	doc.save()
 	return {"message": "Task put on hold successfully", "status": doc.status}
@@ -632,9 +597,14 @@ def resume_task(task_name, remarks=None):
 	content = f"<b>Task Resumed:</b> {doc.title}"
 	if remarks:
 		content += f"<br><b>Remarks:</b> {remarks}"
-	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-	if doc.owner and doc.owner != sender:
-		doc.send_chat_notification(sender, doc.owner, content)
+	
+	frappe.enqueue(
+		"company.company.doctype.task_manager.task_manager.send_manual_chat_notification",
+		doc_name=doc.name,
+		action_user=frappe.session.user,
+		content=content,
+		enqueue_after_commit=True
+	)
 
 	doc.save()
 	return {"message": "Task resumed successfully", "status": doc.status}
@@ -658,9 +628,14 @@ def accept_task(task_name):
 
 	# Send Chat Notification to the Task Creator (Owner) before save triggers on_update
 	content = f"<b>Task Accepted:</b> {doc.title}<br>Work has started."
-	sender = frappe.db.get_value("User", frappe.session.user, "email") or frappe.session.user
-	if doc.owner and doc.owner != sender:
-		doc.send_chat_notification(sender, doc.owner, content)
+	
+	frappe.enqueue(
+		"company.company.doctype.task_manager.task_manager.send_manual_chat_notification",
+		doc_name=doc.name,
+		action_user=frappe.session.user,
+		content=content,
+		enqueue_after_commit=True
+	)
 
 	doc.save()
 
@@ -788,3 +763,103 @@ def get_task_histories(task_names):
 		fields=["name", "parent", "event", "done_by", "done_on", "hours_spent", "remarks"],
 		order_by="done_on asc"
 	)
+
+
+def send_after_insert_notifications(doc_name, action_user):
+	"""Background task for after_insert notifications"""
+	if not doc_name or not action_user:
+		return
+
+	frappe.session.user = action_user
+	try:
+		doc = frappe.get_doc("Task Manager", doc_name)
+		# Call existing notification functions
+		doc.notify_assignees("assigned")
+		
+		# Send Chat Notification from current user
+		if doc.assignees:
+			sender = frappe.db.get_value("User", action_user, "email") or action_user
+			for row in doc.assignees:
+				receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
+				if receiver and receiver != sender:
+					# Get first name for the greeting
+					emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
+					first_name = emp_name.split(" ")[0]
+					
+					formatted_date = frappe.utils.format_date(doc.due_date, "dd MMM YYYY") if doc.due_date else "N/A"
+					project_info = f"{doc.project}: " if doc.project else ""
+					
+					content = (
+						f"<b>Hi {first_name} 👋</b><br><br>"
+						f"<b>New Task Assigned:</b> {project_info}{doc.title}<br>"
+						f"<b>Due Date:</b> {formatted_date}<br><br>"
+						f"Please review the task details and proceed accordingly."
+					)
+					doc.send_chat_notification(sender, receiver, content)
+	except Exception:
+		frappe.log_error(title="Task Manager after_insert Notification Error", message=frappe.get_traceback())
+
+
+def send_on_update_notifications(doc_name, action_user, old_status, new_status):
+	"""Background task for on_update notifications"""
+	if not doc_name or not action_user:
+		return
+
+	frappe.session.user = action_user
+	try:
+		doc = frappe.get_doc("Task Manager", doc_name)
+		if old_status != new_status:
+			if new_status == "Completed":
+				# Notify Task Manager (HR) only via email — not the assignees
+				doc.notify_hr("completed")
+				# Send Chat Notification to the Task Creator (Owner)
+				content = f"<b>Task Completed:</b> {doc.title} by {action_user}"
+				sender = frappe.db.get_value("User", action_user, "email") or action_user
+				if doc.owner and doc.owner != sender:
+					doc.send_chat_notification(sender, doc.owner, content)
+
+			elif new_status == "Reopened":
+				doc.notify_assignees("reopened")
+				# Send Chat Notification from Task Manager who reopened it
+				if doc.assignees:
+					sender = frappe.db.get_value("User", action_user, "email") or action_user
+					for row in doc.assignees:
+						receiver = row.user or frappe.db.get_value("Employee", row.employee, "user")
+						if receiver and receiver != sender:
+							# Get first name for the greeting
+							emp_name = row.employee_name or frappe.db.get_value("Employee", row.employee, "employee_name") or "Team"
+							first_name = emp_name.split(" ")[0]
+							
+							project_info = f"{doc.project}: " if doc.project else ""
+							
+							content = (
+								f"<b>Hi {first_name} 👋</b><br><br>"
+								f"<b>Task Reopened:</b> {project_info}{doc.title}<br><br>"
+								f"Please review the task and take necessary action."
+							)
+							doc.send_chat_notification(sender, receiver, content)
+
+			elif new_status == "In Progress":
+				doc.notify_hr("in_progress")
+				# Send Chat Notification to the Task Creator (Owner)
+				content = f"<b>Task In Progress:</b> {doc.title} by {action_user}"
+				sender = frappe.db.get_value("User", action_user, "email") or action_user
+				if doc.owner and doc.owner != sender:
+					doc.send_chat_notification(sender, doc.owner, content)
+	except Exception:
+		frappe.log_error(title="Task Manager on_update Notification Error", message=frappe.get_traceback())
+
+
+def send_manual_chat_notification(doc_name, action_user, content):
+	"""Background task for manual chat notifications (close, hold, resume, accept)"""
+	if not doc_name or not action_user:
+		return
+
+	frappe.session.user = action_user
+	try:
+		doc = frappe.get_doc("Task Manager", doc_name)
+		sender = frappe.db.get_value("User", action_user, "email") or action_user
+		if doc.owner and doc.owner != sender:
+			doc.send_chat_notification(sender, doc.owner, content)
+	except Exception:
+		frappe.log_error(title="Task Manager Manual Chat Notification Error", message=frappe.get_traceback())
