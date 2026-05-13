@@ -155,7 +155,12 @@ spa_routes = [
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
-    "invoice-collections", "purchase-collections", "reports", "access-denied", "sign-in", "salary-slips", "profile", "task-manager", "daily-log", "badges", "employee-monthly-award" , "employee-evaluation"
+    "invoice-collections", "purchase-collections", "reports", "access-denied",
+    "sign-in", "salary-slips", "profile", "task-manager", "daily-log", "badges", 
+    "employee-monthly-award" , "employee-evaluation", "reminders", "employee-referrals", 
+    "employee-overall-report", "department", "project", "activity-type", "claim-type", 
+    "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
+    "designation", "salary-structure-component", "leave-type"
 ]
 
 website_route_rules = []

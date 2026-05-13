@@ -1765,7 +1765,7 @@ def get_employee_last_seven_days_attendance():
 
         # Get employee linked to logged-in user
         employee = frappe.db.get_value("Employee", {"user": user}, "name") or \
-                   frappe.db.get_value("Employee", {"user_id": user}, "name")
+                   frappe.db.get_value("Employee", {"user": user}, "name")
 
         if not employee:
             return {"status": "Not Linked", "timeline": []}
