@@ -14,15 +14,27 @@ class Request(Document):
                 title=frappe._("Validation Error")
             )
 
+    def on_submit(self):
+        """Enqueue HR notifications in background to avoid submit delay"""
+        # 🛡️ Prevent double enqueuing in the same request
+        if frappe.flags.get(f"enqueued_submit_notification_{self.name}"):
+            return
+
+        frappe.enqueue(
+            "company.company.doctype.request.request.send_submit_notification",
+            doc_name=self.name,
+            submitter_user=frappe.session.user,
+            enqueue_after_commit=True
+        )
+        frappe.flags[f"enqueued_submit_notification_{self.name}"] = True
+
     # =================================================
     # AUTO-SUBMIT AFTER INSERT
-    # Python equivalent of JS: frappe.client.submit(doc)
-    # Triggers on_submit() → notifies HR automatically
     # =================================================
     def after_insert(self):
         """Auto-submit the Request right after creation (docstatus 0 → 1)."""
-        self.submit()
-        self.notify_hr_on_submission()
+        if self.docstatus == 0:
+            self.submit()
 
     # =================================================
     # ALL WORKFLOW CHANGES AFTER SUBMIT
@@ -248,6 +260,7 @@ class Request(Document):
             header="New Request Submitted",
             icon="📩",
             intro=f"{self.employee_name} has submitted a new request for review.",
+            greeting="Dear HR,",
             color="#0062cc",
             sender=sender,
             reply_to=primary_email or hr_email
@@ -297,6 +310,7 @@ class Request(Document):
             header="Request Approved",
             icon="✅",
             intro="Your request has been approved by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#28a745",
             sender=sender,
@@ -340,6 +354,7 @@ class Request(Document):
             header="Request Rejected",
             icon="❌",
             intro="Your request has been rejected by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#dc3545",
             sender=sender,
@@ -393,6 +408,7 @@ class Request(Document):
                 header="Reply from HR",
                 icon="📩",
                 intro="HR has replied to your request.",
+                greeting=f"Hello {self.employee_name},",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
                 sender=hr_sender,
@@ -429,6 +445,7 @@ class Request(Document):
                 header="Reply Received",
                 icon="📩",
                 intro=f"{self.employee_name} has replied to your clarification request.",
+                greeting="Dear HR,",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
@@ -524,6 +541,7 @@ class Request(Document):
         subject,
         header,
         intro,
+        greeting="Hello,",
         color="#28a745",
         icon="✅",
         cc=None,
@@ -580,7 +598,7 @@ class Request(Document):
                 </div>
                 
                 <div style="padding: 30px; color: #333;">
-                    <p style="font-size: 16px; margin-bottom: 5px;">Hello,</p>
+                    <p style="font-size: 16px; margin-bottom: 5px;">{greeting}</p>
                     <p style="font-size: 15px; line-height: 1.5; color: #555;">{intro}</p>
                     
                     {details}
@@ -612,3 +630,20 @@ class Request(Document):
             reference_doctype="Request",
             reference_name=self.name
         )
+
+
+def send_submit_notification(doc_name, submitter_user):
+    """
+    Background job to send submit notification to HR.
+    Sets the session user to ensure InnoChat identifies the correct employee sender.
+    """
+    if not doc_name or not submitter_user:
+        return
+
+    frappe.session.user = submitter_user
+
+    try:
+        doc = frappe.get_doc("Request", doc_name)
+        doc.notify_hr_on_submission()
+    except Exception:
+        frappe.log_error(title="Request Background Notification Error")
