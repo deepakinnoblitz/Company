@@ -14,15 +14,27 @@ class Request(Document):
                 title=frappe._("Validation Error")
             )
 
+    def on_submit(self):
+        """Enqueue HR notifications in background to avoid submit delay"""
+        # 🛡️ Prevent double enqueuing in the same request
+        if frappe.flags.get(f"enqueued_submit_notification_{self.name}"):
+            return
+
+        frappe.enqueue(
+            "company.company.doctype.request.request.send_submit_notification",
+            doc_name=self.name,
+            submitter_user=frappe.session.user,
+            enqueue_after_commit=True
+        )
+        frappe.flags[f"enqueued_submit_notification_{self.name}"] = True
+
     # =================================================
     # AUTO-SUBMIT AFTER INSERT
-    # Python equivalent of JS: frappe.client.submit(doc)
-    # Triggers on_submit() → notifies HR automatically
     # =================================================
     def after_insert(self):
         """Auto-submit the Request right after creation (docstatus 0 → 1)."""
-        self.submit()
-        self.notify_hr_on_submission()
+        if self.docstatus == 0:
+            self.submit()
 
     # =================================================
     # ALL WORKFLOW CHANGES AFTER SUBMIT
@@ -618,3 +630,20 @@ class Request(Document):
             reference_doctype="Request",
             reference_name=self.name
         )
+
+
+def send_submit_notification(doc_name, submitter_user):
+    """
+    Background job to send submit notification to HR.
+    Sets the session user to ensure InnoChat identifies the correct employee sender.
+    """
+    if not doc_name or not submitter_user:
+        return
+
+    frappe.session.user = submitter_user
+
+    try:
+        doc = frappe.get_doc("Request", doc_name)
+        doc.notify_hr_on_submission()
+    except Exception:
+        frappe.log_error(title="Request Background Notification Error")

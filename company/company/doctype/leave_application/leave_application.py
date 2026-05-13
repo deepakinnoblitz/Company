@@ -7,10 +7,21 @@ from frappe.utils import formatdate, get_url
 class LeaveApplication(Document):
 
     # =================================================
-    # EMPLOYEE SUBMITS LEAVE → MAIL HR
+    # EMPLOYEE SUBMITS LEAVE → MAIL HR (Background)
     # =================================================
-    def before_save(self):
-        self.send_submit_mail_to_hr()
+    def on_submit(self):
+        """Enqueue HR notifications in background to avoid submit delay"""
+        # 🛡️ Prevent double enqueuing in the same request
+        if frappe.flags.get(f"enqueued_submit_notification_{self.name}"):
+            return
+
+        frappe.enqueue(
+            "company.company.doctype.leave_application.leave_application.send_submit_notification",
+            doc_name=self.name,
+            submitter_user=frappe.session.user,
+            enqueue_after_commit=True
+        )
+        frappe.flags[f"enqueued_submit_notification_{self.name}"] = True
 
     def validate(self):
         self.validate_dates()
@@ -593,3 +604,22 @@ class LeaveApplication(Document):
             reference_doctype="Leave Application",
             reference_name=self.name
         )
+
+
+def send_submit_notification(doc_name, submitter_user):
+    """
+    Background job to send submit notification to HR.
+    Sets the session user to ensure InnoChat identifies the correct employee sender.
+    """
+    if not doc_name or not submitter_user:
+        return
+        
+    # Set the session user to the actual submitter so existing notification logic 
+    # uses the correct sender for chat messages.
+    frappe.session.user = submitter_user
+    
+    try:
+        doc = frappe.get_doc("Leave Application", doc_name)
+        doc.send_submit_mail_to_hr()
+    except Exception:
+        frappe.log_error(title="Leave Application Background Notification Error")
