@@ -400,6 +400,35 @@ def get_live_break_seconds(session):
             
     return total_seconds
 
+def update_session_break_hours(doc, method=None):
+    if doc.session:
+        # Define filters: only exclude the current record if we are deleting it
+        filters = {"session": doc.session}
+        if method == "on_trash":
+            filters["name"] = ["!=", doc.name]
+            
+        # Re-calculate total from relevant breaks in DB
+        breaks = frappe.get_all("Employee Break", 
+            filters=filters, 
+            fields=["break_duration", "break_start", "break_end"]
+        )
+        
+        total_seconds = 0
+        now = now_datetime()
+        for b in breaks:
+            if b.break_end:
+                # Use break_duration if available, else calculate from start/end
+                if b.break_duration:
+                    total_seconds += flt(b.break_duration) * 60.0
+                else:
+                    total_seconds += time_diff_in_seconds(b.break_end, b.break_start)
+            else:
+                # Current active break
+                total_seconds += time_diff_in_seconds(now, b.break_start)
+        
+        frappe.db.set_value("Employee Session", doc.session, "total_break_hours", flt(total_seconds) / 3600.0)
+        frappe.db.commit()
+
 def get_active_session(employee):
     session_name = frappe.db.get_value("Employee Session", {"employee": employee, "status": "Active"}, "name")
     if session_name:
