@@ -130,11 +130,13 @@ doc_events = {
 
 
 scheduler_events = {
-    "all": [
-        "company.company.employee_remainder_api.check_and_enqueue_reminders",
-        "company.company.employee_remainder_api.process_remainder_queue",
-        "company.company.presence_api.process_auto_breaks"
-    ],
+    "cron": {
+        "* * * * *": [
+            "company.company.employee_remainder_api.check_and_enqueue_reminders",
+            "company.company.employee_remainder_api.process_remainder_queue",
+            "company.company.presence_api.process_auto_breaks"
+        ]
+    },
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",

@@ -286,11 +286,10 @@ def ping_presence(employee=None):
     # Update Presence last_updated
     frappe.db.set_value("Employee Presence", employee, "last_updated", now)
     
-    # Update Active Session last_seen using db_set for higher concurrency resilience
+    # Update Active Session last_seen using db_set with update_modified=False to prevent conflicts with manual edits
     active_session = get_active_session(employee)
     if active_session:
-        active_session.db_set("last_seen", now)
-        frappe.db.commit()
+        active_session.db_set("last_seen", now, update_modified=False)
         return {"status": "success", "session": active_session.name}
     
     return {"status": "no_active_session"}
@@ -426,8 +425,8 @@ def update_session_break_hours(doc, method=None):
                 # Current active break
                 total_seconds += time_diff_in_seconds(now, b.break_start)
         
-        frappe.db.set_value("Employee Session", doc.session, "total_break_hours", flt(total_seconds) / 3600.0)
-        frappe.db.commit()
+        # Update modified=False to avoid conflicts with manual edits in progress
+        frappe.db.set_value("Employee Session", doc.session, "total_break_hours", flt(total_seconds) / 3600.0, update_modified=False)
 
 def get_active_session(employee):
     session_name = frappe.db.get_value("Employee Session", {"employee": employee, "status": "Active"}, "name")
@@ -778,12 +777,10 @@ def update_detailed_session(name, login_time=None, logout_time=None, intervals=N
                 "duration_seconds": dur or 0
             })
             
-    session.save(ignore_permissions=True)
-    
     if breaks is not None:
-        existing_breaks = frappe.get_all("Employee Break", filters={"session": name}, fields=["name"])
-        for b in existing_breaks:
-            frappe.delete_doc("Employee Break", b.name, ignore_permissions=True)
+        # Use db.delete to avoid triggering hooks during bulk update, 
+        # as we re-calculate totals manually at the end of this function.
+        frappe.db.delete("Employee Break", {"session": name})
             
         for b in breaks:
             b_start = b.get("break_start")
@@ -803,14 +800,25 @@ def update_detailed_session(name, login_time=None, logout_time=None, intervals=N
             })
             doc.insert(ignore_permissions=True)
             
-    # Re-calculate totals
+    # Re-calculate totals before final save
     total_active_seconds = sum(flt(i.duration_seconds) for i in session.intervals if i.status not in ("Offline", "Break", "Away"))
     session.total_work_hours = max(0, flt(total_active_seconds) / 3600.0)
     
     total_break_seconds = get_live_break_seconds(session)
     session.total_break_hours = flt(total_break_seconds) / 3600.0
-    
-    session.save(ignore_permissions=True)
+
+    # Single save for the active session at the end with retry logic to handle background updates
+    for i in range(3):
+        try:
+            session.save(ignore_permissions=True)
+            break
+        except frappe.exceptions.TimestampMismatchError:
+            if i == 2: raise
+            time.sleep(0.05)
+            # Re-fetch only the metadata while keeping our local changes to children/totals
+            latest_modified = frappe.db.get_value("Employee Session", name, "modified")
+            session.modified = latest_modified
+
     frappe.db.commit()
     
     return {"status": "success"}
