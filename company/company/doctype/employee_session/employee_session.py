@@ -13,15 +13,17 @@ class EmployeeSession(Document):
 		for d in self.intervals:
 			# If interval is finished, enforce duration from times
 			if d.from_time and d.to_time:
-				d.duration_seconds = time_diff_in_seconds(d.to_time, d.from_time)
+				# Ensure duration is not negative due to manual edit errors
+				d.duration_seconds = max(0, time_diff_in_seconds(d.to_time, d.from_time))
 			
 			# If interval is active (no To Time), calculate snapshot duration up to Now/Last Seen
 			# but allow manual override if duration_seconds is already set
 			elif d.from_time and not d.to_time and not d.duration_seconds:
 				ref_time = self.last_seen or now
-				d.duration_seconds = time_diff_in_seconds(ref_time, d.from_time)
+				d.duration_seconds = max(0, time_diff_in_seconds(ref_time, d.from_time))
 
-			if d.status == 'Available':
+			# Count everything as work EXCEPT Offline, Break, and Away
+			if d.status not in ('Offline', 'Break', 'Away'):
 				total_work_seconds += flt(d.duration_seconds)
 
 		# Convert total seconds to hours

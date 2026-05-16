@@ -112,6 +112,11 @@ doc_events = {
         "after_insert": "company.company.evaluation_automation.handle_daily_log_automation",
         "on_update": "company.company.evaluation_automation.handle_daily_log_automation"
     },
+    "Employee Break": {
+        "after_insert": "company.company.presence_api.update_session_break_hours",
+        "on_update": "company.company.presence_api.update_session_break_hours",
+        "on_trash": "company.company.presence_api.update_session_break_hours"
+    },
     "Event": {
         "on_update": [
             "company.company.crm_api.sync_event_to_call",
@@ -125,11 +130,13 @@ doc_events = {
 
 
 scheduler_events = {
-    "all": [
-        "company.company.employee_remainder_api.check_and_enqueue_reminders",
-        "company.company.employee_remainder_api.process_remainder_queue",
-        "company.company.presence_api.process_auto_breaks"
-    ],
+    "cron": {
+        "* * * * *": [
+            "company.company.employee_remainder_api.check_and_enqueue_reminders",
+            "company.company.employee_remainder_api.process_remainder_queue",
+            "company.company.presence_api.process_auto_breaks"
+        ]
+    },
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",
