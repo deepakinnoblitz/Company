@@ -245,7 +245,7 @@ def get_current_user_info():
     }
 
 @frappe.whitelist()
-def get_dashboard_stats():
+def get_dashboard_stats(start_date=None, end_date=None):
     """
     Fetch CRM dashboard statistics including counts for Leads, Contacts, Deals, Events, Todo, Calls, and Meetings.
     """
@@ -260,10 +260,20 @@ def get_dashboard_stats():
         "accounts": "Accounts",
     }
 
+    date_filter = {}
+    if start_date and end_date:
+        date_filter["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+    elif start_date:
+        date_filter["creation"] = [">=", start_date]
+    elif end_date:
+        date_filter["creation"] = ["<=", f"{end_date} 23:59:59"]
+
     for key, doctype in doctypes.items():
         try:
             if frappe.has_permission(doctype, "read"):
-                stats[key] = frappe.db.count(doctype, {'owner': user})
+                filters = {'owner': user}
+                filters.update(date_filter)
+                stats[key] = frappe.db.count(doctype, filters)
             else:
                 stats[key] = 0
         except Exception:
@@ -284,10 +294,13 @@ def get_dashboard_stats():
     # Get leads by status (workflow_state)
     try:
         if frappe.has_permission("Lead", "read"):
-            stats["leads_by_status"] = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            stats["leads_by_status"] = frappe.db.sql(f"""
                 SELECT workflow_state as status, COUNT(*) as count
                 FROM `tabLead`
-                WHERE owner = %s
+                WHERE owner = %s {cond}
                 GROUP BY workflow_state
             """, (user,), as_dict=True)
         else:
@@ -298,10 +311,13 @@ def get_dashboard_stats():
     # Get deals by stage
     try:
         if frappe.has_permission("Deal", "read"):
-            stats["deals_by_stage"] = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            stats["deals_by_stage"] = frappe.db.sql(f"""
                 SELECT stage, COUNT(*) as count
                 FROM `tabDeal`
-                WHERE owner = %s
+                WHERE owner = %s {cond}
                 GROUP BY stage
             """, (user,), as_dict=True)
         else:
@@ -312,10 +328,13 @@ def get_dashboard_stats():
     # Get total deal value
     try:
         if frappe.has_permission("Deal", "read"):
-            total_value = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            total_value = frappe.db.sql(f"""
                 SELECT SUM(value) as total
                 FROM `tabDeal`
-                WHERE stage NOT IN ('Closed Lost') AND owner = %s
+                WHERE stage NOT IN ('Closed Lost') AND owner = %s {cond}
             """, (user,), as_dict=True)
             stats["total_deal_value"] = total_value[0].get("total") or 0 if total_value else 0
         else:
@@ -1090,7 +1109,7 @@ def convert_estimation_to_invoice(estimation):
 
 
 @frappe.whitelist()
-def get_sales_dashboard_data():
+def get_sales_dashboard_data(start_date=None, end_date=None):
     """
     Fetch Sales dashboard statistics and data.
     """
@@ -1101,7 +1120,15 @@ def get_sales_dashboard_data():
 
     try:
         # 1. Summary Metrics from Invoices
-        invoices = frappe.get_all("Invoice", fields=[
+        invoice_filters = {}
+        if start_date and end_date:
+            invoice_filters["invoice_date"] = ["between", [start_date, end_date]]
+        elif start_date:
+            invoice_filters["invoice_date"] = [">=", start_date]
+        elif end_date:
+            invoice_filters["invoice_date"] = ["<=", end_date]
+
+        invoices = frappe.get_all("Invoice", filters=invoice_filters, fields=[
             "grand_total", "total_amount", "overall_discount",
             "total_qty", "invoice_date", "balance_amount", "due_date",
             "client_name", "billing_name"
@@ -1122,21 +1149,35 @@ def get_sales_dashboard_data():
         data["ytd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_year))
 
         # 2. Pipeline from Deals
-        deals = frappe.get_all("Deal", fields=["value", "stage"])
+        deal_filters = {}
+        if start_date and end_date:
+            deal_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+        elif start_date:
+            deal_filters["creation"] = [">=", start_date]
+        elif end_date:
+            deal_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+            
+        deals = frappe.get_all("Deal", filters=deal_filters, fields=["value", "stage"])
         data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
 
         # 3. Top Customers
-        data["top_customers_by_revenue"] = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+            
+        data["top_customers_by_revenue"] = frappe.db.sql(f"""
             SELECT client_name, billing_name, SUM(grand_total) as revenue, COUNT(name) as order_count
             FROM `tabInvoice`
+            {cond}
             GROUP BY client_name
             ORDER BY revenue DESC
             LIMIT 5
         """, as_dict=True)
 
-        data["most_repeated_customers"] = frappe.db.sql("""
+        data["most_repeated_customers"] = frappe.db.sql(f"""
             SELECT client_name, billing_name, COUNT(name) as order_count, SUM(grand_total) as total_spent
             FROM `tabInvoice`
+            {cond}
             GROUP BY client_name
             ORDER BY order_count DESC
             LIMIT 5
@@ -1406,7 +1447,7 @@ def upload_employee_image():
 
 
 @frappe.whitelist()
-def get_financial_totals():
+def get_financial_totals(start_date=None, end_date=None):
     """
     Fetch financial totals for Invoices, Estimations, Purchases, and Expenses.
     Includes total amount, count, and 7-day trend chart data.
@@ -1422,9 +1463,13 @@ def get_financial_totals():
 
     # 1. Invoices
     try:
-        invoices_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+        invoices_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabInvoice`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of invoices created each day)
@@ -1449,9 +1494,13 @@ def get_financial_totals():
 
     # 2. Estimations
     try:
-        estimations_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(estimate_date) BETWEEN '{start_date}' AND '{end_date}'"
+        estimations_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabEstimation`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of estimations created each day)
@@ -1476,9 +1525,13 @@ def get_financial_totals():
 
     # 3. Purchases
     try:
-        purchases_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(purchase_date) BETWEEN '{start_date}' AND '{end_date}'"
+        purchases_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabPurchase`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of purchases created each day)
@@ -1503,9 +1556,13 @@ def get_financial_totals():
 
     # 4. Expenses
     try:
-        expenses_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(date) BETWEEN '{start_date}' AND '{end_date}'"
+        expenses_total = frappe.db.sql(f"""
             SELECT SUM(total) as total, COUNT(*) as count
             FROM `tabExpenses`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of expenses created each day)
@@ -2823,3 +2880,12 @@ def get_hr_task_stats(project=None, department=None, from_date=None, to_date=Non
         "completed": frappe.db.count("Task Manager", {**filters, "status": "Completed"}),
         "on_hold": frappe.db.count("Task Manager", {**filters, "status": "On Hold"}),
     }
+
+
+@frappe.whitelist()
+def get_account_details(name):
+    account = frappe.get_doc("Accounts", name).as_dict()
+    if account.get("owner"):
+        account["owner_name"] = frappe.db.get_value("User", account["owner"], "full_name") or account["owner"]
+    return account
+

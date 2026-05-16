@@ -1,9 +1,28 @@
 import frappe
 from frappe.model.document import Document
+from frappe.utils import now_datetime
 import json
  
 class Deal(Document):
-    pass
+    def before_save(self):
+        self.log_stage_history()
+
+    def log_stage_history(self):
+        if self.is_new():
+            return
+
+        old_stage = frappe.db.get_value("Deal", self.name, "stage")
+        new_stage = self.stage
+
+        if not old_stage or old_stage == new_stage:
+            return
+
+        self.append("stage_history", {
+            "state_from": old_stage,
+            "state_to": new_stage,
+            "date_and_time": now_datetime(),
+            "change_by": frappe.session.user
+        })
  
 @frappe.whitelist()
 def get_deals_list(start=0, page_length=20, search=None, stage=None, sort_by=None, filterValues=None):
@@ -50,11 +69,13 @@ def get_deals_list(start=0, page_length=20, search=None, stage=None, sort_by=Non
             d.name, d.deal_title, d.account, d.contact, d.value,
             d.expected_close_date, d.stage, d.probability, d.type,
             d.source_lead, d.next_step, d.notes, d.deal_owner, d.owner, d.creation,
-            c.first_name as contact_name
+            c.first_name as contact_name, a.account_name
         FROM
             `tabDeal` d
         LEFT JOIN
             `tabContacts` c ON d.contact = c.name
+        LEFT JOIN
+            `tabAccounts` a ON d.account = a.name
         WHERE
             1=1
             {filter_condition}
@@ -96,12 +117,14 @@ def get_deal_details(name=None):
         SELECT
             d.name, d.deal_title, d.account, d.contact, d.value,
             d.expected_close_date, d.stage, d.probability, d.type,
-            d.source_lead, d.next_step, d.notes, d.deal_owner, d.owner, d.creation,
-            c.first_name as contact_name
+            d.source_lead, d.next_step, d.notes, d.deal_owner, d.owner, d.creation, d.modified,
+            c.first_name as contact_name, a.account_name
         FROM
             `tabDeal` d
         LEFT JOIN
             `tabContacts` c ON d.contact = c.name
+        LEFT JOIN
+            `tabAccounts` a ON d.account = a.name
         WHERE
             d.name = {frappe.db.escape(name)}
     """
@@ -111,5 +134,23 @@ def get_deal_details(name=None):
     if not data:
         return None
        
-    return data[0]
+    deal_doc = data[0]
+
+    history = frappe.get_all(
+        "Deal Pipeline Timeline",
+        filters={"parent": name, "parenttype": "Deal", "parentfield": "stage_history"},
+        fields=["state_from", "state_to", "date_and_time", "change_by"],
+        order_by="date_and_time DESC"
+    )
+    for h in history:
+        if h.get("change_by"):
+            user_full_name = frappe.db.get_value("User", h["change_by"], "full_name")
+            h["change_by_name"] = user_full_name or h["change_by"]
+
+    deal_owner_id = deal_doc.get("deal_owner") or deal_doc.get("owner")
+    if deal_owner_id:
+        deal_doc["deal_owner_name"] = frappe.db.get_value("User", deal_owner_id, "full_name") or deal_owner_id
+
+    deal_doc["stage_history"] = history
+    return deal_doc
  

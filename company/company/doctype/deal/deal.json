@@ -21,6 +21,8 @@
   "probability",
   "deal_owner",
   "notes",
+  "stage_history_tab",
+  "stage_history",
   "section_break_zxam",
   "owner_name"
  ],
@@ -62,7 +64,7 @@
    "fieldname": "stage",
    "fieldtype": "Select",
    "label": "Stage",
-   "options": "Qualification\nNeeds Analysis\nMeeting Scheduled\nProposal Sent\nNegotiation\nClosed Won\nClosed Lost",
+   "options": "Just In\nWorking\nEstimation Created\nEstimation Sent\nInvoice Created\nInvoice Sent\nSpecial Approval\nReady for Delivery\nProject Started\nClosed",
    "reqd": 1
   },
   {
@@ -105,6 +107,18 @@
    "fieldname": "next_step",
    "fieldtype": "Small Text",
    "label": "Next Step"
+  },
+  {
+   "fieldname": "stage_history_tab",
+   "fieldtype": "Tab Break",
+   "label": "Stage History"
+  },
+  {
+   "fieldname": "stage_history",
+   "fieldtype": "Table",
+   "label": "Stage History",
+   "options": "Deal Pipeline Timeline",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_zxam",
