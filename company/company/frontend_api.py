@@ -18,7 +18,11 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     Fetch a list of documents for a given DocType.
     Useful for populating dropdowns on the frontend.
     """
-    if not frappe.has_permission(doctype, "read"):
+    if doctype == "Payment Terms":
+        # Bypass direct permission check for Payment Terms to allow Invoice readers/creators to fetch them
+        if not frappe.has_permission("Invoice", "read") and not frappe.has_permission("Invoice", "create"):
+            return []
+    elif not frappe.has_permission(doctype, "read"):
         return []
 
     query_filters = {}
@@ -30,12 +34,15 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
         extra_filters = json.loads(filters)
         query_filters.update(extra_filters)
 
+    # Use get_all for Payment Terms to bypass strict system manager check
+    fetch_fn = frappe.get_all if doctype == "Payment Terms" else frappe.get_list
+
     if fields:
         import json
         field_list = json.loads(fields)
-        return frappe.get_list(doctype, filters=query_filters, fields=field_list, limit=1000)
+        return fetch_fn(doctype, filters=query_filters, fields=field_list, limit=1000)
 
-    return frappe.get_list(doctype, filters=query_filters, pluck="name", limit=1000)
+    return fetch_fn(doctype, filters=query_filters, pluck="name", limit=1000)
 
 
 @frappe.whitelist()
