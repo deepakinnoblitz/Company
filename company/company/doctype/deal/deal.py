@@ -5,7 +5,18 @@ import json
  
 class Deal(Document):
     def before_save(self):
+        self.validate_estimation_stage()
         self.log_stage_history()
+
+    def validate_estimation_stage(self):
+        if self.stage in ["Estimation Created", "Estimation Sent"]:
+            est_count = frappe.db.count("Estimation", {"deal": self.name})
+            if est_count == 0:
+                frappe.throw("At least one Estimation must be created.")
+        elif self.stage in ["Invoice Created", "Invoice Sent"]:
+            inv_count = frappe.db.count("Invoice", {"deal": self.name})
+            if inv_count == 0:
+                frappe.throw("At least one Invoice must be created.")
 
     def log_stage_history(self):
         if self.is_new():
