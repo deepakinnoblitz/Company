@@ -60,10 +60,10 @@
    "reqd": 1
   },
   {
-   "fetch_from": "client_name.company_name",
    "fieldname": "billing_name",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "label": "Billing Name",
+   "options": "Accounts",
    "read_only": 1
   },
   {

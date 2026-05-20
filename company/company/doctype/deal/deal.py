@@ -2,10 +2,21 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 import json
- 
+
 class Deal(Document):
     def before_save(self):
+        self.validate_estimation_stage()
         self.log_stage_history()
+
+    def validate_estimation_stage(self):
+        if self.stage in ["Estimation Created", "Estimation Sent"]:
+            est_count = frappe.db.count("Estimation", {"deal": self.name})
+            if est_count == 0:
+                frappe.throw("At least one Estimation must be created.")
+        elif self.stage in ["Invoice Created", "Invoice Sent"]:
+            inv_count = frappe.db.count("Invoice", {"deal": self.name})
+            if inv_count == 0:
+                frappe.throw("At least one Invoice must be created.")
 
     def log_stage_history(self):
         if self.is_new():
@@ -44,7 +55,7 @@ def get_deals_list(start=0, page_length=20, search=None, stage=None, sort_by=Non
     search_condition = ""
     if search:
         search_term = f"%{search}%"
-        search_condition = f"AND (d.deal_title LIKE {frappe.db.escape(search_term)} OR d.account LIKE {frappe.db.escape(search_term)})"
+        search_condition = f"AND (d.name LIKE {frappe.db.escape(search_term)} OR d.deal_title LIKE {frappe.db.escape(search_term)} OR d.account LIKE {frappe.db.escape(search_term)})"
  
     filter_condition = " AND ".join(filters)
     if filter_condition:
