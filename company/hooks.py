@@ -74,8 +74,7 @@ doc_events = {
         "validate": "company.company.api.validate_leave_balance",
         "before_submit": "company.company.api.validate_leave_balance",
         "on_submit": [
-            "company.company.api.create_unread_entry_for_hr",
-            "company.company.evaluation_automation.handle_leave_automation"
+            "company.company.api.create_unread_entry_for_hr"
         ],
         "on_change": [
             # "company.company.api.update_permission_allocation"

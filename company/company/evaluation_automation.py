@@ -155,15 +155,35 @@ def _check_early_exit(doc):
             )
 
 
+
+def _hhmm_to_float(hhmm):
+    if not hhmm:
+        return 0.0
+    try:
+        parts = hhmm.split(':')
+        if len(parts) != 2:
+            return 0.0
+        h, m = map(int, parts)
+        return h + (m / 60.0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 # ─── Task Manager Event Handler ───────────────────────────────────────────────
 
 def handle_task_automation(doc, method=None):
     """
     Hook: Task Manager on_update
-    Triggers 'Task Delayed' when a task is Completed after its due_date.
-    Triggers 'Milestone Achieved' when a task is Completed on or before due_date.
+    Triggers 'Task Delayed' when a task is Completed after its due_date
+    or if actual hours worked exceed the estimated hours.
+    Triggers 'Milestone Achieved' when completed on time / within estimate.
     """
     if doc.status != "Completed" or not doc.closed_on:
+        return
+
+    # Only run when status transitions to Completed
+    before = doc.get_doc_before_save()
+    if before and before.status == "Completed":
         return
 
     try:
@@ -180,8 +200,30 @@ def handle_task_automation(doc, method=None):
         if not assignees:
             return
 
-        event_type = "Task Delayed" if closed_date > due_date else "Milestone Achieved"
-        remarks = f"Task '{doc.title}' closed on {closed_date}, due {due_date}"
+        # Calculate actual hours from history Closed events
+        actual_hours = 0.0
+        for h in doc.history:
+            if h.event == "Closed" and h.hours_spent:
+                actual_hours = _hhmm_to_float(h.hours_spent)
+
+        estimated_hours = doc.estimated_time or 0.0
+
+        is_delayed = False
+        if due_date and closed_date > due_date:
+            is_delayed = True
+        elif estimated_hours > 0 and actual_hours > estimated_hours:
+            is_delayed = True
+
+        event_type = "Task Delayed" if is_delayed else "Milestone Achieved"
+
+        if due_date and closed_date > due_date and (estimated_hours > 0 and actual_hours > estimated_hours):
+            remarks = f"Task '{doc.title}' closed on {closed_date} (due {due_date}) and actual hours {actual_hours} > estimated {estimated_hours}"
+        elif due_date and closed_date > due_date:
+            remarks = f"Task '{doc.title}' closed on {closed_date}, due {due_date}"
+        elif estimated_hours > 0 and actual_hours > estimated_hours:
+            remarks = f"Task '{doc.title}' closed on {closed_date}, actual hours {actual_hours} > estimated {estimated_hours}"
+        else:
+            remarks = f"Task '{doc.title}' closed on {closed_date}, due {due_date}"
 
         for row in assignees:
             if not row.employee:
@@ -199,6 +241,7 @@ def handle_task_automation(doc, method=None):
             f"Task automation error for {doc.name}: {str(e)}",
             "Evaluation Automation - Task Error"
         )
+
 
 
 # ─── Daily Log Event Handler ────────────────────────────────────────────────

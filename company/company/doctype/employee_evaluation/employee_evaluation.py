@@ -48,10 +48,17 @@ class EmployeeEvaluation(Document):
 		if getattr(self, "_score_log_created", False):
 			return
 		
+		# Prevent duplicate runs in the same request context
+		flag_key = f"score_log_created_{self.name}"
+		if frappe.flags.get(flag_key):
+			return
+
 		# Robust database check to prevent duplicate logs for the same event
 		if frappe.db.exists("Employee Evaluation Score Log", {"employee_evaluation": self.name}):
 			return
 		
+		frappe.flags[flag_key] = True
+
 		employee = frappe.get_doc("Employee", self.employee)
 		current_score = employee.evaluation_score if employee.evaluation_score is not None else 100
 		new_score = current_score + (self.score_change or 0)
@@ -79,10 +86,15 @@ class EmployeeEvaluation(Document):
 			"date": now_datetime()
 		})
 		log.insert(ignore_permissions=True)
-		frappe.log_error(f"Score Log inserted for {self.name} with ID {log.name}", "Employee Evaluation Debug")
 		self._score_log_created = True
 
 	def revert_employee_score(self):
+		flag_key = f"score_log_reverted_{self.name}"
+		if frappe.flags.get(flag_key):
+			return
+
+		frappe.flags[flag_key] = True
+
 		employee = frappe.get_doc("Employee", self.employee)
 		current_score = employee.evaluation_score if employee.evaluation_score is not None else 100
 		
