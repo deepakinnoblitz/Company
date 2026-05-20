@@ -55,6 +55,10 @@ class LeaveApplication(Document):
 
         self.send_workflow_mail()
 
+        if self.workflow_state == "Approved" and (not before or before.workflow_state != "Approved"):
+            from company.company.evaluation_automation import handle_leave_automation
+            handle_leave_automation(self)
+
     # =================================================
     # HANDLE REJECTION / CANCELLATION
     # =================================================
