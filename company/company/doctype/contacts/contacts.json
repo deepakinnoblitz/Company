@@ -38,9 +38,10 @@
   },
   {
    "fieldname": "company_name",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Company Name"
+   "label": "Company Name",
+   "options": "Accounts"
   },
   {
    "fieldname": "email",

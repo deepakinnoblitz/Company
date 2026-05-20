@@ -2,7 +2,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 import json
- 
+
 class Deal(Document):
     def before_save(self):
         self.validate_estimation_stage()
@@ -55,7 +55,7 @@ def get_deals_list(start=0, page_length=20, search=None, stage=None, sort_by=Non
     search_condition = ""
     if search:
         search_term = f"%{search}%"
-        search_condition = f"AND (d.deal_title LIKE {frappe.db.escape(search_term)} OR d.account LIKE {frappe.db.escape(search_term)})"
+        search_condition = f"AND (d.name LIKE {frappe.db.escape(search_term)} OR d.deal_title LIKE {frappe.db.escape(search_term)} OR d.account LIKE {frappe.db.escape(search_term)})"
  
     filter_condition = " AND ".join(filters)
     if filter_condition:

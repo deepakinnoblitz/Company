@@ -70,7 +70,7 @@ def convert_lead(lead_name):
     else:
         contact_doc = frappe.new_doc("Contacts")
         contact_doc.first_name = lead.lead_name
-        contact_doc.company_name = lead.company_name
+        contact_doc.company_name = account_name
         contact_doc.email = lead.email
         contact_doc.phone = lead.phone_number
         contact_doc.country = lead.country
