@@ -50,6 +50,33 @@ def get_permitted_count(doctype, filters=None, or_filters=None):
     if isinstance(or_filters, str):
         or_filters = json.loads(or_filters)
 
+    if doctype == "Contacts" and or_filters:
+        or_filters = clean_contacts_or_filters(or_filters)
+
+    # Resolve company_name filter for Contacts (child table field)
+    if doctype == "Contacts" and filters:
+        new_filters = []
+        for f in filters:
+            if isinstance(f, list) and len(f) >= 3:
+                fieldname = f[1] if len(f) == 4 else f[0]
+                if fieldname == "company_name":
+                    company_val = f[3] if len(f) == 4 else f[2]
+                    matching_account = frappe.db.get_value("Accounts", {"account_name": company_val}, "name")
+                    if matching_account:
+                        matching_parents = frappe.get_all(
+                            "Contact Company",
+                            filters={"company_name": matching_account, "parenttype": "Contacts"},
+                            pluck="parent"
+                        )
+                    else:
+                        matching_parents = []
+                    new_filters.append(["Contacts", "name", "in", matching_parents if matching_parents else [""]])
+                else:
+                    new_filters.append(f)
+            else:
+                new_filters.append(f)
+        filters = new_filters
+
     return len(frappe.get_list(
         doctype,
         filters=filters,
@@ -2889,3 +2916,346 @@ def get_account_details(name):
         account["owner_name"] = frappe.db.get_value("User", account["owner"], "full_name") or account["owner"]
     return account
 
+
+
+@frappe.whitelist()
+def get_contacts_by_account(account_id, limit_start=0, limit_page_length=20):
+    """
+    Fetch contacts linked to a specific Account (company) via the Contact Company child table.
+    This is a direct child-table lookup and works reliably regardless of filter handling.
+    """
+    import json
+    limit_start = int(limit_start)
+    limit_page_length = int(limit_page_length)
+
+    # Find all Contact documents that have this account in their Contact Company child table
+    linked_contacts = frappe.get_all(
+        "Contact Company",
+        filters={"company_name": account_id, "parenttype": "Contacts"},
+        pluck="parent"
+    )
+
+    if not linked_contacts:
+        return {"contacts": [], "total": 0}
+
+    total = len(linked_contacts)
+    paged_names = linked_contacts[limit_start: limit_start + limit_page_length]
+
+    contacts = frappe.get_list(
+        "Contacts",
+        filters=[["Contacts", "name", "in", paged_names]],
+        fields=[
+            "name", "first_name", "email", "phone", "designation",
+            "source_lead", "address", "notes", "country", "state",
+            "city", "customer_type", "owner", "creation", "modified"
+        ],
+        order_by="creation desc"
+    )
+
+    # Enrich each contact with their company names
+    contact_names = [c["name"] for c in contacts]
+    child_entries = frappe.get_all(
+        "Contact Company",
+        filters={"parent": ["in", contact_names], "parenttype": "Contacts"},
+        fields=["parent", "company_name"]
+    )
+    company_ids = list(set(e["company_name"] for e in child_entries if e.get("company_name")))
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all("Accounts", filters={"name": ["in", company_ids]}, fields=["name", "account_name"])
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    company_by_contact = {}
+    for entry in child_entries:
+        parent = entry["parent"]
+        comp_id = entry["company_name"]
+        comp_name = account_map.get(comp_id, comp_id)
+        if comp_name:
+            company_by_contact.setdefault(parent, []).append(comp_name)
+
+    for c in contacts:
+        c["company_names"] = company_by_contact.get(c["name"], [])
+        c["company_name"] = ", ".join(c["company_names"])
+
+    return {"contacts": contacts, "total": total}
+
+
+def clean_contacts_or_filters(or_filters):
+    cleaned_or_filters = []
+    has_company_search = False
+    company_search_val = ""
+    for f in or_filters:
+        if isinstance(f, list) and len(f) >= 3:
+            # Field could be company_name
+            fieldname = f[1] if len(f) > 3 or (len(f) == 3 and f[0] == "Contacts") else f[0]
+            if fieldname == "company_name":
+                has_company_search = True
+                company_search_val = f[3] if len(f) > 3 else f[2]
+            else:
+                cleaned_or_filters.append(f)
+        else:
+            cleaned_or_filters.append(f)
+
+    if has_company_search and company_search_val:
+        matching_accounts = frappe.get_all("Accounts", filters={"account_name": ["like", company_search_val]}, pluck="name")
+        if matching_accounts:
+            matching_parents = frappe.get_all("Contact Company", filters={"company_name": ["in", matching_accounts]}, pluck="parent")
+            if matching_parents:
+                cleaned_or_filters.append(["Contacts", "name", "in", matching_parents])
+            else:
+                cleaned_or_filters.append(["Contacts", "name", "=", ""])
+        else:
+            cleaned_or_filters.append(["Contacts", "name", "=", ""])
+
+    return cleaned_or_filters
+
+
+@frappe.whitelist()
+def get_contact_list(filters=None, or_filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    if isinstance(or_filters, str):
+        or_filters = json.loads(or_filters)
+
+    if or_filters:
+        or_filters = clean_contacts_or_filters(or_filters)
+
+    # Handle company_name filter in filters (AND filter) — it's a child table field,
+    # so we resolve it manually and replace with name IN [...]
+    if filters:
+        new_filters = []
+        for f in filters:
+            if isinstance(f, list) and len(f) >= 3:
+                fieldname = f[1] if len(f) == 4 else f[0]
+                if fieldname == "company_name":
+                    company_val = f[3] if len(f) == 4 else f[2]
+                    # Lookup matching Account by name (exact)
+                    matching_account = frappe.db.get_value("Accounts", {"account_name": company_val}, "name")
+                    if matching_account:
+                        matching_parents = frappe.get_all(
+                            "Contact Company",
+                            filters={"company_name": matching_account, "parenttype": "Contacts"},
+                            pluck="parent"
+                        )
+                    else:
+                        matching_parents = []
+                    # Add as hard AND filter — contacts whose name is in matching_parents
+                    new_filters.append(["Contacts", "name", "in", matching_parents if matching_parents else [""]])
+                else:
+                    new_filters.append(f)
+            else:
+                new_filters.append(f)
+        filters = new_filters
+
+    contacts = frappe.get_list(
+        "Contacts",
+        fields=[
+            "name",
+            "first_name",
+            "email",
+            "phone",
+            "designation",
+            "source_lead",
+            "source_lead.lead_name",
+            "address",
+            "notes",
+            "country",
+            "state",
+            "city",
+            "customer_type",
+            "owner",
+            "creation",
+            "modified"
+        ],
+        filters=filters,
+        or_filters=or_filters,
+        limit_start=limit_start,
+        limit_page_length=limit_page_length,
+        order_by=order_by
+    )
+
+    if not contacts:
+        return []
+
+    # Map lead_name to source_lead.lead_name if needed
+    for c in contacts:
+        if "lead_name" in c:
+            c["source_lead.lead_name"] = c["lead_name"]
+
+    # Fetch all child table entries for these contacts
+    contact_names = [c["name"] for c in contacts]
+    child_entries = frappe.get_all(
+        "Contact Company",
+        filters={"parent": ["in", contact_names], "parenttype": "Contacts"},
+        fields=["parent", "company_name"]
+    )
+
+    # Fetch human-readable account names for these companies
+    company_ids = list(set(e["company_name"] for e in child_entries if e.get("company_name")))
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all(
+            "Accounts",
+            filters={"name": ["in", company_ids]},
+            fields=["name", "account_name"]
+        )
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    # Group by parent
+    company_by_contact = {}
+    for entry in child_entries:
+        parent = entry["parent"]
+        comp_id = entry["company_name"]
+        comp_name = account_map.get(comp_id, comp_id)
+        if comp_name:
+            if parent not in company_by_contact:
+                company_by_contact[parent] = []
+            company_by_contact[parent].append(comp_name)
+
+    # Attach to contacts
+    for c in contacts:
+        c["company_names"] = company_by_contact.get(c["name"], [])
+        c["company_name"] = ", ".join(c["company_names"])
+
+    return contacts
+
+
+@frappe.whitelist()
+def get_contact_detail(name):
+    doc = frappe.get_doc("Contacts", name)
+    doc_dict = doc.as_dict()
+
+    # Map company names to human-readable names
+    company_ids = []
+    if doc_dict.get("company_name"):
+        company_ids = [row.get("company_name") for row in doc_dict["company_name"] if row.get("company_name")]
+    
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all(
+            "Accounts",
+            filters={"name": ["in", company_ids]},
+            fields=["name", "account_name"]
+        )
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    # Format company_name for simple display
+    company_names = [account_map.get(cid, cid) for cid in company_ids]
+    doc_dict["company_name_display"] = ", ".join(company_names)
+    doc_dict["company_name_list"] = company_names
+    doc_dict["company_names"] = company_ids # keep raw IDs for form state
+
+    return doc_dict
+
+
+@frappe.whitelist()
+def get_account_related_records(account_id, doctype, limit_start=0, limit_page_length=20):
+    """
+    Fetch related records for an Account.
+
+    Relationships:
+    - Deal        -> Directly linked using Deal.account
+    - Invoice     -> Linked via Contacts (Invoice.client_name)
+    - Estimation  -> Linked via Contacts (Estimation.client_name)
+    - Purchase    -> Linked via Contacts (Purchase.client_name)
+    """
+    limit_start = int(limit_start)
+    limit_page_length = int(limit_page_length)
+
+    # Configuration for each supported doctype
+    doctype_map = {
+        "Invoice": {
+            "fields": [
+                "name", "ref_no", "client_name", "customer_name",
+                "billing_name", "invoice_date", "grand_total",
+                "received_amount", "balance_amount", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Estimation": {
+            "fields": [
+                "name", "ref_no", "client_name", "customer_name",
+                "estimate_date", "grand_total", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Purchase": {
+            "fields": [
+                "name", "bill_no", "client_name", "bill_date",
+                "grand_total", "paid_amount", "balance_amount", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Deal": {
+            "fields": [
+                "name", "deal_title", "account", "contact",
+                "stage", "value", "expected_close_date", "creation"
+            ],
+            # Deal is linked directly to Account
+            "client_field": "account"
+        }
+    }
+
+    if doctype not in doctype_map:
+        frappe.throw(f"Unsupported doctype: {doctype}")
+
+    config = doctype_map[doctype]
+
+    # ---------------------------------------------------------
+    # DEAL: Fetch directly by account (Contact is optional)
+    # ---------------------------------------------------------
+    if doctype == "Deal":
+        all_records = frappe.get_list(
+            "Deal",
+            filters={"account": account_id},
+            fields=config["fields"],
+            order_by="creation desc",
+            limit=None
+        )
+
+        total = len(all_records)
+        paged = all_records[limit_start: limit_start + limit_page_length]
+
+        return {
+            "records": paged,
+            "total": total
+        }
+
+    # ---------------------------------------------------------
+    # OTHER DOCTYPES: Fetch via linked contacts
+    # ---------------------------------------------------------
+    linked_contact_ids = frappe.get_all(
+        "Contact Company",
+        filters={
+            "company_name": account_id,
+            "parenttype": "Contacts"
+        },
+        pluck="parent"
+    )
+
+    # If no contacts are linked, there can be no related
+    # invoices/estimations/purchases.
+    if not linked_contact_ids:
+        return {
+            "records": [],
+            "total": 0
+        }
+
+    all_records = frappe.get_list(
+        doctype,
+        filters=[
+            [doctype, config["client_field"], "in", linked_contact_ids]
+        ],
+        fields=config["fields"],
+        order_by="creation desc",
+        limit=None
+    )
+
+    total = len(all_records)
+    paged = all_records[limit_start: limit_start + limit_page_length]
+
+    return {
+        "records": paged,
+        "total": total
+    }
