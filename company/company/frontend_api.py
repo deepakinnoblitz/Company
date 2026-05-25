@@ -2889,7 +2889,7 @@ def get_my_assigned_assets(employee=None):
 
 
 @frappe.whitelist()
-def get_hr_task_stats(project=None, department=None, from_date=None, to_date=None):
+def get_hr_task_stats(project=None, department=None, from_date=None, to_date=None, employee_id=None):
     """
     Fetch task statistics for the HR Dashboard with optional filtering.
     Returns counts for total, open, in-progress, completed, and on-hold tasks.
@@ -2906,6 +2906,17 @@ def get_hr_task_stats(project=None, department=None, from_date=None, to_date=Non
     if from_date and to_date:
         filters["due_date"] = ["between", [from_date, to_date]]
 
+    tasks_list = None
+    if employee_id:
+        tasks_with_employee = frappe.get_all("Task Manager Assignee", filters={"employee": employee_id}, pluck="parent")
+        if tasks_with_employee:
+            filters["name"] = ["in", tasks_with_employee]
+            tasks_list = tasks_with_employee
+        else:
+            return {
+                "total": 0, "open": 0, "reopen": 0, "in_progress": 0, "completed": 0, "on_hold": 0, "employee_task_names": []
+            }
+
     return {
         "total": frappe.db.count("Task Manager", filters),
         "open": frappe.db.count("Task Manager", {**filters, "status": "Open"}),
@@ -2913,6 +2924,7 @@ def get_hr_task_stats(project=None, department=None, from_date=None, to_date=Non
         "in_progress": frappe.db.count("Task Manager", {**filters, "status": "In Progress"}),
         "completed": frappe.db.count("Task Manager", {**filters, "status": "Completed"}),
         "on_hold": frappe.db.count("Task Manager", {**filters, "status": "On Hold"}),
+        "employee_task_names": tasks_list
     }
 
 
