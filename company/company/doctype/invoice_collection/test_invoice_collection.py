@@ -19,4 +19,23 @@ class IntegrationTestInvoiceCollection(IntegrationTestCase):
 	Use this class for testing interactions between multiple components.
 	"""
 
-	pass
+	def test_invoice_collection_summary_report(self):
+		import importlib
+		module = importlib.import_module("company.company.report.invoice_&_collection_summary.invoice_&_collection_summary")
+		execute = module.execute
+
+		columns, data, message, chart, summary = execute()
+		self.assertIsInstance(columns, list)
+		self.assertIsInstance(data, list)
+		self.assertIsInstance(summary, list)
+
+		# Ensure columns match expected schema
+		col_labels = [c["label"] for c in columns]
+		self.assertIn("ID", col_labels)
+		self.assertIn("Invoice No", col_labels)
+		self.assertIn("Date", col_labels)
+		self.assertIn("Mode", col_labels)
+		self.assertIn("Amount to Pay", col_labels)
+		self.assertIn("Amount", col_labels)
+		self.assertIn("Pending", col_labels)
+
