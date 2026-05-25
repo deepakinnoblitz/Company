@@ -42,7 +42,7 @@ def get_columns():
         },
         {
             "label": "Account Name",
-            "fieldname": "account_name",
+            "fieldname": "accounts_name",
             "fieldtype": "Link",
             "options": "Accounts",
             "width": 160
@@ -142,7 +142,7 @@ def get_data(filters):
             meet_for,
             lead_name,
             contact_name,
-            account_name,
+            accounts_name,
             meeting_venue,
             location,
             outgoing_call_status,
