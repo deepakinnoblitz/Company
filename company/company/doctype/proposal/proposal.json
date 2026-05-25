@@ -1,8 +1,8 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:PRP-{YYYY}-{#####}",
- "creation": "2026-05-20 00:00:00.000000",
+ "autoname": "field:reference_no",
+ "creation": "2026-05-20 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -125,7 +125,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "frappe.session.user",
    "fieldname": "created_by",
    "fieldtype": "Link",
    "label": "Created By",
@@ -171,7 +170,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-20 00:00:00.000000",
+ "modified": "2026-05-25 12:15:55.774262",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Proposal",
@@ -210,7 +209,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Sales",
+   "role": "CRM And Sales",
    "share": 1,
    "write": 1
   }

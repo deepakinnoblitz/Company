@@ -6,26 +6,62 @@ from frappe.utils import getdate, now_datetime
 class Proposal(Document):
 
     def validate(self):
-        self.set_reference_no()
         self.set_default_status()
         self.validate_dates()
         self.populate_attachment_metadata()
         self.set_total_attachments()
 
+    def autoname(self):
+        """Set document name = reference_no"""
+        if self.reference_no:
+            self.name = self.reference_no
+
+    def before_insert(self):
+        if not self.created_by:
+            self.created_by = frappe.session.user
+
+        """Generate Proposal reference_no before inserting"""
+        if not self.reference_no:
+            today = getdate()
+            year = today.year
+
+            # Financial Year (April → March)
+            if today.month < 4:
+                start_year = year - 1
+                end_year = year
+            else:
+                start_year = year
+                end_year = year + 1
+
+            fy = f"{str(start_year)[-2:]}-{str(end_year)[-2:]}"  # e.g., 25-26
+
+            # Get last Proposal in this FY
+            last = frappe.db.sql("""
+                SELECT reference_no FROM `tabProposal`
+                WHERE reference_no LIKE %s
+                ORDER BY creation DESC LIMIT 1
+            """, (f"IB-P/{fy}/%",), as_dict=True)
+
+            if last:
+                try:
+                    last_num = int(last[0].reference_no.split("/")[-1])
+                    next_num = last_num + 1
+                except ValueError:
+                    next_num = 1
+            else:
+                next_num = 1
+
+            # Assign reference_no
+            self.reference_no = f"IB-P/{fy}/{str(next_num).zfill(3)}"
+
+            # Also set document name
+            self.name = self.reference_no
+
     def before_save(self):
-        self.set_reference_no()
         self.set_total_attachments()
 
     def on_update(self):
         pass
-
-    def set_reference_no(self):
-        """Set reference_no = doc.name once the document has a name."""
-        if self.name and not self.reference_no:
-            self.reference_no = self.name
-        elif self.name and self.reference_no != self.name:
-            # Keep it in sync with name after rename/save
-            self.reference_no = self.name
 
     def set_default_status(self):
         """Default status to Draft for new documents."""
