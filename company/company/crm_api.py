@@ -13,7 +13,7 @@ def convert_lead(lead_name):
     # ----------------------------------------------------
 
     if not lead.company_name:
-        frappe.throw("Company Name is required to create an Account")
+        frappe.throw("Company Name is required to create a Company")
 
     if not (lead.email or lead.phone_number):
         frappe.throw("Email or Phone is required to create a Contact")
@@ -30,7 +30,7 @@ def convert_lead(lead_name):
     if account_name:
         messages.append({
             "type": "warning",
-            "text": f"Account already exists: {account_name}"
+            "text": f"Company already exists: {account_name}"
         })
     else:
         account = frappe.new_doc("Accounts")
@@ -45,7 +45,7 @@ def convert_lead(lead_name):
         account_name = account.name
         messages.append({
             "type": "success",
-            "text": f"New Account created: {account_name}"
+            "text": f"New Company created: {account_name}"
         })
 
     # ----------------------------------------------------
@@ -112,7 +112,7 @@ def convert_lead(lead_name):
         child.insert()
         messages.append({
             "type": "success",
-            "text": f"Linked existing contact to account: {account_name}"
+            "text": f"Linked existing contact to company: {account_name}"
         })
 
     # ----------------------------------------------------

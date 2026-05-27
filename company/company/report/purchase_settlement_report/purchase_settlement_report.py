@@ -60,6 +60,16 @@ def get_data(filters):
         conditions.append("pc.purchase = %(purchase)s")
         values["purchase"] = filters["purchase"]
 
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("pc.owner = %(owner)s")
+        values["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("pc.owner = %(owner)s")
+        values["owner"] = owner_val
+
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     settlements = frappe.db.sql(f"""
