@@ -1884,6 +1884,28 @@ def save_fcm_token(token: str):
     frappe.db.commit()
     return {"status": "ok", "message": "Token saved", "token": token}
 
+@frappe.whitelist(allow_guest=False)
+def remove_fcm_token():
+    """Remove the browser/device FCM token on the logged-in User record."""
+    user = frappe.session.user
+    if not user or user == "Guest":
+        return {"status": "failed", "message": "Login required"}
+    
+    # Remove from User doctype
+    frappe.db.set_value("User", user, "fcm_token", "")
+    
+    # Remove from ClefinCode Chat Profile
+    profile_parent = frappe.db.get_value(
+        "ClefinCode Chat Profile Contact Details",
+        {"contact_info": user, "parenttype": "ClefinCode Chat Profile"},
+        "parent"
+    )
+    if profile_parent:
+        frappe.db.set_value("ClefinCode Chat Profile", profile_parent, "registration_token", "")
+
+    frappe.db.commit()
+    return {"status": "ok", "message": "Token removed"}
+
 def _send_v1_message_to_token(token: str, title: str, body: str, data: dict = None) -> dict:
     """
     Send a message to a device token using FCM HTTP v1.
