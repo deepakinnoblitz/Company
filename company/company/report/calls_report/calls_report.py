@@ -111,9 +111,15 @@ def get_data(filters):
         conditions.append("outgoing_call_status = %(status)s")
         values["status"] = filters["status"]
 
-    if filters.get("owner_name"):
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner_name")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
         conditions.append("owner_name = %(owner_name)s")
-        values["owner_name"] = filters["owner_name"]
+        values["owner_name"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("owner_name = %(owner_name)s")
+        values["owner_name"] = owner_val
 
     if filters.get("enable_reminder") is not None:
         conditions.append("enable_reminder = %(enable_reminder)s")

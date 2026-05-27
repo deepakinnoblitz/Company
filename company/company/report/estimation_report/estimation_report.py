@@ -40,6 +40,15 @@ def get_data(filters):
     if filters.get("to_date"):
         conditions.append("e.estimate_date <= %(to_date)s")
         query_filters["to_date"] = filters["to_date"]
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("e.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("e.owner = %(owner)s")
+        query_filters["owner"] = owner_val
 
     where = " AND ".join(conditions)
     if where:
@@ -77,6 +86,15 @@ def get_summary(filters):
     if filters.get("to_date"):
         conditions.append("estimate_date <= %(to_date)s")
         query_filters["to_date"] = filters["to_date"]
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("owner = %(owner)s")
+        query_filters["owner"] = owner_val
 
     where = " AND ".join(conditions)
     if where:
@@ -97,6 +115,11 @@ def get_summary(filters):
         count_filters.append(["estimate_date", ">=", filters["from_date"]])
     if filters.get("to_date"):
         count_filters.append(["estimate_date", "<=", filters["to_date"]])
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        count_filters.append(["owner", "=", owner_filter])
+    elif owner_val and owner_val != "all":
+        count_filters.append(["owner", "=", owner_val])
 
     estimation_count = frappe.db.count("Estimation", filters=count_filters)
 

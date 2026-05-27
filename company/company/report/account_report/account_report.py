@@ -91,9 +91,15 @@ def get_data(filters):
         conditions.append("city = %(city)s")
         values["city"] = filters["city"]
 
-    if filters.get("owner"):
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
         conditions.append("owner_name = %(owner)s")
-        values["owner"] = filters["owner"]
+        values["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("owner_name = %(owner)s")
+        values["owner"] = owner_val
 
     if filters.get("from_date"):
         conditions.append("DATE(creation) >= %(from_date)s")

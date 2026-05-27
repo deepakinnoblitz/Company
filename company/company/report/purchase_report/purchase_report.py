@@ -62,6 +62,16 @@ def get_data(filters):
         conditions.append("p.bill_date <= %(to_date)s")
         query_filters["to_date"] = filters["to_date"]
 
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
     where = " AND ".join(conditions)
     if where:
         where = "WHERE " + where
@@ -113,6 +123,16 @@ def get_summary(filters):
         conditions.append("bill_date <= %(to_date)s")
         query_filters["to_date"] = filters["to_date"]
 
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
     where = " AND ".join(conditions)
     if where:
         where = "WHERE " + where
@@ -139,6 +159,12 @@ def get_summary(filters):
 
     if filters.get("to_date"):
         count_filters_for_db_count["bill_date"] = ("<=", filters["to_date"])
+
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        count_filters_for_db_count["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        count_filters_for_db_count["owner"] = owner_val
 
     purchase_count = frappe.db.count("Purchase", filters=count_filters_for_db_count)
 

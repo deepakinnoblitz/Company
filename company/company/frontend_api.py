@@ -257,6 +257,8 @@ def get_current_user_info():
     # Fetch employee info
     employee = frappe.db.get_value("Employee", {"user": user.name}, ["name", "employee_name"], as_dict=True)
 
+    has_crm_permission = bool(frappe.db.exists("User Permission", {"user": user.name}))
+
     return {
         "status": "success",
         "message": "User info fetched successfully",
@@ -274,9 +276,11 @@ def get_current_user_info():
             "role_profile_name": user.role_profile_name,
             "allowed_modules": allowed_modules,
             "employee": employee.get("name") if employee else None,
-            "employee_name": employee.get("employee_name") if employee else None
+            "employee_name": employee.get("employee_name") if employee else None,
+            "has_crm_permission": has_crm_permission
         }
     }
+
 
 @frappe.whitelist()
 def get_dashboard_stats(start_date=None, end_date=None):
