@@ -1219,10 +1219,11 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
 
         # 4. Overdue / Pending Orders
         data["overdue_orders"] = frappe.get_all("Invoice",
-            filters={
-                "balance_amount": [">", 0],
-                "due_date": ["<", today]
-            },
+            filters=[
+                ["balance_amount", ">", 0],
+                ["due_date", "<", today],
+                ["due_date", "is", "set"]
+            ],
             fields=["name", "billing_name", "due_date", "balance_amount", "grand_total"],
             order_by="due_date asc",
             limit=5
