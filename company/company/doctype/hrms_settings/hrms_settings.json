@@ -23,6 +23,7 @@
   "request_notification",
   "reimbursement_notification",
   "task_notification",
+  "job_notification",
   "currency_tab",
   "default_currency",
   "default_locale",
@@ -142,6 +143,12 @@
    "fieldname": "task_notification",
    "fieldtype": "Check",
    "label": "Task Manager Mail"
+  },
+  {
+   "default": "1",
+   "fieldname": "job_notification",
+   "fieldtype": "Check",
+   "label": "Job Application Mail"
   },
   {
    "fieldname": "currency_tab",
