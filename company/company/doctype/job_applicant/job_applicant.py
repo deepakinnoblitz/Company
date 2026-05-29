@@ -9,6 +9,10 @@ class JobApplicant(Document):
     def notify_hr_on_creation(self):
         """Send email to HR when a new Job Applicant is created"""
 
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("job_notification"):
+            return
+
         # Fetch HR email settings
         hr_settings = frappe.get_all(
             "Company Email Settings",
