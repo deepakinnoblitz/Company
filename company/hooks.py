@@ -153,7 +153,7 @@ scheduler_events = {
 # Handle client-side routing for React SPA
 # List of all top-level routes used by the React SPA
 spa_routes = [
-    "leads", "users", "user-permissions", "profile", "my-profile", "chat",
+    "leads", "users", "user-permissions", "user-profile", "my-profile", "chat",
     "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
     "products", "invoices", "estimations", "blog", "employee", "attendance",
     "leaves", "leave-allocations", "payroll", "requests", "announcements",
@@ -162,11 +162,11 @@ spa_routes = [
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
     "invoice-collections", "purchase-collections", "reports", "access-denied",
-    "sign-in", "salary-slips", "profile", "task-manager", "daily-log", "badges", 
+    "sign-in", "salary-slips", "user-profile", "task-manager", "daily-log", "badges", 
     "employee-monthly-award" , "employee-evaluation", "reminders", "employee-referrals", 
     "employee-overall-report", "department", "project", "activity-type", "claim-type", 
     "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
-    "designation", "salary-structure-component", "leave-type"
+    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals"
 ]
 
 website_route_rules = []
