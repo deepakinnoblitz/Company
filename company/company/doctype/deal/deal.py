@@ -51,6 +51,12 @@ def get_deals_list(start=0, page_length=20, search=None, stage=None, sort_by=Non
  
     if stage and stage != 'all' and (not filterValues or not filterValues.get('stage')):
         filters.append(f"d.stage = {frappe.db.escape(stage)}")
+
+    # --- Row-level security: restrict to owner when User Permission exists ---
+    current_user = frappe.session.user
+    has_user_permission = frappe.db.exists("User Permission", {"user": current_user})
+    if has_user_permission:
+        filters.append(f"d.owner = {frappe.db.escape(current_user)}")
  
     search_condition = ""
     if search:

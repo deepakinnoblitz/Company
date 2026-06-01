@@ -40,7 +40,9 @@
   "overall_discount",
   "grand_total",
   "received_amount",
-  "balance_amount"
+  "balance_amount",
+  "section_break_zqxm",
+  "owner_name"
  ],
  "fields": [
   {
@@ -245,12 +247,23 @@
    "fieldtype": "Data",
    "label": "Customer Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_zqxm",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "owner_name",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-18 12:51:31.239798",
+ "modified": "2026-06-01 14:18:54.590573",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Invoice",
