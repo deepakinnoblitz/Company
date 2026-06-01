@@ -17,7 +17,9 @@
   "company_name",
   "mode_of_payment",
   "section_break_ybiw",
-  "remarks"
+  "remarks",
+  "section_break_fgch",
+  "owner_name"
  ],
  "fields": [
   {
@@ -96,12 +98,23 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Company Name"
+  },
+  {
+   "fieldname": "section_break_fgch",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "owner_name",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-08 11:38:17.561378",
+ "modified": "2026-06-01 14:20:02.536351",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Invoice Collection",

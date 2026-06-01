@@ -26,7 +26,9 @@
   "overall_discount",
   "grand_total",
   "paid_amount",
-  "balance_amount"
+  "balance_amount",
+  "section_break_zpdw",
+  "owner_name"
  ],
  "fields": [
   {
@@ -150,12 +152,23 @@
    "fieldtype": "Data",
    "label": "Bill No",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_break_zpdw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "__user",
+   "fieldname": "owner_name",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-18 15:51:01.741861",
+ "modified": "2026-06-01 14:20:43.065354",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Purchase",
