@@ -13,7 +13,8 @@
   "purchase_date",
   "purchase_cost",
   "current_status",
-  "description"
+  "description",
+  "asset_attachment"
  ],
  "fields": [
   {
@@ -26,7 +27,8 @@
   {
    "fieldname": "asset_tag",
    "fieldtype": "Data",
-   "label": "Asset Tag / Serial Number"
+   "label": "Asset Tag / Serial Number",
+   "unique": 1
   },
   {
    "fieldname": "category",
@@ -55,12 +57,17 @@
    "label": "Current Status",
    "options": "\nAvailable\nAssigned\nMaintenance\nDisposed",
    "reqd": 1
+  },
+  {
+   "fieldname": "asset_attachment",
+   "fieldtype": "Attach",
+   "label": "Asset Attachment"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-11 17:18:33.514168",
+ "modified": "2026-04-24 16:05:45.398657",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Asset",

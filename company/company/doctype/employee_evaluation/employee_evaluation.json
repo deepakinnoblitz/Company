@@ -15,8 +15,10 @@
   "score_change",
   "hr_user",
   "is_submitted",
+  "auto_submit",
   "section_break_ntcc",
-  "remarks"
+  "remarks",
+  "how_to_improve"
  ],
  "fields": [
   {
@@ -76,6 +78,11 @@
    "label": "Remarks"
   },
   {
+   "fieldname": "how_to_improve",
+   "fieldtype": "Small Text",
+   "label": "How to Improve"
+  },
+  {
    "fieldname": "column_break_rehr",
    "fieldtype": "Column Break"
   },
@@ -89,6 +96,13 @@
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Is Submitted"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_submit",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Submit"
   }
  ],
  "grid_page_length": 50,

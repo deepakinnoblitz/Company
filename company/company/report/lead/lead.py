@@ -49,9 +49,15 @@ def get_data(filters):
         conditions.append("leads_from = %(leads_from)s")
         values["leads_from"] = filters["leads_from"]
 
-    if filters.get("owner"):
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
         conditions.append("owner_name = %(owner)s")
-        values["owner"] = filters["owner"]
+        values["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("owner_name = %(owner)s")
+        values["owner"] = owner_val
 
     where_clause = " AND ".join(conditions)
     if where_clause:

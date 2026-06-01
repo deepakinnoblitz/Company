@@ -73,7 +73,9 @@ doc_events = {
     "Leave Application": {
         "validate": "company.company.api.validate_leave_balance",
         "before_submit": "company.company.api.validate_leave_balance",
-        "on_submit": ["company.company.api.create_unread_entry_for_hr"],
+        "on_submit": [
+            "company.company.api.create_unread_entry_for_hr"
+        ],
         "on_change": [
             # "company.company.api.update_permission_allocation"
             "company.company.api.update_leave_allocation"
@@ -89,11 +91,30 @@ doc_events = {
     "WFH Attendance": {
         "on_submit": "company.company.api.create_unread_entry_for_hr"
     },
-    "Request": {
-        "on_submit": "company.company.api.create_unread_entry_for_hr"
+    "Reimbursement Claim": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr"
     },
-    "Salary Slip": {
-        "on_submit": "company.company.api.salary_slip_after_submit"
+    "Request": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr"
+    },
+    # "Salary Slip": {
+    #     "on_submit": "company.company.api.salary_slip_after_submit"
+    # },
+    "Attendance": {
+        "after_insert": "company.company.evaluation_automation.handle_attendance_automation",
+        "on_update": "company.company.evaluation_automation.handle_attendance_automation"
+    },
+    "Task Manager": {
+        "on_update": "company.company.evaluation_automation.handle_task_automation"
+    },
+    "Employee Session": {
+        "after_insert": "company.company.evaluation_automation.handle_daily_log_automation",
+        "on_update": "company.company.evaluation_automation.handle_daily_log_automation"
+    },
+    "Employee Break": {
+        "after_insert": "company.company.presence_api.update_session_break_hours",
+        "on_update": "company.company.presence_api.update_session_break_hours",
+        "on_trash": "company.company.presence_api.update_session_break_hours"
     },
     "Event": {
         "on_update": [
@@ -108,12 +129,17 @@ doc_events = {
 
 
 scheduler_events = {
-    "all": [
-        "company.company.presence_api.process_auto_breaks"
-    ],
+    "cron": {
+        "* * * * *": [
+            "company.company.employee_remainder_api.check_and_enqueue_reminders",
+            "company.company.employee_remainder_api.process_remainder_queue",
+            "company.company.presence_api.process_auto_breaks"
+        ]
+    },
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",
+        "company.company.presence_api.force_offline_all",
         "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards"
     ]
 }
@@ -127,7 +153,7 @@ scheduler_events = {
 # Handle client-side routing for React SPA
 # List of all top-level routes used by the React SPA
 spa_routes = [
-    "leads", "users", "user-permissions", "profile", "my-profile", "chat",
+    "leads", "users", "user-permissions", "user-profile", "my-profile", "chat",
     "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
     "products", "invoices", "estimations", "blog", "employee", "attendance",
     "leaves", "leave-allocations", "payroll", "requests", "announcements",
@@ -135,7 +161,12 @@ spa_routes = [
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
-    "invoice-collections", "purchase-collections", "reports", "access-denied", "sign-in", "salary-slips", "profile", "task-manager", "daily-log", "badges", "employee-monthly-award" , "employee-evaluation"
+    "invoice-collections", "purchase-collections", "reports", "access-denied",
+    "sign-in", "salary-slips", "user-profile", "task-manager", "daily-log", "badges", 
+    "employee-monthly-award" , "employee-evaluation", "reminders", "employee-referrals", 
+    "employee-overall-report", "department", "project", "activity-type", "claim-type", 
+    "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
+    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals"
 ]
 
 website_route_rules = []

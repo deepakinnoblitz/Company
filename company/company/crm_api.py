@@ -13,13 +13,13 @@ def convert_lead(lead_name):
     # ----------------------------------------------------
 
     if not lead.company_name:
-        frappe.throw("Company Name is required to create an Account")
+        frappe.throw("Company Name is required to create a Company")
 
     if not (lead.email or lead.phone_number):
         frappe.throw("Email or Phone is required to create a Contact")
 
     # ----------------------------------------------------
-    # 1️⃣ ACCOUNT (Accounts)
+    # 1️⃣ ACCOUNT (Accounts) — Create or reuse
     # ----------------------------------------------------
     account_name = frappe.db.get_value(
         "Accounts",
@@ -30,7 +30,7 @@ def convert_lead(lead_name):
     if account_name:
         messages.append({
             "type": "warning",
-            "text": f"Account already exists: {account_name}"
+            "text": f"Company already exists: {account_name}"
         })
     else:
         account = frappe.new_doc("Accounts")
@@ -45,24 +45,24 @@ def convert_lead(lead_name):
         account_name = account.name
         messages.append({
             "type": "success",
-            "text": f"New Account created: {account_name}"
+            "text": f"New Company created: {account_name}"
         })
 
     # ----------------------------------------------------
-    # 2️⃣ CONTACT (Contacts)
+    # 2️⃣ CONTACT (Contacts) — Create or reuse
     # ----------------------------------------------------
-    contact = frappe.get_all(
+    existing_contacts = frappe.get_all(
         "Contacts",
         or_filters=[
-            ["email", "=", lead.email],
-            ["phone", "=", lead.phone_number]
+            ["email", "=", lead.email] if lead.email else ["name", "=", ""],
+            ["phone", "=", lead.phone_number] if lead.phone_number else ["name", "=", ""],
         ],
         fields=["name"],
         limit=1
     )
 
-    if contact:
-        contact_name = contact[0].name
+    if existing_contacts:
+        contact_name = existing_contacts[0].name
         messages.append({
             "type": "warning",
             "text": f"Contact already exists: {contact_name}"
@@ -70,7 +70,6 @@ def convert_lead(lead_name):
     else:
         contact_doc = frappe.new_doc("Contacts")
         contact_doc.first_name = lead.lead_name
-        contact_doc.company_name = lead.company_name
         contact_doc.email = lead.email
         contact_doc.phone = lead.phone_number
         contact_doc.country = lead.country
@@ -78,6 +77,11 @@ def convert_lead(lead_name):
         contact_doc.city = lead.city
         contact_doc.address = lead.billing_address
         contact_doc.source_lead = lead.name
+        # Link the account via the Contact Company child table
+        contact_doc.append("company_name", {
+            "doctype": "Contact Company",
+            "company_name": account_name
+        })
         contact_doc.insert()
 
         contact_name = contact_doc.name
@@ -87,9 +91,34 @@ def convert_lead(lead_name):
         })
 
     # ----------------------------------------------------
-    # 4️⃣ UPDATE LEAD (LOCK)
+    # 3️⃣ ENSURE COMPANY LINK — If contact already existed, add company if not linked
     # ----------------------------------------------------
-    lead.status = "Converted"
+    already_linked = frappe.db.exists(
+        "Contact Company",
+        {"parent": contact_name, "parenttype": "Contacts", "company_name": account_name}
+    )
+
+    if existing_contacts and not already_linked:
+        frappe.get_doc("Contacts", contact_name).append("company_name", {
+            "doctype": "Contact Company",
+            "company_name": account_name
+        })
+        # Use db.insert for child table to avoid full doc save overhead
+        child = frappe.new_doc("Contact Company")
+        child.parenttype = "Contacts"
+        child.parentfield = "company_name"
+        child.parent = contact_name
+        child.company_name = account_name
+        child.insert()
+        messages.append({
+            "type": "success",
+            "text": f"Linked existing contact to company: {account_name}"
+        })
+
+    # ----------------------------------------------------
+    # 4️⃣ UPDATE LEAD STATUS
+    # ----------------------------------------------------
+    lead.db_set("status", "Converted")
     lead.db_set("converted_account", account_name)
     lead.db_set("converted_contact", contact_name)
 
@@ -98,7 +127,6 @@ def convert_lead(lead_name):
         "contact": contact_name,
         "messages": messages
     }
-
 
 
 @frappe.whitelist()

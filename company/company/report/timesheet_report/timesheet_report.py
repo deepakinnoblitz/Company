@@ -98,7 +98,7 @@ def get_data(filters):
             ts.employee_name,
             tse.project,
             tse.activity_type,
-            DATE_FORMAT(ts.timesheet_date, '%%d-%%m-%%Y') AS timesheet_date,
+            ts.timesheet_date,
             tse.hours,
             tse.description
         FROM `tabTimesheet` ts

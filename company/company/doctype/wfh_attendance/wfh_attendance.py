@@ -1,3 +1,4 @@
+import json
 import frappe
 from frappe.model.document import Document
 from datetime import datetime, timedelta, date, time
@@ -24,20 +25,32 @@ class WFHAttendance(Document):
                 f"A WFH Attendance request already exists for <b>{self.date}</b> "
             )
 
-        # ✅ Calculate total hours if both times exist
+        # ✅ Calculate total hours
+        self.calculate_total_hours()
+
+    def before_update_after_submit(self):
+        """Recalculate hours even after submission"""
+        self.calculate_total_hours()
+
+    def calculate_total_hours(self):
         if self.from_time and self.to_time:
             from_dt = self._get_datetime(self.from_time)
             to_dt = self._get_datetime(self.to_time)
 
-            # Handle overnight (e.g., 22:00 → 02:00)
-            if to_dt < from_dt:
-                to_dt += timedelta(days=1)
+            if from_dt and to_dt:
+                # Handle overnight (e.g., 22:00 → 02:00)
+                if to_dt < from_dt:
+                    to_dt += timedelta(days=1)
 
-            diff = to_dt - from_dt
-            total_minutes = diff.total_seconds() / 60
-            hours = int(total_minutes // 60)
-            minutes = int(total_minutes % 60)
-            self.total_hours = f"{hours}:{minutes:02d}"
+                diff = to_dt - from_dt
+                total_minutes = int(diff.total_seconds() / 60)
+                hours = total_minutes // 60
+                minutes = total_minutes % 60
+                self.total_hours = f"{hours}:{minutes:02d}"
+            else:
+                self.total_hours = ""
+        else:
+            self.total_hours = ""
 
     def after_insert(self):
         """Auto-submit the document immediately after creation"""
@@ -45,11 +58,17 @@ class WFHAttendance(Document):
             if self.docstatus == 0:
                 frappe.db.commit()  # ensure insert is saved before submit
                 self.submit()
+                
+                # ✅ Set state to Pending AFTER submission
+                frappe.db.set_value(self.doctype, self.name, "workflow_state", "Pending", update_modified=False)
+                
                 frappe.msgprint("✅ WFH Attendance Submitted.")
+                
+                # Notifications
                 self.notify_hr_for_approval()
+                self.notify_hr_chat_on_submission()
         except Exception as e:
             frappe.log_error(frappe.get_traceback(), "WFH Auto Submit Failed")
-
 
     def on_update_after_submit(self):
         """Triggered when HR approves (docstatus=1)"""
@@ -68,7 +87,10 @@ class WFHAttendance(Document):
 
             # ✅ Create or update Attendance record
             self.create_or_update_attendance()
+            
+            # Notifications
             self.notify_employee_on_approval()
+            self.notify_employee_chat_on_approval()
 
     def on_cancel(self):
         """Triggered when HR rejects (docstatus=2)"""
@@ -80,7 +102,10 @@ class WFHAttendance(Document):
                 frappe.session.user,
                 update_modified=False
             )
+            
+            # Notifications
             self.notify_employee_on_rejection()
+            self.notify_employee_chat_on_rejection()
 
     def create_or_update_attendance(self):
         """Creates or updates Attendance record when HR approves"""
@@ -129,14 +154,27 @@ class WFHAttendance(Document):
             attendance.insert(ignore_permissions=True)
 
     def _get_datetime(self, t):
-        """Helper to normalize time field"""
+        """Helper to normalize time field (handles str, timedelta, time)"""
+        if not t:
+            return None
+
+        # Use a fixed base date to ensure all times are compared on the same day
+        base_date = date(1900, 1, 1)
+
         if isinstance(t, str):
-            return datetime.strptime(t, "%H:%M:%S")
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    # strptime defaults to 1900-01-01
+                    return datetime.strptime(t, fmt)
+                except ValueError:
+                    continue
+            frappe.throw(f"Invalid time format: {t}. Expected HH:MM:SS or HH:MM")
         elif isinstance(t, timedelta):
-            return datetime.min + t
+            return datetime.combine(base_date, time.min) + t
         elif isinstance(t, time):
-            return datetime.combine(date.today(), t)
-        frappe.throw(f"Unsupported type for time: {type(t)}")
+            return datetime.combine(base_date, t)
+        
+        return None
 
     def get_hr_settings(self):
         """Fetch HR email and CC from Company Email Settings"""
@@ -149,8 +187,151 @@ class WFHAttendance(Document):
             return settings[0]
         return {}
 
+    def get_employee_user(self):
+        """Get the user linked to the employee"""
+        return frappe.db.get_value("Employee", self.employee, "user")
+
+    def get_hr_users(self):
+        """Get valid HR User IDs for chat notifications"""
+        roles = ["HR"]
+        role_users = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", roles], "parenttype": "User"},
+            pluck="parent"
+        )
+        # Filter unique and active users
+        hr_users = [u for u in set(role_users) if frappe.db.get_value("User", u, "enabled")]
+
+        return list(set(hr_users))
+
+    def send_chat_notification(self, sender, receiver, content):
+        """Send a chat message via clefincode_chat. Create/Verify channel and send message."""
+        log_data = {
+            "sender_id": sender,
+            "receiver_id": receiver,
+            "content": content
+        }
+        
+        try:
+            from clefincode_chat.api.api_1_2_1.api import send, create_channel, share_doctype, get_profile_id
+            
+            # 1. Check if direct room exists (Using system IDs)
+            room_name = frappe.db.sql("""
+                SELECT c.name
+                FROM `tabClefinCode Chat Channel` c
+                JOIN `tabClefinCode Chat Channel User` u1 ON u1.parent = c.name
+                JOIN `tabClefinCode Chat Channel User` u2 ON u2.parent = c.name
+                WHERE c.type = 'Direct'
+                AND c.is_parent = 1
+                AND u1.user = %s
+                AND u2.user = %s
+            """, (sender, receiver), pluck=True)
+
+            if room_name:
+                room_name = room_name[0]
+                log_data["room_name_found"] = room_name
+                # Ensure HR receiver is active and not removed
+                frappe.db.sql("""
+                    UPDATE `tabClefinCode Chat Channel User`
+                    SET is_removed = 0, active = 1
+                    WHERE parent = %s AND user = %s
+                """, (room_name, receiver))
+                # Ensure document sharing is active
+                share_doctype("ClefinCode Chat Channel", room_name, receiver)
+            else:
+                # 2. Create channel using system IDs
+                users = [
+                    {"email": sender, "platform": "Chat"},
+                    {"email": receiver, "platform": "Chat"}
+                ]
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                res = create_channel(
+                    channel_name="", 
+                    users=json.dumps(users),
+                    type="Direct",
+                    last_message=content,
+                    creator_email=sender,
+                    creator=sender_full_name
+                )
+                log_data["create_channel_response"] = res
+                
+                if res and res.get("results"):
+                    room_name = res["results"][0]["room"]
+                    log_data["new_room_name"] = room_name
+                else:
+                    frappe.log_error(title="WFH App: Chat Channel Creation Failed", message=frappe.as_json(log_data))
+
+            if room_name:
+                # 3. Diagnostic Logging: Verify Membership State
+                members = frappe.get_all("ClefinCode Chat Channel User", 
+                                        filters={"parent": room_name}, 
+                                        fields=["user", "is_removed", "active"])
+                log_data["channel_members_final"] = members
+
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                
+                # 4. Send the message
+                send_res = send(
+                    content=content,
+                    user=sender_full_name,
+                    room=room_name,
+                    email=sender
+                )
+                log_data["send_response"] = send_res
+                
+                if send_res and isinstance(send_res, dict) and send_res.get("results"):
+                    log_data["message_name"] = send_res["results"][0].get("new_message_name")
+
+                # 5. Force Sidebar Refresh
+                refresh_data = {
+                    "room": room_name,
+                    "realtime_type": "update_room",
+                    "content": content,
+                    "user": sender_full_name,
+                    "sender_email": sender,
+                    "room_type": "Direct"
+                }
+                frappe.publish_realtime(event="update_room", message=refresh_data, user=receiver)
+                frappe.publish_realtime(event="new_chat_notification", message=refresh_data, user=receiver)
+                
+                # Final log to verify success and parameters
+                frappe.log_error(title="WFH Chat Debug", message=frappe.as_json(log_data))
+            else:
+                log_data["error"] = "Room name could not be determined"
+                frappe.log_error(title="WFH Chat Failed", message=frappe.as_json(log_data))
+                
+        except Exception as e:
+            log_data["exception"] = str(e)
+            log_data["traceback"] = frappe.get_traceback()
+            frappe.log_error(title="WFH Chat Notification Exception", message=frappe.as_json(log_data))
+
+    def notify_hr_chat_on_submission(self):
+        """InnoChat Notification to HR (Separate from email toggle)"""
+        hr_users = self.get_hr_users()
+        sender_user = frappe.session.user
+        
+        content = (
+            f"<b>📩 New WFH Request</b><br><br>"
+            f"<b>Employee:</b> {self.employee_name}<br>"
+            f"<b>Date:</b> {frappe.utils.formatdate(self.date)}<br>"
+            f"<b>From:</b> {self.from_time or '-'}<br>"
+            f"<b>To:</b> {self.to_time or '-'}<br>"
+            f"<b>Total Hours:</b> {self.total_hours or 'N/A'}<br><br>"
+            f"Please review and take necessary action."
+        )
+
+        for receiver in hr_users:
+            if receiver != sender_user:
+                try:
+                    self.send_chat_notification(sender_user, receiver, content)
+                except Exception:
+                    frappe.log_error(title="WFH Submit Chat Loop Error", message=frappe.get_traceback())
+
     def notify_hr_for_approval(self):
         """Send email notification to HR when employee submits WFH Attendance"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
@@ -253,16 +434,33 @@ class WFHAttendance(Document):
         except Exception as e:
             frappe.log_error(f"WFH Submit Mail Error: {str(e)}", "WFH Email Debug")
 
+    def notify_employee_chat_on_approval(self):
+        """InnoChat Notification to Employee (Separate from email toggle)"""
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>✅ WFH Approved</b><br><br>"
+                f"<b>Date:</b> {frappe.utils.formatdate(self.date)}<br>"
+                f"<b>From:</b> {self.from_time or '-'}<br>"
+                f"<b>To:</b> {self.to_time or '-'}<br><br>"
+                f"Your WFH request has been approved."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
+
     def notify_employee_on_approval(self):
         """Send mail to employee when HR approves"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
-        emp = frappe.get_doc("Employee", self.employee)
-        recipients = [r for r in [emp.personal_email, emp.email] if r]
+        personal_email, company_email = frappe.db.get_value("Employee", self.employee, ["personal_email", "email"])
+        recipients = [r for r in [personal_email, company_email] if r]
         if not recipients:
             return
 
@@ -326,16 +524,31 @@ class WFHAttendance(Document):
             reference_name=self.name
         )
 
+    def notify_employee_chat_on_rejection(self):
+        """InnoChat Notification to Employee (Separate from email toggle)"""
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>❌ WFH Rejected</b><br><br>"
+                f"<b>Date:</b> {frappe.utils.formatdate(self.date)}<br><br>"
+                f"Your WFH request has been rejected."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
+
     def notify_employee_on_rejection(self):
         """Send mail to employee when HR rejects"""
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("wfh_notification"):
+            return
 
         hr_settings = self.get_hr_settings()
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
-        emp = frappe.get_doc("Employee", self.employee)
-        recipients = [r for r in [emp.personal_email, emp.email] if r]
+        personal_email, company_email = frappe.db.get_value("Employee", self.employee, ["personal_email", "email"])
+        recipients = [r for r in [personal_email, company_email] if r]
         if not recipients:
             return
 
@@ -394,3 +607,50 @@ class WFHAttendance(Document):
             reference_doctype=self.doctype,
             reference_name=self.name
         )
+
+
+@frappe.whitelist()
+def handle_workflow_action(docname, action):
+    """
+    Whitelisted API to Approve or Reject WFH Attendance.
+    Triggers attendance creation and mail functionality.
+    """
+    if not docname or not action:
+        frappe.throw("Document Name and Action are required")
+
+    # Check for HR or System Manager roles
+    user_roles = frappe.get_roles()
+    if not ("HR" in user_roles or "System Manager" in user_roles):
+        frappe.throw("Only HR or System Managers can approve/reject WFH requests", frappe.PermissionError)
+
+    doc = frappe.get_doc("WFH Attendance", docname)
+
+    if doc.workflow_state != "Pending":
+        frappe.throw(f"Workflow Action is only allowed for 'Pending' requests. Current state: {doc.workflow_state}")
+
+    if action == "Approve":
+        doc.workflow_state = "Approved"
+        # Since it's already submitted, saving it triggers on_update_after_submit
+        doc.save(ignore_permissions=True)
+        
+        # Push real-time update
+        frappe.publish_realtime(
+            event="wfh_attendance_updated",
+            message={"name": docname, "workflow_state": "Approved", "action": "Approve"},
+        )
+        return {"status": "success", "message": f"WFH Attendance {docname} Approved"}
+
+    elif action == "Reject":
+        doc.workflow_state = "Rejected"
+        # Cancelling the document triggers on_cancel hook
+        doc.cancel()
+        
+        # Push real-time update
+        frappe.publish_realtime(
+            event="wfh_attendance_updated",
+            message={"name": docname, "workflow_state": "Rejected", "action": "Reject"},
+        )
+        return {"status": "success", "message": f"WFH Attendance {docname} Rejected"}
+
+    else:
+        frappe.throw(f"Invalid Action: {action}. Expected 'Approve' or 'Reject'")

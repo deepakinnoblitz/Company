@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-10-10 15:41:02.419525",
+ "modified": "2026-04-25 17:06:05.991659",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Attendance Report",
@@ -28,6 +28,9 @@
   },
   {
    "role": "HR"
+  },
+  {
+   "role": "All"
   }
  ],
  "timeout": 0

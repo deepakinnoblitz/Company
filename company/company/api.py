@@ -15,8 +15,77 @@ from frappe.utils import (
 )
 from datetime import datetime, timedelta
 from calendar import monthrange
+
+@frappe.whitelist()
+def bootstrap_salary_components():
+    """Bootstrap default salary components"""
+    defaults = [
+        {"component_name": "Basic Pay", "type": "Earning", "percentage": 50},
+        {"component_name": "HRA", "type": "Earning", "percentage": 20},
+        {"component_name": "Conveyance Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "Medical Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "Other Allowances", "type": "Earning", "percentage": 10},
+        {"component_name": "PF", "type": "Deduction", "static_amount": 1800},
+        {"component_name": "ESI/Health Insurance", "type": "Deduction", "percentage": 0.75},
+        {"component_name": "Professional Tax", "type": "Deduction", "static_amount": 200},
+        {"component_name": "Loan Recovery", "type": "Deduction", "static_amount": 0},
+    ]
+
+    for d in defaults:
+        if not frappe.db.exists("Salary Structure Component", d["component_name"]):
+            doc = frappe.get_doc({
+                "doctype": "Salary Structure Component",
+                "component_name": d["component_name"],
+                "type": d["type"],
+                "percentage": d.get("percentage", 0),
+                "static_amount": d.get("static_amount", 0)
+            })
+            doc.insert(ignore_permissions=True)
+    
+    return "Bootstrap completed"
+
 from frappe.utils import get_bench_path
 from frappe.utils.file_manager import save_file
+
+@frappe.whitelist()
+def is_hrms_notification_enabled(fieldname):
+    """
+    Check if a specific HRMS notification is enabled.
+    """
+    try:
+        enabled = frappe.db.get_single_value("HRMS Settings", fieldname)
+        # Checkboxes in Frappe are 1 (True) or 0 (False)
+        return bool(enabled)
+    except Exception:
+        return True  # Default to True to avoid missing important emails
+
+@frappe.whitelist()
+def get_hrms_settings():
+    """Retrieve HRMS Settings singleton values with global fallbacks"""
+    try:
+        settings = frappe.get_single("HRMS Settings")
+        data = settings.as_dict()
+        
+        # Fallback to system defaults if not set in HRMS Settings
+        if not data.get("default_currency"):
+            data["default_currency"] = frappe.defaults.get_global_default("currency") or "INR"
+        
+        # Pull the currency symbol from the Frappe Currency DocType
+        if data.get("default_currency"):
+            data["currency_symbol"] = frappe.db.get_value("Currency", data["default_currency"], "symbol") or "₹"
+        
+        if not data.get("default_locale"):
+            data["default_locale"] = "en-IN"
+
+        return data
+    except Exception as e:
+        frappe.log_error(f"Error fetching HRMS Settings: {str(e)}")
+        # Ultimate fail-safe defaults
+        return {
+            "default_currency": "INR",
+            "currency_symbol": "₹",
+            "default_locale": "en-IN"
+        }
 
 # =================== ESTIMATION REFERENCE ===================
 @frappe.whitelist()
@@ -517,7 +586,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
         frappe.throw(f"Error in auto leave allocation: {e}")
 
 
-# =================== SALARY SLIP GENERATION REFERENCE ===================
+# =================== SALARY SLIP GENERATION ===================
 
 @frappe.whitelist()
 def generate_salary_slips_from_employee(year=None, month=None, employees=None):
@@ -734,118 +803,6 @@ def generate_salary_slips_from_employee(year=None, month=None, employees=None):
 
     return result_msg
 
-@frappe.whitelist()
-def salary_slip_after_submit(doc, method):
-    """Triggered automatically when a Salary Slip is submitted (approved)."""
-
-    try:
-        # Get Month-Year for display
-        month_year = frappe.utils.formatdate(doc.pay_period_start, "MMMM yyyy")
-
-        # -------------------------
-        # 1️⃣ Create Notification Log
-        # -------------------------
-        if doc.user:
-            notification_doc = frappe.get_doc({
-                "doctype": "Notification Log",
-                "subject": f"Salary Slip for {month_year}",
-                "email_content": f"Your salary slip for {month_year} has been approved.",
-                "for_user": doc.user,
-                "document_type": "Salary Slip",
-                "document_name": doc.name,
-                "from_user": frappe.session.user,
-                "type": "Alert",
-                "seen": 0,
-            })
-            notification_doc.insert(ignore_permissions=True)
-
-            # Real-time bell refresh
-            frappe.publish_realtime(
-                event="notification",
-                message={"type": "New Notification"},
-                user=doc.user,
-                after_commit=True
-            )
-
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "Salary Slip Notification Error")
-
-    # -------------------------
-    # 2️⃣ Firebase Push Notification
-    # -------------------------
-    try:
-        from company.company.api import send_push_notification_to_user
-
-        if doc.user:
-            result = send_push_notification_to_user(
-                user=doc.user,
-                title=f"Salary Slip for {month_year}",
-                body=f"Your salary slip for {month_year} has been approved successfully.",
-                data={"salary_slip": doc.name}
-            )
-
-            frappe.log_error(
-                message=f"Push notification sent successfully to {doc.user}\nResponse: {result}",
-                title=f"Firebase Push Success for {doc.employee_name}"
-            )
-
-    except Exception as e:
-        frappe.log_error(
-            message=f"Error while sending push notification: {str(e)}",
-            title=f"Firebase Push Error for {doc.employee_name}"
-        )
-
-    # -------------------------
-    # 3️⃣ Email Notification
-    # -------------------------
-    try:
-        recipients = []
-        if doc.email:
-            recipients.append(doc.email)
-        if doc.personal_email:
-            recipients.append(doc.personal_email)
-
-        if recipients:
-            print_format = frappe.get_meta("Salary Slip").default_print_format or "Standard"
-            pdf_content = frappe.get_print(
-                "Salary Slip",
-                doc.name,
-                print_format=print_format,
-                as_pdf=True
-            )
-
-            message = f"""
-            <div style="font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif; background:#f4f6f8; padding:30px;">
-                <div style="max-width:600px; margin:auto; background:white; border-radius:12px;
-                            box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden;">
-                    <div style="background:#007bff; color:white; padding:18px 24px; font-size:18px; font-weight:600; text-align:center;">
-                        Your Salary Slip for {month_year}
-                    </div>
-                    <div style="padding:24px; color:#333; font-size:14px; line-height:1.6;">
-                        <p>Dear <b>{doc.employee_name}</b>,</p>
-                        <p>Your salary slip for <b>{month_year}</b> has been Released. Please find the attached PDF below.</p>
-                        <p style="margin-top:20px;">Best regards,<br>
-                        <b style="color:#007bff;">HR Team</b></p>
-                    </div>
-                </div>
-            </div>
-            """
-
-            frappe.sendmail(
-                recipients=recipients,
-                subject=f"Salary Slip for {month_year}",
-                message=message,
-                attachments=[{
-                    "fname": f"Salary_Slip_{doc.employee}_{month_year}.pdf",
-                    "fcontent": pdf_content
-                }],
-                reference_doctype="Salary Slip",
-                reference_name=doc.name
-            )
-
-    except Exception as e:
-        frappe.log_error(message=str(e), title=f"Email Error for {doc.employee_name}")
-        
 
 def get_holiday_dates_for_month(year, month):
     """
@@ -1464,11 +1421,12 @@ def auto_submit_leave_application(doc, method=None):
 
 def auto_submit_employee_evaluation(doc, method=None):
     """
-    Automatically submit Employee Evaluation after save.
+    Automatically submit Employee Evaluation after save if auto_submit is enabled.
     """
     try:
-        if doc.docstatus == 0:
+        if doc.get("auto_submit") and doc.docstatus == 0:
             doc.submit()
+            frappe.log_error(f"Auto-submitted Employee Evaluation {doc.name}", "Evaluation Automation - Success")
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Auto Submit Employee Evaluation Error")
 
@@ -1807,7 +1765,7 @@ def get_employee_last_seven_days_attendance():
 
         # Get employee linked to logged-in user
         employee = frappe.db.get_value("Employee", {"user": user}, "name") or \
-                   frappe.db.get_value("Employee", {"user_id": user}, "name")
+                   frappe.db.get_value("Employee", {"user": user}, "name")
 
         if not employee:
             return {"status": "Not Linked", "timeline": []}
@@ -1926,6 +1884,28 @@ def save_fcm_token(token: str):
     frappe.db.commit()
     return {"status": "ok", "message": "Token saved", "token": token}
 
+@frappe.whitelist(allow_guest=False)
+def remove_fcm_token():
+    """Remove the browser/device FCM token on the logged-in User record."""
+    user = frappe.session.user
+    if not user or user == "Guest":
+        return {"status": "failed", "message": "Login required"}
+    
+    # Remove from User doctype
+    frappe.db.set_value("User", user, "fcm_token", "")
+    
+    # Remove from ClefinCode Chat Profile
+    profile_parent = frappe.db.get_value(
+        "ClefinCode Chat Profile Contact Details",
+        {"contact_info": user, "parenttype": "ClefinCode Chat Profile"},
+        "parent"
+    )
+    if profile_parent:
+        frappe.db.set_value("ClefinCode Chat Profile", profile_parent, "registration_token", "")
+
+    frappe.db.commit()
+    return {"status": "ok", "message": "Token removed"}
+
 def _send_v1_message_to_token(token: str, title: str, body: str, data: dict = None) -> dict:
     """
     Send a message to a device token using FCM HTTP v1.
@@ -1977,10 +1957,22 @@ def send_chat_notification_to_user(user: str, title: str, body: str):
     try:
         from bs4 import BeautifulSoup
         
-        # Strip HTML tags from body
+        # Strip HTML tags from body while preserving newlines for alignment
         if body:
             soup = BeautifulSoup(body, 'html.parser')
-            body = soup.get_text().strip()
+            
+            # Replace <br> tags with actual newlines
+            for br in soup.find_all("br"):
+                br.replace_with("\n")
+            
+            # Extract text with space separator (explicit <br> handled above will be newlines)
+            body = soup.get_text(separator=" ").strip()
+            
+            # Clean up: collapse multiple spaces but keep single newlines
+            import re
+            body = re.sub(r'[ \t]+', ' ', body) # Collapse horizontal whitespace
+            body = re.sub(r'\n\s*\n', '\n\n', body) # Collapse multiple empty lines to max 2
+            body = body.replace("\n\n\n", "\n\n") # Double safety
         
         # Send the notification with a link to the chat SPA
         return send_push_notification_to_user(user, title, body, data={"url": "/chat"})
@@ -2039,7 +2031,9 @@ def _push_unread_count_update(user: str):
 @frappe.whitelist()
 def create_unread_entry_for_hr(doc, method=None):
     # skip if HR created it
-    if "HR" in frappe.get_roles(doc.owner):
+    hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+    owner_roles = frappe.get_roles(doc.owner)
+    if any(role in owner_roles for role in hr_roles):
         return
 
     # avoid duplicates
@@ -2049,25 +2043,29 @@ def create_unread_entry_for_hr(doc, method=None):
     }):
         return
 
-    hr_users = frappe.get_all("Has Role",
-        filters={"role": "HR", "parenttype": "User"},
+    hr_users = list(set(frappe.get_all("Has Role",
+        filters={"role": ["in", hr_roles], "parenttype": "User"},
         pluck="parent"
-    )
+    )))
 
     for user in hr_users:
-        frappe.get_doc({
-            "doctype": "HR Read Tracker",
+        if not frappe.db.exists("HR Read Tracker", {
             "reference_doctype": doc.doctype,
             "reference_name": doc.name,
-            "read_by": user,
-            "is_read": 0
-        }).insert(ignore_permissions=True)
+            "read_by": user
+        }):
+            frappe.get_doc({
+                "doctype": "HR Read Tracker",
+                "reference_doctype": doc.doctype,
+                "reference_name": doc.name,
+                "read_by": user,
+                "is_read": 0
+            }).insert(ignore_permissions=True)
 
     # Push realtime update to each affected HR user
     frappe.db.commit()
     for user in hr_users:
         _push_unread_count_update(user)
-
 
 @frappe.whitelist()
 def mark_hr_item_as_read(doctype, name):
@@ -2132,8 +2130,6 @@ def get_attendance_stats(range=None, from_date=None, to_date=None):
     # 2️⃣ EMPLOYEE-WISE ATTENDANCE
     # ============================================================
     return get_employee_attendance_stats(employee, from_date, to_date)
-
-
 
 # ==================================================================
 # 🔹 GLOBAL ATTENDANCE (ALL EMPLOYEES)
@@ -3166,6 +3162,20 @@ def process_chat_message_queue():
         
         frappe.db.commit()
 
+
+def _get_attendance_status(hours, p_threshold, h_threshold):
+    """Categorize hours into Present, Half Day, or Absent."""
+    hours = float(hours or 0)
+    p_threshold = float(p_threshold or 5.0)
+    h_threshold = float(h_threshold or 3.0)
+    
+    if hours >= p_threshold:
+        return "Present"
+    elif hours >= h_threshold:
+        return "Half Day"
+    else:
+        return "Absent"
+
 @frappe.whitelist()
 def get_month_calendar_data(month=None, year=None):
     """
@@ -3218,29 +3228,57 @@ def get_month_calendar_data(month=None, year=None):
     start_date = f"{year}-{month:02d}-01"
     end_date = get_last_day(getdate(start_date))
     
-    # Helper to convert timedelta to time str
-    def td_to_str(td):
-        if not td: return None
-        total_seconds = int(td.total_seconds())
-        return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+    settings = frappe.get_doc("HRMS Settings")
+    source = settings.get("weekly_chart_source") or "Attendance"
+    p_threshold = settings.get("present_threshold") or 5.0
+    h_threshold = settings.get("half_day_threshold") or 3.0
 
-    att_records = frappe.get_all("Attendance",
-        filters={
-            "employee": employee_id,
-            "attendance_date": ["between", [start_date, end_date]]
-        },
-        fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
-        order_by="attendance_date asc"
-    )
+    if source == "Daily Log":
+        # Fetch Session records
+        session_records = frappe.db.sql("""
+            SELECT 
+                login_date as date,
+                login_time,
+                logout_time,
+                total_work_hours as working_hours
+            FROM `tabEmployee Session`
+            WHERE employee = %s
+            AND login_date BETWEEN %s AND %s
+            ORDER BY login_date ASC
+        """, (employee_id, start_date, end_date), as_dict=True)
 
-    for att in att_records:
-        attendance.append({
-            "date": str(att.attendance_date),
-            "status": att.status,
-            "in_time": td_to_str(att.in_time),
-            "out_time": td_to_str(att.out_time),
-            "working_hours": att.working_hours or 0
-        })
+        for record in session_records:
+            attendance.append({
+                "date": str(record.date),
+                "status": _get_attendance_status(record.working_hours, p_threshold, h_threshold),
+                "in_time": record.login_time.strftime("%H:%M:%S") if record.login_time else None,
+                "out_time": record.logout_time.strftime("%H:%M:%S") if record.logout_time else None,
+                "working_hours": record.working_hours or 0
+            })
+    else:
+        # Helper to convert timedelta to time str
+        def td_to_str(td):
+            if not td: return None
+            total_seconds = int(td.total_seconds())
+            return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+
+        att_records = frappe.get_all("Attendance",
+            filters={
+                "employee": employee_id,
+                "attendance_date": ["between", [start_date, end_date]]
+            },
+            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+            order_by="attendance_date asc"
+        )
+
+        for att in att_records:
+            attendance.append({
+                "date": str(att.attendance_date),
+                "status": att.status,
+                "in_time": td_to_str(att.in_time),
+                "out_time": td_to_str(att.out_time),
+                "working_hours": att.working_hours or 0
+            })
 
     # 3. Build Full Month Timeline
     calendar_data = []
@@ -3289,3 +3327,24 @@ def get_month_calendar_data(month=None, year=None):
         "calendar_data": calendar_data,
         "joining_date": str(joining_date) if joining_date else None
     }
+
+
+@frappe.whitelist()
+def get_salary_slips_with_child_tables(start_date=None, end_date=None, employee=None):
+    filters = {}
+    if start_date:
+        filters["pay_period_start"] = [">=", start_date]
+    if end_date:
+        filters["pay_period_end"] = ["<=", end_date]
+    if employee and employee != "all":
+        filters["employee"] = employee
+
+    slips = frappe.get_all("Salary Slip", filters=filters, fields=["name"], order_by="pay_period_start desc")
+    
+    detailed_slips = []
+    for s in slips:
+        doc = frappe.get_doc("Salary Slip", s.name)
+        detailed_slips.append(doc.as_dict())
+        
+    return detailed_slips
+

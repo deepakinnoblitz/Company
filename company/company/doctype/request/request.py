@@ -1,3 +1,4 @@
+import json
 import frappe
 from frappe.model.document import Document
 from frappe.utils import formatdate, get_url
@@ -5,15 +6,35 @@ from frappe.utils import formatdate, get_url
 
 class Request(Document):
 
+    def validate(self):
+        """Custom validation for request fields."""
+        if self.subject and len(self.subject) > 500:
+            frappe.throw(
+                msg=frappe._("Subject is too long (max 500 characters). Please use the 'Message' field for detailed descriptions."),
+                title=frappe._("Validation Error")
+            )
+
+    def on_submit(self):
+        """Enqueue HR notifications in background to avoid submit delay"""
+        # 🛡️ Prevent double enqueuing in the same request
+        if frappe.flags.get(f"enqueued_submit_notification_{self.name}"):
+            return
+
+        frappe.enqueue(
+            "company.company.doctype.request.request.send_submit_notification",
+            doc_name=self.name,
+            submitter_user=frappe.session.user,
+            enqueue_after_commit=True
+        )
+        frappe.flags[f"enqueued_submit_notification_{self.name}"] = True
+
     # =================================================
     # AUTO-SUBMIT AFTER INSERT
-    # Python equivalent of JS: frappe.client.submit(doc)
-    # Triggers on_submit() → notifies HR automatically
     # =================================================
     def after_insert(self):
         """Auto-submit the Request right after creation (docstatus 0 → 1)."""
-        self.submit()
-        self.notify_hr_on_submission()
+        if self.docstatus == 0:
+            self.submit()
 
     # =================================================
     # ALL WORKFLOW CHANGES AFTER SUBMIT
@@ -77,6 +98,143 @@ class Request(Document):
             return settings[0]
         return {}
 
+    def get_employee_user(self):
+        """Get the user linked to the employee_id"""
+        return frappe.db.get_value("Employee", self.employee_id, "user")
+
+    def get_hr_users(self):
+        """Get valid HR User IDs for chat notifications"""
+        roles = ["HR"]
+        role_users = frappe.get_all(
+            "Has Role",
+            filters={"role": ["in", roles], "parenttype": "User"},
+            pluck="parent"
+        )
+        # Filter unique and active users
+        hr_users = [u for u in set(role_users) if frappe.db.get_value("User", u, "enabled")]
+
+        return list(set(hr_users))
+
+    def send_chat_notification(self, sender, receiver, content):
+        """Send a chat message via clefincode_chat. Create/Verify channel and send message."""
+        log_data = {
+            "sender_id": sender,
+            "receiver_id": receiver,
+            "content": content
+        }
+        
+        try:
+            from clefincode_chat.api.api_1_2_1.api import send, create_channel, share_doctype, get_profile_id
+            
+            # 1. Check if direct room exists (Using system IDs)
+            room_name = frappe.db.sql("""
+                SELECT c.name
+                FROM `tabClefinCode Chat Channel` c
+                JOIN `tabClefinCode Chat Channel User` u1 ON u1.parent = c.name
+                JOIN `tabClefinCode Chat Channel User` u2 ON u2.parent = c.name
+                WHERE c.type = 'Direct'
+                AND c.is_parent = 1
+                AND u1.user = %s
+                AND u2.user = %s
+            """, (sender, receiver), pluck=True)
+
+            if room_name:
+                room_name = room_name[0]
+                log_data["room_name_found"] = room_name
+                # Ensure HR receiver is active and not removed
+                frappe.db.sql("""
+                    UPDATE `tabClefinCode Chat Channel User`
+                    SET is_removed = 0, active = 1
+                    WHERE parent = %s AND user = %s
+                """, (room_name, receiver))
+                # Ensure document sharing is active
+                share_doctype("ClefinCode Chat Channel", room_name, receiver)
+            else:
+                # 2. Create channel using system IDs
+                users = [
+                    {"email": sender, "platform": "Chat"},
+                    {"email": receiver, "platform": "Chat"}
+                ]
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                res = create_channel(
+                    channel_name="", 
+                    users=json.dumps(users),
+                    type="Direct",
+                    last_message=content,
+                    creator_email=sender,
+                    creator=sender_full_name
+                )
+                log_data["create_channel_response"] = res
+                
+                if res and res.get("results"):
+                    room_name = res["results"][0]["room"]
+                    log_data["new_room_name"] = room_name
+                else:
+                    frappe.log_error(title="Request App: Chat Channel Creation Failed", message=frappe.as_json(log_data))
+
+            if room_name:
+                # 3. Diagnostic Logging: Verify Membership State
+                members = frappe.get_all("ClefinCode Chat Channel User", 
+                                        filters={"parent": room_name}, 
+                                        fields=["user", "is_removed", "active"])
+                log_data["channel_members_final"] = members
+
+                sender_full_name = frappe.db.get_value("User", sender, "full_name") or sender
+                
+                # 4. Send the message
+                send_res = send(
+                    content=content,
+                    user=sender_full_name,
+                    room=room_name,
+                    email=sender
+                )
+                log_data["send_response"] = send_res
+                
+                if send_res and isinstance(send_res, dict) and send_res.get("results"):
+                    log_data["message_name"] = send_res["results"][0].get("new_message_name")
+
+                # 5. Force Sidebar Refresh for HR
+                refresh_data = {
+                    "room": room_name,
+                    "realtime_type": "update_room",
+                    "content": content,
+                    "user": sender_full_name,
+                    "sender_email": sender,
+                    "room_type": "Direct"
+                }
+                frappe.publish_realtime(event="update_room", message=refresh_data, user=receiver)
+                frappe.publish_realtime(event="new_chat_notification", message=refresh_data, user=receiver)
+                
+                # Final log to verify success and parameters
+                frappe.log_error(title="Request Chat Debug", message=frappe.as_json(log_data))
+            else:
+                log_data["error"] = "Room name could not be determined"
+                frappe.log_error(title="Request Chat Failed", message=frappe.as_json(log_data))
+                
+        except Exception as e:
+            log_data["exception"] = str(e)
+            log_data["traceback"] = frappe.get_traceback()
+            frappe.log_error(title="Request Chat Notification Exception", message=frappe.as_json(log_data))
+
+    # =================================================
+    # GET EMPLOYEE EMAILS
+    # =================================================
+    def get_employee_emails(self):
+        """Fetch both company email and personal email of the employee"""
+        emp = frappe.db.get_value("Employee", self.employee_id, ["email", "personal_email"], as_dict=True)
+        if not emp:
+            return [], None
+        
+        emails = []
+        primary_email = emp.email or emp.personal_email
+        
+        if emp.email:
+            emails.append(emp.email)
+        if emp.personal_email:
+            emails.append(emp.personal_email)
+            
+        return list(set(emails)), primary_email
+
     # =================================================
     # 1️⃣ EMPLOYEE SUBMIT → HR (Blue Theme)
     # =================================================
@@ -88,8 +246,8 @@ class Request(Document):
         if not hr_email:
             return
 
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        emp_emails, primary_email = self.get_employee_emails()
+        sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         cc_list = []
         if cc_emails:
@@ -102,10 +260,30 @@ class Request(Document):
             header="New Request Submitted",
             icon="📩",
             intro=f"{self.employee_name} has submitted a new request for review.",
+            greeting="Dear HR,",
             color="#0062cc",
             sender=sender,
-            reply_to=employee_email or hr_email
+            reply_to=primary_email or hr_email
         )
+
+        # InnoChat Notification to HR
+        hr_users = self.get_hr_users()
+        sender_user = frappe.session.user
+        
+        content = (
+            f"<b>📩 New Request Submitted</b><br><br>"
+            f"<b>Employee:</b> {self.employee_name}<br>"
+            f"<b>Subject:</b> {self.subject or '-'}<br>"
+            f"<b>Message:</b> {self.message or '-'}<br><br>"
+            f"Please review and take necessary action."
+        )
+
+        for receiver in hr_users:
+            if receiver != sender_user:
+                try:
+                    self.send_chat_notification(sender_user, receiver, content)
+                except Exception:
+                    frappe.log_error(title="Request Submit Chat Loop Error", message=frappe.get_traceback())
 
     # =================================================
     # 2️⃣ HR → APPROVE → EMPLOYEE (Green Theme)
@@ -115,8 +293,8 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        if not employee_email: return
+        emp_emails, primary_email = self.get_employee_emails()
+        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -127,16 +305,29 @@ class Request(Document):
         """
 
         self.send_email(
-            recipients=[employee_email],
+            recipients=emp_emails,
             subject=f"✅ Request Approved - {self.subject or ''}",
             header="Request Approved",
             icon="✅",
             intro="Your request has been approved by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#28a745",
             sender=sender,
             reply_to=hr_email
         )
+
+        # InnoChat Notification to Employee
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>✅ Request Approved</b><br><br>"
+                f"<b>Subject:</b> {self.subject or '-'}<br>"
+                f"<b>Message:</b> {self.message or '-'}<br><br>"
+                f"Your request has been approved."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
 
     # =================================================
     # 3️⃣ HR → REJECT → EMPLOYEE (Red Theme)
@@ -146,8 +337,8 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
-        if not employee_email: return
+        emp_emails, primary_email = self.get_employee_emails()
+        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -158,16 +349,29 @@ class Request(Document):
         """
 
         self.send_email(
-            recipients=[employee_email],
+            recipients=emp_emails,
             subject=f"❌ Request Rejected - {self.subject or ''}",
             header="Request Rejected",
             icon="❌",
             intro="Your request has been rejected by HR.",
+            greeting=f"Hello {self.employee_name},",
             extra_message=extra,
             color="#dc3545",
             sender=sender,
             reply_to=hr_email
         )
+
+        # InnoChat Notification to Employee
+        receiver = self.get_employee_user()
+        sender_user = frappe.session.user
+        if receiver and receiver != sender_user:
+            content = (
+                f"<b>❌ Request Rejected</b><br><br>"
+                f"<b>Subject:</b> {self.subject or '-'}<br>"
+                f"<b>Message:</b> {self.message or '-'}<br><br>"
+                f"Your request has been rejected."
+            )
+            self.send_chat_notification(sender_user, receiver, content)
 
     # =================================================
     # WORKFLOW MAIL HANDLER (Clarification / Reply)
@@ -188,9 +392,9 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
-        employee_email = frappe.db.get_value("Employee", self.employee_id, "personal_email")
+        emp_emails, primary_email = self.get_employee_emails()
         hr_sender = f"{hr_name} <{hr_email}>" if hr_email else None
-        employee_sender = f"{self.employee_name} <{employee_email}>" if employee_email else hr_email
+        employee_sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
         # -------------------------------------------------
         # HR → ASK CLARIFICATION → EMPLOYEE (Yellow)
@@ -199,16 +403,29 @@ class Request(Document):
             hr_msg = self.get_latest_hr_query()
 
             self.send_email(
-                recipients=[employee_email],
+                recipients=emp_emails,
                 subject="📩 Reply from HR - Request",
                 header="Reply from HR",
                 icon="📩",
                 intro="HR has replied to your request.",
+                greeting=f"Hello {self.employee_name},",
                 extra_message=self.hr_message_block(hr_msg),
                 color="#ffc107",
                 sender=hr_sender,
                 reply_to=hr_email
             )
+
+            # InnoChat Notification to Employee
+            receiver = self.get_employee_user()
+            sender_user = frappe.session.user
+            if receiver and receiver != sender_user:
+                content = (
+                    f"<b>📩 Clarification Requested</b><br><br>"
+                    f"<b>Subject:</b> {self.subject or '-'}<br>"
+                    f"<b>Clarification:</b> {hr_msg or '-'}<br><br>"
+                    f"HR has requested clarification on your request."
+                )
+                self.send_chat_notification(sender_user, receiver, content)
 
         # -------------------------------------------------
         # EMPLOYEE → REPLY → HR (Blue)
@@ -228,11 +445,26 @@ class Request(Document):
                 header="Reply Received",
                 icon="📩",
                 intro=f"{self.employee_name} has replied to your clarification request.",
+                greeting="Dear HR,",
                 extra_message=self.employee_reply_block(emp_reply),
                 color="#0062cc",
                 sender=employee_sender,
-                reply_to=employee_email or hr_email
+                reply_to=primary_email or hr_email
             )
+
+            # InnoChat Notification to HR
+            hr_users = self.get_hr_users()
+            sender_user = frappe.session.user
+            content = (
+                f"<b>📩 Employee Reply Received</b><br><br>"
+                f"<b>Employee:</b> {self.employee_name}<br>"
+                f"<b>Subject:</b> {self.subject or '-'}<br>"
+                f"<b>Reply:</b> {emp_reply or '-'}<br><br>"
+                f"Employee has replied to the clarification request."
+            )
+            for hr_user in hr_users:
+                if hr_user != sender_user:
+                    self.send_chat_notification(sender_user, hr_user, content)
 
     # =================================================
     # FETCH LATEST HR QUERY
@@ -309,6 +541,7 @@ class Request(Document):
         subject,
         header,
         intro,
+        greeting="Hello,",
         color="#28a745",
         icon="✅",
         cc=None,
@@ -316,6 +549,9 @@ class Request(Document):
         sender=None,
         reply_to=None
     ):
+        from company.company.api import is_hrms_notification_enabled
+        if not is_hrms_notification_enabled("request_notification"):
+            return
         
         # Determine background color for details block
         bg_color = "#f0fff4" # default green-ish
@@ -362,7 +598,7 @@ class Request(Document):
                 </div>
                 
                 <div style="padding: 30px; color: #333;">
-                    <p style="font-size: 16px; margin-bottom: 5px;">Hello,</p>
+                    <p style="font-size: 16px; margin-bottom: 5px;">{greeting}</p>
                     <p style="font-size: 15px; line-height: 1.5; color: #555;">{intro}</p>
                     
                     {details}
@@ -394,3 +630,20 @@ class Request(Document):
             reference_doctype="Request",
             reference_name=self.name
         )
+
+
+def send_submit_notification(doc_name, submitter_user):
+    """
+    Background job to send submit notification to HR.
+    Sets the session user to ensure InnoChat identifies the correct employee sender.
+    """
+    if not doc_name or not submitter_user:
+        return
+
+    frappe.session.user = submitter_user
+
+    try:
+        doc = frappe.get_doc("Request", doc_name)
+        doc.notify_hr_on_submission()
+    except Exception:
+        frappe.log_error(title="Request Background Notification Error")

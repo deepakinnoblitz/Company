@@ -6,8 +6,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "service_id",
-  "service_name"
+  "service_name",
+  "service_id"
  ],
  "fields": [
   {
@@ -15,20 +15,20 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Service ID",
-   "reqd": 1,
    "unique": 1
   },
   {
    "fieldname": "service_name",
    "fieldtype": "Data",
    "label": "Service Name",
+   "reqd": 1,
    "unique": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-19 17:20:45.262515",
+ "modified": "2026-05-18 11:25:50.553179",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Service",

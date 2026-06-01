@@ -24,18 +24,15 @@ def execute(filters=None):
 # ---------------------------------------------------
 def get_columns():
     return [
-        {"label": "Purchase", "fieldname": "purchase", "fieldtype": "Link", "options": "Purchase", "width": 150},
-        {"label": "Bill Date", "fieldname": "bill_date", "fieldtype": "Date", "width": 110},
-
+        {"label": "ID", "fieldname": "id", "fieldtype": "Data", "width": 120},
+        {"label": "Purchase No", "fieldname": "purchase", "fieldtype": "Link", "options": "Purchase", "width": 150},
+        {"label": "Date", "fieldname": "collection_date", "fieldtype": "Date", "width": 110},
         {"label": "Vendor", "fieldname": "vendor", "fieldtype": "Link", "options": "Contacts", "width": 150},
         {"label": "Vendor Name", "fieldname": "vendor_name", "fieldtype": "Data", "width": 150},
-
-        {"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency", "width": 120},
-        {"label": "Paid Amount", "fieldname": "amount_paid", "fieldtype": "Currency", "width": 130},
-        {"label": "Pending Amount", "fieldname": "amount_pending", "fieldtype": "Currency", "width": 120},
-
-        {"label": "Last Payment Date", "fieldname": "last_payment_date", "fieldtype": "Date", "width": 130},
-        {"label": "Payment Mode", "fieldname": "payment_mode", "fieldtype": "Data", "width": 120},
+        {"label": "Mode", "fieldname": "mode_of_payment", "fieldtype": "Link", "options": "Payment Type", "width": 120},
+        {"label": "Amount to Pay", "fieldname": "amount_to_pay", "fieldtype": "Currency", "width": 120},
+        {"label": "Paid", "fieldname": "amount_collected", "fieldtype": "Currency", "width": 120},
+        {"label": "Pending", "fieldname": "amount_pending", "fieldtype": "Currency", "width": 120},
     ]
 
 
@@ -44,76 +41,54 @@ def get_columns():
 # ---------------------------------------------------
 def get_data(filters):
 
-    conditions = "1=1"
+    conditions = []
+    values = {}
 
     if filters.get("from_date"):
-        conditions += f" AND p.bill_date >= '{filters['from_date']}'"
+        conditions.append("pc.collection_date >= %(from_date)s")
+        values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions += f" AND p.bill_date <= '{filters['to_date']}'"
+        conditions.append("pc.collection_date <= %(to_date)s")
+        values["to_date"] = filters["to_date"]
 
     if filters.get("vendor"):
-        conditions += f" AND (p.vendor_name LIKE '%%{filters['vendor']}%%' OR c.first_name LIKE '%%{filters['vendor']}%%')"
+        conditions.append("(pc.vendor_name LIKE %(vendor)s OR pc.vendor LIKE %(vendor)s)")
+        values["vendor"] = f"%{filters['vendor']}%"
 
     if filters.get("purchase"):
-        conditions += f" AND (p.name LIKE '%%{filters['purchase']}%%' OR p.bill_no LIKE '%%{filters['purchase']}%%')"
+        conditions.append("pc.purchase = %(purchase)s")
+        values["purchase"] = filters["purchase"]
 
-    purchases = frappe.db.sql(f"""
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("pc.owner = %(owner)s")
+        values["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("pc.owner = %(owner)s")
+        values["owner"] = owner_val
+
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+    settlements = frappe.db.sql(f"""
         SELECT
-            p.name,
-            p.bill_date,
-            p.vendor_name AS vendor,
-            c.first_name AS vendor_name,
-            p.grand_total
-        FROM `tabPurchase` p
-        LEFT JOIN `tabContacts` c ON p.vendor_name = c.name
-        WHERE {conditions}
-        ORDER BY p.bill_date DESC
-    """, as_dict=True)
-
-    if not purchases:
-        return []
-
-    purchase_list = [p.name for p in purchases]
-
-    # Collections (Payments)
-    collections = frappe.db.sql("""
-        SELECT
+            pc.name AS id,
             pc.purchase,
-            SUM(pc.amount_collected) AS paid,
-            MAX(pc.collection_date) AS last_date,
-            MAX(pc.mode_of_payment) AS payment_mode
+            pc.collection_date,
+            pc.mode_of_payment,
+            pc.amount_to_pay,
+            pc.amount_collected,
+            pc.amount_pending,
+            pc.vendor,
+            pc.vendor_name
         FROM `tabPurchase Collection` pc
-        WHERE pc.purchase IN %(pur)s
-        GROUP BY pc.purchase
-    """, {"pur": purchase_list}, as_dict=True)
+        WHERE {where_clause}
+        ORDER BY pc.collection_date DESC, pc.creation DESC
+    """, values, as_dict=True)
 
-    paid_map = {c.purchase: c for c in collections}
-
-    final_data = []
-
-    for p in purchases:
-
-        c = paid_map.get(p.name, {})
-
-        paid = flt(c.get("paid", 0))
-        pending = flt(p.grand_total) - paid
-
-        final_data.append({
-            "purchase": p.name,
-            "bill_date": p.bill_date,
-            "vendor": p.vendor,
-            "vendor_name": p.vendor_name,
-
-            "grand_total": p.grand_total,
-            "amount_paid": paid,
-            "amount_pending": pending,
-
-            "last_payment_date": c.get("last_date"),
-            "payment_mode": c.get("payment_mode"),
-        })
-
-    return final_data
+    return settlements or []
 
 
 # ---------------------------------------------------
@@ -121,14 +96,14 @@ def get_data(filters):
 # ---------------------------------------------------
 def get_summary(data):
 
-    total_pur = sum(flt(d.get("grand_total")) for d in data)
-    total_paid = sum(flt(d.get("amount_paid")) for d in data)
+    total_to_pay = sum(flt(d.get("amount_to_pay")) for d in data)
+    total_paid = sum(flt(d.get("amount_collected")) for d in data)
     total_pending = sum(flt(d.get("amount_pending")) for d in data)
 
     return [
         {
             "label": "Total Purchase Amount",
-            "value": total_pur,
+            "value": total_to_pay,
             "indicator": "blue",
             "datatype": "Currency",
         },

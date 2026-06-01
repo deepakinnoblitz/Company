@@ -1,24 +1,12 @@
 // Copyright (c) 2025, deepak and contributors
 // For license information, please see license.txt
 
-// frappe.ui.form.on("Employee", {
-// 	refresh(frm) {
-
-// 	},
-// });
-
 frappe.ui.form.on('Employee', {
     onload(frm) {
         const restricted_fields = [
-            "basic_pay",
-            "hra",
-            "conveyance_allowances",
-            "medical_allowances",
-            "other_allowances",
-            "pf",
-            "health_insurance",
-            "professional_tax",
-            "loan_recovery",
+            "total_earnings",
+            "total_deductions",
+            "net_salary",
             "employee_id",
             "date_of_joining",
             "pf_number",
@@ -51,7 +39,7 @@ frappe.ui.form.on('Employee', {
             }, 500)); // waits 0.5s after typing stops
         }
 
-                // 1️⃣ Auto-load states if country is present
+        // 1️⃣ Auto-load states if country is present
         if (frm.doc.country) {
             frappe.call({
                 method: "company.company.api.get_states",
@@ -78,7 +66,7 @@ frappe.ui.form.on('Employee', {
             });
         }
     },
-    ctc: async function(frm) {
+    ctc: async function (frm) {
         await calculate_ctc_breakdown(frm);
     },
     country(frm) {
@@ -117,66 +105,84 @@ frappe.ui.form.on('Employee', {
     }
 });
 
+// Trigger calculations on table row addition or removal
+frappe.ui.form.on('Salary Structure', {
+    amount: function (frm, cdt, cdn) {
+        calculate_totals(frm);
+    },
+    earnings_remove: function (frm) {
+        calculate_totals(frm);
+    },
+    deductions_remove: function (frm) {
+        calculate_totals(frm);
+    }
+});
 
-// ================= Helper Function =================
+
+// ================= Helper Functions =================
 async function calculate_ctc_breakdown(frm) {
     if (!frm.doc.ctc) return;
 
     const ctc = flt(frm.doc.ctc);
 
-    // Fetch all Salary Structure Components
+    // Fetch all Salary Structure Components (Master list)
     const components = await frappe.db.get_list("Salary Structure Component", {
-        fields: ["component_name", "field_name", "type", "percentage", "static_amount"],
+        fields: ["component_name", "type", "percentage", "static_amount"],
         limit: 100
     });
 
     if (!components || !components.length) {
-        frappe.msgprint("No salary components found in Salary Structure Component Doctype.");
         return;
     }
 
-    // Reset salary-related fields to 0
-    const salary_fields = components.map(c => c.field_name);
-    salary_fields.forEach(field => {
-        if (frm.fields_dict[field]) frm.set_value(field, 0);
-    });
+    // Clear existing tables
+    frm.clear_table("earnings");
+    frm.clear_table("deductions");
 
-    // Initialize totals
     let total_earnings = 0;
     let total_deductions = 0;
 
-    // Calculate per component
     for (let comp of components) {
-        const field = comp.field_name;
         let value = 0;
-
-        // If static_amount exists and > 0 → use it, else calculate from %
         if (flt(comp.static_amount) > 0) {
             value = flt(comp.static_amount);
         } else if (flt(comp.percentage) > 0) {
             value = ctc * flt(comp.percentage) / 100;
         }
 
-        if (frm.fields_dict[field]) {
-            frm.set_value(field, value);
-        }
+        const target_table = comp.type === "Earning" ? "earnings" : "deductions";
+        const row = frm.add_child(target_table);
+        row.component_name = comp.component_name;
+        row.type = comp.type;
+        row.percentage = comp.percentage;
+        row.static_amount = comp.static_amount;
+        row.amount = value;
 
-        // Accumulate totals
-        if (comp.type === "Earnings") total_earnings += value;
+        if (comp.type === "Earning") total_earnings += value;
         else if (comp.type === "Deduction") total_deductions += value;
     }
 
-    // Optional: calculate net salary from totals
-    const net_salary = total_earnings - total_deductions;
+    frm.set_value("total_earnings", total_earnings);
+    frm.set_value("total_deductions", total_deductions);
+    frm.set_value("net_salary", total_earnings - total_deductions);
 
-    // Update optional summary fields if you have them
-    if (frm.fields_dict.total_earnings) frm.set_value("total_earnings", total_earnings);
-    if (frm.fields_dict.total_deductions) frm.set_value("total_deductions", total_deductions);
-    if (frm.fields_dict.net_salary) frm.set_value("net_salary", net_salary);
+    frm.refresh_field("earnings");
+    frm.refresh_field("deductions");
+}
 
-    // Live update alert
-    // frappe.show_alert({
-    //     message: `CTC breakdown updated!<br>Total Earnings: ₹${total_earnings.toFixed(2)}<br>Deductions: ₹${total_deductions.toFixed(2)}<br>Net Salary: ₹${net_salary.toFixed(2)}`,
-    //     indicator: "green"
-    // });
+function calculate_totals(frm) {
+    let total_earnings = 0;
+    let total_deductions = 0;
+
+    (frm.doc.earnings || []).forEach(row => {
+        total_earnings += flt(row.amount);
+    });
+
+    (frm.doc.deductions || []).forEach(row => {
+        total_deductions += flt(row.amount);
+    });
+
+    frm.set_value("total_earnings", total_earnings);
+    frm.set_value("total_deductions", total_deductions);
+    frm.set_value("net_salary", total_earnings - total_deductions);
 }

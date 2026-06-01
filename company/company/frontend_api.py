@@ -1,6 +1,7 @@
 import frappe
 from frappe.auth import LoginManager
 from frappe import _
+from livekit import api
 
 
 @frappe.whitelist(allow_guest=True)
@@ -17,7 +18,11 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
     Fetch a list of documents for a given DocType.
     Useful for populating dropdowns on the frontend.
     """
-    if not frappe.has_permission(doctype, "read"):
+    if doctype == "Payment Terms":
+        # Bypass direct permission check for Payment Terms to allow Invoice readers/creators to fetch them
+        if not frappe.has_permission("Invoice", "read") and not frappe.has_permission("Invoice", "create"):
+            return []
+    elif not frappe.has_permission(doctype, "read"):
         return []
 
     query_filters = {}
@@ -29,12 +34,63 @@ def get_doctype_list(doctype, txt=None, fields=None, filters=None):
         extra_filters = json.loads(filters)
         query_filters.update(extra_filters)
 
+    # Use get_all for Payment Terms to bypass strict system manager check
+    fetch_fn = frappe.get_all if doctype == "Payment Terms" else frappe.get_list
+
     if fields:
         import json
         field_list = json.loads(fields)
-        return frappe.get_list(doctype, filters=query_filters, fields=field_list, limit=1000)
+        return fetch_fn(doctype, filters=query_filters, fields=field_list, limit=1000)
 
-    return frappe.get_list(doctype, filters=query_filters, pluck="name", limit=1000)
+    return fetch_fn(doctype, filters=query_filters, pluck="name", limit=1000)
+
+
+@frappe.whitelist()
+def get_permitted_count(doctype, filters=None, or_filters=None):
+    """
+    Returns the count of documents the user is permitted to see.
+    Standard frappe.client.get_count is not always permission-aware.
+    """
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    if isinstance(or_filters, str):
+        or_filters = json.loads(or_filters)
+
+    if doctype == "Contacts" and or_filters:
+        or_filters = clean_contacts_or_filters(or_filters)
+
+    # Resolve company_name filter for Contacts (child table field)
+    if doctype == "Contacts" and filters:
+        new_filters = []
+        for f in filters:
+            if isinstance(f, list) and len(f) >= 3:
+                fieldname = f[1] if len(f) == 4 else f[0]
+                if fieldname == "company_name":
+                    company_val = f[3] if len(f) == 4 else f[2]
+                    matching_account = frappe.db.get_value("Accounts", {"account_name": company_val}, "name")
+                    if matching_account:
+                        matching_parents = frappe.get_all(
+                            "Contact Company",
+                            filters={"company_name": matching_account, "parenttype": "Contacts"},
+                            pluck="parent"
+                        )
+                    else:
+                        matching_parents = []
+                    new_filters.append(["Contacts", "name", "in", matching_parents if matching_parents else [""]])
+                else:
+                    new_filters.append(f)
+            else:
+                new_filters.append(f)
+        filters = new_filters
+
+    return len(frappe.get_list(
+        doctype,
+        filters=filters,
+        or_filters=or_filters,
+        pluck="name",
+        limit=None
+    ))
 
 
 @frappe.whitelist()
@@ -82,12 +138,19 @@ def mobile_login(username, password):
     from frappe.core.doctype.user.user import generate_keys
 
     if not username or not password:
-        frappe.throw(_("Username and password required"))
+        return {"status": "failed", "message": "Username and password required"}
 
     # --- Authenticate ---
-    login_manager = LoginManager()
-    login_manager.authenticate(username, password)
-    login_manager.post_login()
+    try:
+        login_manager = LoginManager()
+        login_manager.authenticate(username, password)
+        login_manager.post_login()
+    except frappe.AuthenticationError:
+        return {"status": "failed", "message": "Invalid login credentials"}
+
+    # Prevent Frappe from appending home_page and full_name to the root of the API response
+    frappe.local.response.pop('home_page', None)
+    frappe.local.response.pop('full_name', None)
 
     logged_in_user = frappe.session.user
     user = frappe.get_doc("User", logged_in_user)
@@ -95,9 +158,13 @@ def mobile_login(username, password):
     # --- Return existing keys if already set (do NOT regenerate) ---
     if user.api_key and user.api_secret:
         return {
-            "user":       logged_in_user,
-            "api_key":    user.api_key,
-            "api_secret": user.get_password("api_secret"),  # decrypted plain-text
+            "status": "success",
+            "message": "Login successful",
+            "data": {
+                "user":       logged_in_user,
+                "api_key":    user.api_key,
+                "api_secret": user.get_password("api_secret"),  # decrypted plain-text
+            }
         }
 
     # --- Keys are missing — generate them once via Frappe's built-in generate_keys ---
@@ -190,25 +257,33 @@ def get_current_user_info():
     # Fetch employee info
     employee = frappe.db.get_value("Employee", {"user": user.name}, ["name", "employee_name"], as_dict=True)
 
+    has_crm_permission = bool(frappe.db.exists("User Permission", {"user": user.name}))
+
     return {
-        "name": user.name,
-        "first_name": user.first_name,
-        "middle_name": user.middle_name,
-        "last_name": user.last_name,
-        "full_name": user.full_name,
-        "username": user.username,
-        "email": user.email,
-        "time_zone": user.time_zone,
-        "user_image": user.user_image,
-        "roles": [role.role for role in user.roles],
-        "role_profile_name": user.role_profile_name,
-        "allowed_modules": allowed_modules,
-        "employee": employee.get("name") if employee else None,
-        "employee_name": employee.get("employee_name") if employee else None
+        "status": "success",
+        "message": "User info fetched successfully",
+        "data": {
+            "name": user.name,
+            "first_name": user.first_name,
+            "middle_name": user.middle_name,
+            "last_name": user.last_name,
+            "full_name": user.full_name,
+            "username": user.username,
+            "email": user.email,
+            "time_zone": user.time_zone,
+            "user_image": user.user_image,
+            "roles": [role.role for role in user.roles],
+            "role_profile_name": user.role_profile_name,
+            "allowed_modules": allowed_modules,
+            "employee": employee.get("name") if employee else None,
+            "employee_name": employee.get("employee_name") if employee else None,
+            "has_crm_permission": has_crm_permission
+        }
     }
 
+
 @frappe.whitelist()
-def get_dashboard_stats():
+def get_dashboard_stats(start_date=None, end_date=None):
     """
     Fetch CRM dashboard statistics including counts for Leads, Contacts, Deals, Events, Todo, Calls, and Meetings.
     """
@@ -223,10 +298,20 @@ def get_dashboard_stats():
         "accounts": "Accounts",
     }
 
+    date_filter = {}
+    if start_date and end_date:
+        date_filter["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+    elif start_date:
+        date_filter["creation"] = [">=", start_date]
+    elif end_date:
+        date_filter["creation"] = ["<=", f"{end_date} 23:59:59"]
+
     for key, doctype in doctypes.items():
         try:
             if frappe.has_permission(doctype, "read"):
-                stats[key] = frappe.db.count(doctype, {'owner': user})
+                filters = {'owner': user}
+                filters.update(date_filter)
+                stats[key] = frappe.db.count(doctype, filters)
             else:
                 stats[key] = 0
         except Exception:
@@ -247,10 +332,13 @@ def get_dashboard_stats():
     # Get leads by status (workflow_state)
     try:
         if frappe.has_permission("Lead", "read"):
-            stats["leads_by_status"] = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            stats["leads_by_status"] = frappe.db.sql(f"""
                 SELECT workflow_state as status, COUNT(*) as count
                 FROM `tabLead`
-                WHERE owner = %s
+                WHERE owner = %s {cond}
                 GROUP BY workflow_state
             """, (user,), as_dict=True)
         else:
@@ -261,10 +349,13 @@ def get_dashboard_stats():
     # Get deals by stage
     try:
         if frappe.has_permission("Deal", "read"):
-            stats["deals_by_stage"] = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            stats["deals_by_stage"] = frappe.db.sql(f"""
                 SELECT stage, COUNT(*) as count
                 FROM `tabDeal`
-                WHERE owner = %s
+                WHERE owner = %s {cond}
                 GROUP BY stage
             """, (user,), as_dict=True)
         else:
@@ -275,10 +366,13 @@ def get_dashboard_stats():
     # Get total deal value
     try:
         if frappe.has_permission("Deal", "read"):
-            total_value = frappe.db.sql("""
+            cond = ""
+            if start_date and end_date:
+                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
+            total_value = frappe.db.sql(f"""
                 SELECT SUM(value) as total
                 FROM `tabDeal`
-                WHERE stage NOT IN ('Closed Lost') AND owner = %s
+                WHERE stage NOT IN ('Closed Lost') AND owner = %s {cond}
             """, (user,), as_dict=True)
             stats["total_deal_value"] = total_value[0].get("total") or 0 if total_value else 0
         else:
@@ -418,6 +512,11 @@ def update_doc_status(doctype, name, workflow_state, update_data=None):
     if doctype == "Leave Application":
         frappe.publish_realtime(
             event="leave_application_updated",
+            message={"name": name, "workflow_state": workflow_state},
+        )
+    elif doctype == "Asset Request":
+        frappe.publish_realtime(
+            event="asset_request_updated",
             message={"name": name, "workflow_state": workflow_state},
         )
 
@@ -897,24 +996,18 @@ def get_hr_dashboard_data():
     try:
         # Assuming workflow states 'Pending' or 'Draft' are pending
         data["pending_leaves"] = frappe.db.count("Leave Application", {
-            "workflow_state": ["in", ["Pending", "Draft", "Open"]]
+            "workflow_state": "Pending"
         })
     except Exception:
         data["pending_leaves"] = 0
 
-    # 4. Attendance Stats (Today)
+    # 3.1 Pending Requests Count
     try:
-        data["present_today"] = frappe.db.count("Attendance", {
-            "attendance_date": today,
-            "status": "Present"
+        data["pending_request"] = frappe.db.count("Request", {
+            "workflow_state": "Pending"
         })
-        
-        total_active = data.get("total_employees", 0)
-        marked_attendance = frappe.db.count("Attendance", {"attendance_date": today})
-        data["missing_attendance"] = max(0, total_active - marked_attendance)
     except Exception:
-        data["present_today"] = 0
-        data["missing_attendance"] = 0
+        data["pending_request"] = 0
 
     # 5. Today's Leaves
     try:
@@ -942,24 +1035,29 @@ def get_hr_dashboard_data():
     except Exception:
         data["todays_birthdays"] = []
 
-    # 7. Holidays (Current Month)
+    # 8. Pending Leave Applications List
     try:
-        first_day = frappe.utils.get_first_day(today)
-        last_day = frappe.utils.get_last_day(today)
-        
-        holiday_list = frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
-            
-        if holiday_list:
-            data["holidays"] = frappe.db.sql("""
-                SELECT holiday_date as date, description
-                FROM `tabHoliday`
-                WHERE parent = %s
-                AND holiday_date BETWEEN %s AND %s
-            """, (holiday_list, first_day, last_day), as_dict=True)
-        else:
-            data["holidays"] = []
+        data["pending_leaves_list"] = frappe.get_all(
+            "Leave Application",
+            filters={"workflow_state": "Pending"},
+            fields=["name", "employee", "employee_name", "leave_type", "from_date", "to_date", "total_days"],
+            order_by="creation desc",
+            limit=10
+        )
     except Exception:
-        data["holidays"] = []
+        data["pending_leaves_list"] = []
+
+    # 9. Pending Requests List
+    try:
+        data["pending_requests_list"] = frappe.get_all(
+            "Request",
+            filters={"workflow_state": "Pending"},
+            fields=["name", "employee_id", "employee_name", "subject", "creation"],
+            order_by="creation desc",
+            limit=10
+        )
+    except Exception:
+        data["pending_requests_list"] = []
 
     return data
 
@@ -1049,7 +1147,7 @@ def convert_estimation_to_invoice(estimation):
 
 
 @frappe.whitelist()
-def get_sales_dashboard_data():
+def get_sales_dashboard_data(start_date=None, end_date=None):
     """
     Fetch Sales dashboard statistics and data.
     """
@@ -1060,7 +1158,15 @@ def get_sales_dashboard_data():
 
     try:
         # 1. Summary Metrics from Invoices
-        invoices = frappe.get_all("Invoice", fields=[
+        invoice_filters = {}
+        if start_date and end_date:
+            invoice_filters["invoice_date"] = ["between", [start_date, end_date]]
+        elif start_date:
+            invoice_filters["invoice_date"] = [">=", start_date]
+        elif end_date:
+            invoice_filters["invoice_date"] = ["<=", end_date]
+
+        invoices = frappe.get_all("Invoice", filters=invoice_filters, fields=[
             "grand_total", "total_amount", "overall_discount",
             "total_qty", "invoice_date", "balance_amount", "due_date",
             "client_name", "billing_name"
@@ -1081,21 +1187,35 @@ def get_sales_dashboard_data():
         data["ytd_sales"] = sum(frappe.utils.flt(inv.grand_total) for inv in invoices if inv.invoice_date >= frappe.utils.getdate(first_day_year))
 
         # 2. Pipeline from Deals
-        deals = frappe.get_all("Deal", fields=["value", "stage"])
+        deal_filters = {}
+        if start_date and end_date:
+            deal_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+        elif start_date:
+            deal_filters["creation"] = [">=", start_date]
+        elif end_date:
+            deal_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+            
+        deals = frappe.get_all("Deal", filters=deal_filters, fields=["value", "stage"])
         data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
 
         # 3. Top Customers
-        data["top_customers_by_revenue"] = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+            
+        data["top_customers_by_revenue"] = frappe.db.sql(f"""
             SELECT client_name, billing_name, SUM(grand_total) as revenue, COUNT(name) as order_count
             FROM `tabInvoice`
+            {cond}
             GROUP BY client_name
             ORDER BY revenue DESC
             LIMIT 5
         """, as_dict=True)
 
-        data["most_repeated_customers"] = frappe.db.sql("""
+        data["most_repeated_customers"] = frappe.db.sql(f"""
             SELECT client_name, billing_name, COUNT(name) as order_count, SUM(grand_total) as total_spent
             FROM `tabInvoice`
+            {cond}
             GROUP BY client_name
             ORDER BY order_count DESC
             LIMIT 5
@@ -1103,10 +1223,11 @@ def get_sales_dashboard_data():
 
         # 4. Overdue / Pending Orders
         data["overdue_orders"] = frappe.get_all("Invoice",
-            filters={
-                "balance_amount": [">", 0],
-                "due_date": ["<", today]
-            },
+            filters=[
+                ["balance_amount", ">", 0],
+                ["due_date", "<", today],
+                ["due_date", "is", "set"]
+            ],
             fields=["name", "billing_name", "due_date", "balance_amount", "grand_total"],
             order_by="due_date asc",
             limit=5
@@ -1164,10 +1285,10 @@ def update_my_password(old_password, new_password):
     user = frappe.session.user
 
     if not old_password or not new_password:
-        frappe.throw(_("Old password and new password are required."), frappe.ValidationError)
+        return {"status": "failed", "message": "Old password and new password are required."}
 
     if old_password == new_password:
-        frappe.throw(_("New password must be different from the old password."), frappe.ValidationError)
+        return {"status": "failed", "message": "New password must be different from the old password."}
 
     # Verify old password
     try:
@@ -1179,7 +1300,27 @@ def update_my_password(old_password, new_password):
     frappe.utils.password.update_password(user, new_password)
     frappe.db.commit()
 
-    return {"status": "success", "message": "Password updated successfully"}
+    return {
+        "status": "success", 
+        "message": "Password updated successfully",
+        "data": {
+            "new-password": new_password,
+        }
+    }
+
+@frappe.whitelist(allow_guest=True)
+def mobile_logout():
+    """
+    Logout API for Mobile / App.
+    Ensures a clean response without extra Frappe fields.
+    """
+    frappe.local.login_manager.logout()
+    
+    # Prevent Frappe from appending home_page and full_name to the root of the API response
+    frappe.local.response.pop('home_page', None)
+    frappe.local.response.pop('full_name', None)
+    
+    return {"status": "success", "message": "Logged out successfully"}
 
 
 @frappe.whitelist()
@@ -1290,7 +1431,62 @@ def upload_profile_image():
 
 
 @frappe.whitelist()
-def get_financial_totals():
+def upload_employee_image():
+    """
+    Upload and update profile image for the employee linked to the current user.
+    Also automatically updates the User record via the Employee on_update hook.
+    """
+    user_email = frappe.session.user
+
+    if user_email == "Guest":
+        return {"status": "failed", "message": "Please login to upload profile image"}
+
+    try:
+        # Get Employee ID linked to this user
+        employee_id = frappe.db.get_value("Employee", {"user": user_email}, "name")
+        if not employee_id:
+            return {"status": "failed", "message": "No Employee record found for current user"}
+
+        # 'file' is the key in FormData
+        file = frappe.request.files.get("file")
+        if not file:
+             return {"status": "failed", "message": "No file uploaded"}
+
+        from frappe.utils.file_manager import save_file
+
+        # Save the file and attach to Employee record
+        fname = file.filename
+        content = file.stream.read()
+
+        saved_file = save_file(
+            fname,
+            content,
+            "Employee",
+            employee_id,
+            decode=False,
+            is_private=0,
+            df="profile_picture"
+        )
+
+        # Update employee record
+        # This will trigger the 'on_update' hook in employee.py which syncs to the User record
+        employee_doc = frappe.get_doc("Employee", employee_id)
+        employee_doc.profile_picture = saved_file.file_url
+        employee_doc.save(ignore_permissions=True)
+
+        return {
+            "status": "success",
+            "message": "Employee profile image updated and synced to User",
+            "file_url": saved_file.file_url
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error uploading employee image: {str(e)}")
+        return {"status": "failed", "message": str(e)}
+
+
+@frappe.whitelist()
+def get_financial_totals(start_date=None, end_date=None):
     """
     Fetch financial totals for Invoices, Estimations, Purchases, and Expenses.
     Includes total amount, count, and 7-day trend chart data.
@@ -1306,9 +1502,13 @@ def get_financial_totals():
 
     # 1. Invoices
     try:
-        invoices_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+        invoices_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabInvoice`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of invoices created each day)
@@ -1333,9 +1533,13 @@ def get_financial_totals():
 
     # 2. Estimations
     try:
-        estimations_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(estimate_date) BETWEEN '{start_date}' AND '{end_date}'"
+        estimations_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabEstimation`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of estimations created each day)
@@ -1360,9 +1564,13 @@ def get_financial_totals():
 
     # 3. Purchases
     try:
-        purchases_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(purchase_date) BETWEEN '{start_date}' AND '{end_date}'"
+        purchases_total = frappe.db.sql(f"""
             SELECT SUM(grand_total) as total, COUNT(*) as count
             FROM `tabPurchase`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of purchases created each day)
@@ -1387,9 +1595,13 @@ def get_financial_totals():
 
     # 4. Expenses
     try:
-        expenses_total = frappe.db.sql("""
+        cond = ""
+        if start_date and end_date:
+            cond = f"WHERE DATE(date) BETWEEN '{start_date}' AND '{end_date}'"
+        expenses_total = frappe.db.sql(f"""
             SELECT SUM(total) as total, COUNT(*) as count
             FROM `tabExpenses`
+            {cond}
         """, as_dict=True)[0]
 
         # Chart data for last 7 days (count of expenses created each day)
@@ -1448,7 +1660,7 @@ def get_crm_expense_tracker_stats(start_date=None, end_date=None):
     return stats
 
 @frappe.whitelist()
-def apply_workflow_action(doctype, name, action, comment=None, payment_details=None):
+def apply_workflow_action(doctype, name, action, comment=None, payment_details=None, update_data=None):
     """
     Apply a workflow action to a document.
     """
@@ -1485,10 +1697,16 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
         if "paid_by" in pd:
             doc.paid_by = pd.get("paid_by")
         
-    # Determine paid status based on action
-    if action == "Pay":
-         doc.paid = 1
-         
+    # Handle optional update_data
+    if update_data:
+        import json
+        if isinstance(update_data, str):
+            ud = json.loads(update_data)
+        else:
+            ud = update_data
+        doc.update(ud)
+        doc.save(ignore_permissions=True) # Save updates before advancing workflow
+        
     apply_workflow(doc, action)
     
     # Reload doc to ensure we get the latest state including paid field
@@ -1517,6 +1735,36 @@ def apply_workflow_action(doctype, name, action, comment=None, payment_details=N
         )
 
     return {"status": "success", "message": f"Action {action} applied successfully"}
+
+
+def _get_attendance_status(hours, p_threshold, h_threshold):
+    """Internal helper to categorize status based on hours for Monthly Overview."""
+    hours = float(hours or 0)
+    p_threshold = float(p_threshold or 5.0)
+    h_threshold = float(h_threshold or 3.0)
+    
+    if hours >= p_threshold:
+        return "Present"
+    elif hours >= h_threshold:
+        return "Half Day"
+    else:
+        return "Absent"
+
+@frappe.whitelist()
+def check_leave_overlap(employee, from_date, to_date, exclude_doc=None):
+    """
+    Explicitly check for overlapping approved leaves.
+    Used by the frontend before applying workflow actions.
+    """
+    from company.company.api import has_approved_leave
+    
+    if has_approved_leave(employee, from_date, to_date, exclude_doc=exclude_doc):
+        return {
+            "overlap": True,
+            "message": f"Conflict Detected: Employee {employee} already has an approved leave overlapping this period."
+        }
+    
+    return {"overlap": False}
 
 @frappe.whitelist()
 def get_employee_dashboard_data(attendance_range="This Month"):
@@ -1570,43 +1818,74 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     # 1. Last 7 Days Attendance with Check-in/Out Times
     try:
         seven_days_ago = frappe.utils.add_days(today, -6)  # Include today
+
+        # Get Source Setting
+        settings = frappe.get_doc("HRMS Settings")
+        source = settings.get("weekly_chart_source") or "Attendance"
+        p_threshold = settings.get("present_threshold") or 5.0
+        h_threshold = settings.get("half_day_threshold") or 3.0
         
-        # Get attendance records for last 7 days
-        attendance_records = frappe.db.sql("""
-            SELECT 
-                attendance_date as date,
-                status,
-                in_time,
-                out_time,
-                working_hours_decimal as working_hours
-            FROM `tabAttendance`
-            WHERE employee = %s
-            AND attendance_date >= %s
-            AND attendance_date <= %s
-            ORDER BY attendance_date DESC
-        """, (employee, seven_days_ago, today), as_dict=True)
-        
-        # Helper function to convert timedelta to time string
-        def timedelta_to_time_str(td):
-            if not td:
-                return None
-            total_seconds = int(td.total_seconds())
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        
-        # Create a map of dates with attendance
         attendance_map = {}
-        for record in attendance_records:
-            # Use frappe.utils.get_date_str to ensure consistent YYYY-MM-DD format
-            date_str = frappe.utils.get_date_str(record.date)
-            attendance_map[date_str] = {
-                "status": record.status,
-                "in_time": timedelta_to_time_str(record.in_time),
-                "out_time": timedelta_to_time_str(record.out_time),
-                "working_hours": record.working_hours or 0
-            }
+
+        if source == "Daily Log":
+            # Get Session records for last 7 days
+            session_records = frappe.db.sql("""
+                SELECT 
+                    login_date as date,
+                    status,
+                    login_time,
+                    logout_time,
+                    total_work_hours as working_hours
+                FROM `tabEmployee Session`
+                WHERE employee = %s
+                AND login_date >= %s
+                AND login_date <= %s
+                ORDER BY login_date DESC
+            """, (employee, seven_days_ago, today), as_dict=True)
+
+            for record in session_records:
+                date_str = frappe.utils.get_date_str(record.date)
+                # For Daily Log, we must calculate status dynamically using thresholds
+                attendance_map[date_str] = {
+                    "status": _get_attendance_status(record.working_hours, p_threshold, h_threshold),
+                    "in_time": record.login_time.strftime("%H:%M:%S") if record.login_time else None,
+                    "out_time": record.logout_time.strftime("%H:%M:%S") if record.logout_time else None,
+                    "working_hours": record.working_hours or 0
+                }
+        else:
+            # Get attendance records for last 7 days
+            attendance_records = frappe.db.sql("""
+                SELECT 
+                    attendance_date as date,
+                    status,
+                    in_time,
+                    out_time,
+                    working_hours_decimal as working_hours
+                FROM `tabAttendance`
+                WHERE employee = %s
+                AND attendance_date >= %s
+                AND attendance_date <= %s
+                ORDER BY attendance_date DESC
+            """, (employee, seven_days_ago, today), as_dict=True)
+            
+            # Helper function to convert timedelta to time string
+            def timedelta_to_time_str(td):
+                if not td:
+                    return None
+                total_seconds = int(td.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            
+            for record in attendance_records:
+                date_str = frappe.utils.get_date_str(record.date)
+                attendance_map[date_str] = {
+                    "status": record.status,
+                    "in_time": timedelta_to_time_str(record.in_time),
+                    "out_time": timedelta_to_time_str(record.out_time),
+                    "working_hours": record.working_hours or 0
+                }
         
         # Get holiday records for last 7 days using get_all (safer than get_list)
         holiday_records = frappe.get_all(
@@ -1664,6 +1943,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
             weekly_attendance.append(day_data)
         
         data["weekly_attendance"] = weekly_attendance
+        data["weekly_chart_source"] = source
     except Exception as e:
         import traceback
         frappe.log_error(f"Error fetching weekly attendance:\n{traceback.format_exc()}", "Dashboard Error")
@@ -1742,7 +2022,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     # -------------------- ATTENDANCE DEBUG --------------------
     try:
         total_days = data.get("total_days_in_period", 1)
-
+        data["hide_missing"] = True if source == "Daily Log" else False
 
         # Show raw attendance rows
         raw_attendance = frappe.db.sql("""
@@ -1751,17 +2031,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
             WHERE employee = %s
             AND attendance_date BETWEEN %s AND %s
             ORDER BY attendance_date
-        """, (employee, start_date, end_date), as_dict=True)
-
-
-        attendance_breakdown = frappe.db.sql("""
-            SELECT 
-                status,
-                COUNT(*) as count
-            FROM `tabAttendance`
-            WHERE employee = %s
-            AND attendance_date BETWEEN %s AND %s
-            GROUP BY status
         """, (employee, start_date, end_date), as_dict=True)
 
 
@@ -1776,17 +2045,40 @@ def get_employee_dashboard_data(attendance_range="This Month"):
             "calendar_total": total_days
         }
 
-        for record in attendance_breakdown:
-            status_val = record.get("status")
-
-            if status_val:
-                status_key = status_val.lower().replace(" ", "_")
-
-                if status_key == "leave":
-                    status_key = "on_leave"
-
+        # Dynamic Breakdown Calculation based on source
+        if source == "Daily Log":
+            attendance_records = frappe.db.sql("""
+                SELECT total_work_hours as working_hours
+                FROM `tabEmployee Session`
+                WHERE employee = %s
+                AND login_date BETWEEN %s AND %s
+            """, (employee, start_date, end_date), as_dict=True)
+            
+            for record in attendance_records:
+                status = _get_attendance_status(record.working_hours, p_threshold, h_threshold)
+                status_key = status.lower().replace(" ", "_")
                 if status_key in breakdown:
-                    breakdown[status_key] = int(record.get("count") or 0)
+                    breakdown[status_key] += 1
+        else:
+            # For Attendance, we use the pre-calculated status via SQL grouping (original logic)
+            attendance_breakdown = frappe.db.sql("""
+                SELECT 
+                    status,
+                    COUNT(*) as count
+                FROM `tabAttendance`
+                WHERE employee = %s
+                AND attendance_date BETWEEN %s AND %s
+                GROUP BY status
+            """, (employee, start_date, end_date), as_dict=True)
+
+            for record in attendance_breakdown:
+                status_val = record.get("status")
+                if status_val:
+                    status_key = status_val.lower().replace(" ", "_").replace("-", "_")
+                    if status_key == "leave":
+                        status_key = "on_leave"
+                    if status_key in breakdown:
+                        breakdown[status_key] = int(record.get("count") or 0)
 
         workingDays = total_days - breakdown["holiday"]
         breakdown["total_days"] = workingDays
@@ -1973,7 +2265,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         if company:
             holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
         if not holiday_list:
-            holiday_list = frappe.db.get_value("Holiday List", {"is_default": 1}, "name")
+            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
         
         holiday_map = {}
         if holiday_list:
@@ -2020,213 +2312,37 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     return data
 
 @frappe.whitelist()
-def preview_salary_slip(employee, start_date, end_date):
+def get_personality_dashboard_data(employee=None):
     """
-    Preview Salary Slip calculations for a specific employee and period.
-    Returns a dictionary with calculated values without creating a document.
+    Fetch personality dashboard data for the specified employee or the logged-in employee.
+    Sends the current total score, the last 5 evaluation traits,
+    and a tallied list of improvement suggestions.
     """
-    from frappe.utils import getdate, flt
-    from datetime import timedelta
-    
-    start_date = getdate(start_date)
-    end_date = getdate(end_date)
-    
-    # 1. Fetch Employee Details
-    emp = frappe.get_doc("Employee", employee)
-    
-    # 2. Fetch Holidays
-    year = start_date.year
-    month = start_date.month
-    
-    # Helper logic for get_holiday_dates_for_month (inlined for independence)
-    holiday_list = frappe.get_all("Holiday List",
-        filters={"year": year, "month_year": month},
-        fields=["name"]
-    )
-    
-    holiday_dates = []
-    if holiday_list:
-        holiday_doc = frappe.get_doc("Holiday List", holiday_list[0].name)
-        for row in holiday_doc.holidays:
-            if not row.is_working_day:
-                holiday_dates.append(row.holiday_date)
+    if employee:
+        employee_doc = frappe.db.get_value("Employee", employee, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
+    else:
+        user = frappe.session.user
+        employee_doc = frappe.db.get_value("Employee", {"user": user}, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
 
-    # 3. Fetch Attendance
-    attendance_records = frappe.get_all(
-        "Attendance",
-        filters={
-            "employee": emp.name,
-            "attendance_date": ["between", [start_date, end_date]],
-            "docstatus": ["in", [0, 1]]
-        },
-        fields=["status", "leave_type", "attendance_date"]
-    )
-
-    # 4. Calculate Days
-    total_days = (end_date - start_date).days + 1
-    present_days = 0
-    absent_days = 0
-    paid_leave_days = 0
-    total_leave_days = 0
-
-    for i in range(total_days):
-        single_day = start_date + timedelta(days=i)
-        single_day_date = single_day  # keeping as date object
-        
-        is_holiday = single_day_date in holiday_dates
-        record = next((r for r in attendance_records if getdate(r["attendance_date"]) == single_day_date), None)
-
-        if is_holiday:
-            present_days += 1
-            continue
-
-        if record:
-            status = record.get("status")
-            if status == "Present":
-                present_days += 1
-            elif status == "Half Day":
-                total_leave_days += 0.5
-                leave_type = record.get("leave_type")
-
-                if leave_type == "Unpaid Leave":
-                    absent_days += 0.5
-                else:
-                    present_days += 0.5
-                    paid_leave_days += 0.5
-            elif status == "Absent":
-                absent_days += 1
-                total_leave_days += 1
-            elif status in ["On Leave", "Leave"]:
-                leave_type = record.get("leave_type")
-                if leave_type:
-                    # Check Leave Allocation
-                    allocations = frappe.get_all(
-                        "Leave Allocation",
-                        filters={
-                            "employee": emp.name,
-                            "leave_type": leave_type,
-                            "status": "Approved",
-                            "from_date": ["<=", single_day_date],
-                            "to_date": [">=", single_day_date]
-                        },
-                        fields=["name", "total_leaves_allocated", "total_leaves_taken"]
-                    )
-                    
-                    allocation_found = None
-                    for a in allocations:
-                        if flt(a.total_leaves_taken) < flt(a.total_leaves_allocated):
-                            allocation_found = a
-                            break
-
-                    if allocation_found:
-                        paid_leave_days += 1
-                        present_days += 1
-                        total_leave_days += 1
-                    else:
-                        # Check approved Leave Application
-                        approved_leave = frappe.db.exists("Leave Application", {
-                            "employee": emp.name,
-                            "leave_type": leave_type,
-                            "workflow_state": "Approved",
-                            "from_date": ["<=", single_day_date],
-                            "to_date": [">=", single_day_date]
-                        })
-                        if approved_leave:
-                            paid_leave_days += 1
-                            present_days += 1
-                            total_leave_days += 1
-                        else:
-                            absent_days += 1
-                            total_leave_days += 1
-        else:
-            absent_days += 1
-            total_leave_days += 1
-
-    # 5. Calculate Earnings & Deductions
-    working_days = total_days
-    unpaid_leave_days = total_leave_days - paid_leave_days
-
-    # Earnings
-    gross_pay = (
-        flt(emp.basic_pay)
-        + flt(emp.hra)
-        + flt(emp.conveyance_allowances)
-        + flt(emp.medical_allowances)
-        + flt(emp.other_allowances)
-    )
-
-    # Deductions
-    base_deductions = (
-        flt(emp.pf)
-        + flt(emp.health_insurance)
-        + flt(emp.professional_tax)
-        + flt(emp.loan_recovery)
-    )
-
-    # Prorate based on attendance
-    grand_gross_pay = gross_pay * ((working_days - unpaid_leave_days) / working_days) if working_days else gross_pay
-    grand_net_pay = grand_gross_pay - base_deductions
-
-    lop_amount = gross_pay * (unpaid_leave_days / working_days) if working_days else 0
-    total_deductions = base_deductions + lop_amount
-
-    return {
-        "employee": emp.name,
-        "employee_name": emp.employee_name,
-        "designation": emp.designation,
-        "department": emp.department,
-        "date_of_joining": emp.date_of_joining,
-        "bank_name": emp.bank_name,
-        "email": emp.email,
-        "personal_email": emp.personal_email,
-        "pay_period_start": start_date,
-        "pay_period_end": end_date,
-        "no_of_leave": total_leave_days,
-        "no_of_paid_leave": paid_leave_days,
-        "gross_pay": gross_pay,
-        "grand_gross_pay": grand_gross_pay,
-        "net_pay": grand_gross_pay - base_deductions,
-        "grand_net_pay": grand_net_pay,
-        "total_deduction": total_deductions,
-        "total_working_days": working_days,
-        "lop": lop_amount,
-        "lop_days": unpaid_leave_days,
-        "basic_pay": emp.basic_pay,
-        "hra": emp.hra,
-        "conveyance_allowances": emp.conveyance_allowances,
-        "medical_allowances": emp.medical_allowances,
-        "other_allowances": emp.other_allowances,
-        "pf": emp.pf,
-        "health_insurance": emp.health_insurance,
-        "professional_tax": emp.professional_tax,
-        "loan_recovery": emp.loan_recovery
-    }
-
-@frappe.whitelist()
-def get_personality_dashboard_data():
-    """
-    Fetch personality dashboard data for the logged-in employee.
-    Sends the current total score and the last 5 unique traits evaluated.
-    """
-    user = frappe.session.user
-    employee = frappe.db.get_value("Employee", {"user": user}, ["name", "evaluation_score", "evaluation_status"], as_dict=True)
-
-    if not employee:
+    if not employee_doc:
         return {
             "totalScore": 100,
             "status": "Excellent",
             "traits": []
         }
 
-    recent_evals = frappe.db.sql("""
-        SELECT trait, score_change, creation
+    employee = employee_doc
+
+    # Fetch last 20 evaluations to provide enough history for tallying trends
+    all_recent_evals = frappe.db.sql("""
+        SELECT trait, score_change, how_to_improve, creation
         FROM `tabEmployee Evaluation`
-        WHERE employee = %s
+        WHERE employee = %s AND docstatus = 1
         ORDER BY creation DESC
-        LIMIT 5
+        LIMIT 20
     """, (employee.name,), as_dict=True)
 
-    if not recent_evals:
+    if not all_recent_evals:
         return {
             "totalScore": 100,
             "status": "Excellent",
@@ -2234,42 +2350,72 @@ def get_personality_dashboard_data():
             "traits": []
         }
 
+    # 1. Prepare traits list (Last 5 evaluations only, as per original logic)
     trait_scores = []
-
-    for ev in recent_evals:
+    for ev in all_recent_evals[:5]:
         trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name")
         trait_scores.append({
             "trait": trait_name or ev.trait,
             "score": ev.score_change or 0
         })
 
-    # Get timestamp of the most recent evaluation for this employee
-    last_eval = frappe.db.get_value(
-        "Employee Evaluation",
-        {"employee": employee.name},
-        "creation",
-        order_by="creation desc"
-    )
+    # 2. Calculate tallies for how_to_improve (Based on last 20 evaluations)
+    trait_tally = {}
+    for ev in all_recent_evals:
+        t_id = ev.trait
+        score = ev.score_change or 0
+        if t_id not in trait_tally:
+            # The first entry for each trait is the latest one due to 'ORDER BY creation DESC'
+            trait_tally[t_id] = {
+                "score_sum": 0,
+                "latest_advice": None,
+                "date": ev.get("evaluation_date") or ev.creation
+            }
+        
+        trait_tally[t_id]["score_sum"] += score
+        
+        # Capture the most recent specific advice for this trait from a NEGATIVE evaluation
+        if not trait_tally[t_id]["latest_advice"] and score < 0 and ev.how_to_improve:
+            trait_tally[t_id]["latest_advice"] = ev.how_to_improve
+            trait_tally[t_id]["date"] = ev.get("evaluation_date") or ev.creation
 
-    # Calculate current total score based on ALL evaluations (starting from 100)
-    total_change = frappe.db.sql("""
-        SELECT SUM(score_change)
-        FROM `tabEmployee Evaluation`
-        WHERE employee = %s
-    """, (employee.name,))[0][0] or 0
-    calculated_total = 100 + total_change
+    how_to_improve_list = []
+    from frappe.utils import formatdate
+    for t_id, counts in trait_tally.items():
+        # A trait needs improvement if the net balance is negative
+        if counts["score_sum"] < 0:
+            advice = counts["latest_advice"]
+            trait_name = frappe.db.get_value("Evaluation Trait", t_id, "trait_name") or t_id
+            
+            if not advice:
+                # Fallback to master trait advice
+                advice = frappe.db.get_value("Evaluation Trait", t_id, "how_to_improve")
+            
+            if advice:
+                date_str = formatdate(counts["date"], "dd-mm-yyyy") if counts["date"] else ""
+                formatted_advice = f"{advice} - {trait_name} ({date_str})" if date_str else f"{advice} - {trait_name}"
+                
+                if formatted_advice not in how_to_improve_list:
+                    how_to_improve_list.append(formatted_advice)
+
+    # 3. Final data preparation
+    last_eval_time = all_recent_evals[0].creation
+    
+    calculated_total = employee.evaluation_score if employee.evaluation_score is not None else 100
     calculated_total = max(0, min(100, calculated_total))
 
-    # Determine status based on calculated score
-    if calculated_total >= 90: status = "Excellent"
-    elif calculated_total >= 75: status = "Good"
-    elif calculated_total >= 60: status = "Average"
-    else: status = "Needs Improvement"
+    status = employee.evaluation_status or "Excellent"
+    if not status or status == "":
+        if calculated_total >= 90: status = "Excellent"
+        elif calculated_total >= 75: status = "Good"
+        elif calculated_total >= 60: status = "Average"
+        else: status = "Needs Improvement"
 
     return {
         "totalScore": calculated_total,
         "status": status,
-        "lastUpdated": str(last_eval) if last_eval else None,
+        "howToImprove": how_to_improve_list[:5], # Return top 5 unique improvements
+        "lastUpdated": str(last_eval_time),
         "traits": trait_scores
     }
 
@@ -2300,12 +2446,25 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
         start_date = today_dt - timedelta(days=6)
         end_date = today_dt
 
-    # 2. Get Settings and Baseline
+    # 3. Get Settings, Baseline and Holiday dates for the range
     settings = frappe.get_doc("HRMS Settings")
     source = settings.get("weekly_chart_source") or "Attendance"
     total_active_employees = frappe.db.count("Employee", {"status": "Active"})
 
-    # 3. Optimized Bulk Fetch
+    all_holidays = set()
+    # Robust holiday fetching logic
+    try:
+        h_records = frappe.db.sql("""
+            SELECT DISTINCT holiday_date as date
+            FROM `tabHolidays`
+            WHERE holiday_date BETWEEN %s AND %s
+            AND is_working_day = 0
+        """, (start_date, end_date), as_dict=True)
+        all_holidays = {str(h.date) for h in h_records}
+    except Exception:
+        all_holidays = set()
+
+    # 4. Optimized Bulk Fetch
     present_counts_map = {}
     
     # We only fetch if start_date exists and range is reasonable
@@ -2330,7 +2489,7 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
             """, (start_date, end_date), as_dict=True)
             present_counts_map = {str(d.login_date): d.count for d in daily_log_data}
 
-    # 4. Generate Result Array
+    # 5. Generate Result Array
     result = []
     num_days = (end_date - start_date).days + 1
     
@@ -2344,6 +2503,10 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
         curr_date_str = curr_date.strftime('%Y-%m-%d')
         day_name = curr_date.strftime('%a')
         
+        # Skip holidays and non-working days
+        if curr_date_str in all_holidays:
+            continue
+
         present_count = present_counts_map.get(curr_date_str, 0)
         absent_count = max(0, total_active_employees - present_count)
         
@@ -2355,3 +2518,768 @@ def get_weekly_present_absent_data(filter_type=None, from_date=None, to_date=Non
         })
         
     return result
+
+@frappe.whitelist()
+def get_livekit_token(room_name):
+    """Generates an Access Token for a LiveKit room."""
+    user = frappe.session.user
+    
+    # Read credentials from HRMS Settings
+    try:
+        settings = frappe.get_doc("HRMS Settings")
+        url = settings.livekit_url
+        api_key = settings.livekit_api_key
+        api_secret = settings.get_password("livekit_api_secret")
+    except Exception:
+        frappe.throw("Failed to read LiveKit settings from HRMS Settings")
+    
+    if not api_key or not api_secret:
+        frappe.throw("LiveKit API Key or Secret not configured in HRMS Settings")
+
+    # Define grants (explicitly including publish/subscribe)
+    grant = api.VideoGrants(
+        room_join=True,
+        room=room_name,
+        can_publish=True,
+        can_subscribe=True,
+        can_publish_data=True
+    )
+    
+    # Create clean identity (remove spaces/special chars if any)
+    safe_identity = "".join(c for c in user if c.isalnum() or c in "._-")
+    
+    # Create AccessToken
+    token = api.AccessToken(api_key, api_secret) \
+        .with_grants(grant) \
+        .with_identity(safe_identity) \
+        .with_name(frappe.db.get_value("User", user, "full_name") or user)
+        
+    return {
+        "token": token.to_jwt(),
+        "server_url": url
+    }
+
+
+@frappe.whitelist()
+def get_open_jobs(search=None, filters=None, limit_start=0, limit_page_length=10, order_by="posted_on desc"):
+    """Fetch active job openings for employees to refer candidates."""
+    frappe_filters = {"status": "Open"}
+    or_filters = []
+    
+    if search:
+        or_filters = [
+            ["job_title", "like", f"%{search}%"],
+            ["designation", "like", f"%{search}%"],
+            ["name", "like", f"%{search}%"]
+        ]
+        
+    if filters:
+        import json
+        if isinstance(filters, str):
+            filters = json.loads(filters)
+        if filters.get("location") and filters["location"] != "all":
+            frappe_filters["location"] = filters["location"]
+            
+    return frappe.get_all(
+        "Job Opening",
+        filters=frappe_filters,
+        or_filters=or_filters,
+        fields=[
+            "name", "job_title", "designation", "experience", "location", 
+            "small_description", "description", "posted_on", "closes_on", 
+            "status", "shift", "lower_range", "upper_range", "salary_per", "skills_required"
+        ],
+        limit_start=limit_start,
+        limit_page_length=limit_page_length,
+        order_by=order_by
+    )
+
+
+
+@frappe.whitelist()
+def get_my_referrals(search=None, filters=None, limit_start=0, limit_page_length=10, order_by="creation desc"):
+    """Fetch referrals submitted by the currently logged-in employee."""
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, "name")
+    
+    if not employee:
+        return []
+        
+    frappe_filters = {"referrer": employee}
+    or_filters = []
+    
+    if search:
+        or_filters = [
+            ["candidate_name", "like", f"%{search}%"],
+            ["candidate_email", "like", f"%{search}%"],
+            ["job_opening", "like", f"%{search}%"]
+        ]
+        
+    if filters:
+        import json
+        if isinstance(filters, str):
+            filters = json.loads(filters)
+        if filters.get("status") and filters["status"] != "all":
+            frappe_filters["status"] = filters["status"]
+        if filters.get("job_opening") and filters["job_opening"] != "all":
+            frappe_filters["job_opening"] = filters["job_opening"]
+
+    return frappe.get_all(
+        "Employee Referral",
+        filters=frappe_filters,
+        or_filters=or_filters,
+        fields=["name", "candidate_name", "candidate_email", "job_opening", "status", "creation", "job_applicant"],
+        order_by=order_by,
+        limit_start=limit_start,
+        limit_page_length=limit_page_length
+    )
+
+
+@frappe.whitelist()
+def submit_referral(candidate_name, candidate_email, job_opening, resume, candidate_phone=None, relationship=None, notes=None):
+    """Submit a new candidate referral."""
+    user = frappe.session.user
+    employee = frappe.db.get_value("Employee", {"user": user}, "name")
+    
+    if not employee:
+        frappe.throw(_("Employee record not found for the current user."))
+        
+    doc = frappe.get_doc({
+        "doctype": "Employee Referral",
+        "referrer": employee,
+        "job_opening": job_opening,
+        "candidate_name": candidate_name,
+        "candidate_email": candidate_email,
+        "candidate_phone": candidate_phone,
+        "resume": resume,
+        "relationship": relationship,
+        "notes": notes,
+        "status": "Pending"
+    })
+    
+    doc.insert(ignore_permissions=True)
+    return doc.as_dict()
+
+@frappe.whitelist()
+def handle_create_job_applicant(referral_name):
+    """API wrapper to call create_job_applicant method on Employee Referral doc."""
+    doc = frappe.get_doc("Employee Referral", referral_name)
+    return doc.create_job_applicant()
+
+# --- ASSET REQUEST APIs ---
+
+@frappe.whitelist()
+def submit_asset_request(request_type, priority, purpose, asset_category=None, asset=None, asset_name=None, asset_tag=None, employee=None, return_attachment=None):
+    # Check if current user is HR or System Manager
+    current_user = frappe.session.user
+    user_roles = frappe.get_roles(current_user)
+    is_hr = any(role in user_roles for role in ["HR Manager", "HR", "System Manager", "Administrator"])
+
+    target_employee = None
+
+    if is_hr and employee:
+        # Validate that the provided employee exists
+        if not frappe.db.exists("Employee", employee):
+            frappe.throw(_("Employee {0} not found").format(employee))
+        target_employee = employee
+    else:
+        # Default to the employee linked to the session user
+        target_employee = frappe.db.get_value("Employee", {"user": current_user}, "name")
+
+    if not target_employee:
+        frappe.throw(_("Employee profile not found for the current user. Please select an employee."))
+
+    doc = frappe.get_doc({
+        "doctype": "Asset Request",
+        "employee": target_employee,
+        "request_type": request_type,
+        "priority": priority,
+        "purpose": purpose,
+        "asset_category": asset_category,
+        "asset": asset,
+        "asset_name": asset_name,
+        "asset_tag": asset_tag,
+        "return_attachment": return_attachment
+    })
+    doc.insert(ignore_permissions=True)
+    
+    # Automatically promote to Pending Approval so it appears in HR dashboard
+    doc.workflow_state = "Pending Approval"
+    doc.status = "Pending Approval"
+    doc.save(ignore_permissions=True)
+    
+    frappe.publish_realtime(
+        event="asset_request_updated",
+        message={"name": doc.name, "workflow_state": doc.workflow_state},
+    )
+
+    frappe.db.commit()
+    return {"message": "Asset Request submitted successfully.", "name": doc.name}
+
+@frappe.whitelist()
+def get_my_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+    employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
+    if not employee:
+        return {"data": [], "total": 0}
+        
+    filters = [["Asset Request", "employee", "=", employee]]
+    if request_type and request_type != 'all':
+        filters.append(["Asset Request", "request_type", "=", request_type])
+    if status and status != 'all':
+        filters.append(["Asset Request", "status", "=", status])
+    if category:
+        filters.append(["Asset Request", "asset_category", "=", category])
+    if asset:
+        filters.append(["Asset Request", "asset", "like", f"%{asset}%"])
+    if priority:
+        filters.append(["Asset Request", "priority", "=", priority])
+    if start_date:
+        filters.append(["Asset Request", "modified", ">=", start_date])
+    if end_date:
+        filters.append(["Asset Request", "modified", "<=", end_date + " 23:59:59"])
+        
+    start = (int(page) - 1) * int(limit)
+    total = frappe.db.count("Asset Request", filters)
+    
+    requests = frappe.get_all(
+        "Asset Request",
+        filters=filters,
+        fields=["name", "request_type", "asset_category", "asset_name", "asset", "status", "priority", "creation", "modified", "purpose"],
+        order_by=sort_by,
+        limit_start=start,
+        limit_page_length=int(limit)
+    )
+
+    # Fetch and populate asset names for Return Requests if empty
+    asset_ids = [r.asset for r in requests if r.asset and not r.asset_name]
+    if asset_ids:
+        asset_map = {a.name: a.asset_name for a in frappe.get_all("Asset", filters={"name": ["in", asset_ids]}, fields=["name", "asset_name"])}
+        for r in requests:
+            if r.asset and not r.asset_name:
+                r.asset_name = asset_map.get(r.asset)
+
+    return {"data": requests, "total": total}
+
+@frappe.whitelist()
+def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+    filters = []
+    if request_type and request_type != 'all':
+        filters.append(["Asset Request", "request_type", "=", request_type])
+    if status and status != 'all':
+        filters.append(["Asset Request", "status", "=", status])
+    if category:
+        filters.append(["Asset Request", "asset_category", "=", category])
+    if asset:
+        filters.append(["Asset Request", "asset", "like", f"%{asset}%"])
+    if priority:
+        filters.append(["Asset Request", "priority", "=", priority])
+    if start_date:
+        filters.append(["Asset Request", "modified", ">=", start_date])
+    if end_date:
+        filters.append(["Asset Request", "modified", "<=", end_date + " 23:59:59"])
+        
+    start = (int(page) - 1) * int(limit)
+    total = frappe.db.count("Asset Request", filters)
+    
+    requests = frappe.get_all(
+        "Asset Request",
+        filters=filters,
+        fields=["name", "employee", "employee_name", "request_type", "asset_category", "asset_name", "asset", "status", "priority", "creation", "modified", "purpose"],
+        order_by=sort_by,
+        limit_start=start,
+        limit_page_length=int(limit)
+    )
+
+    # Fetch and populate asset names for Return Requests if empty
+    asset_ids = [r.asset for r in requests if r.asset and not r.asset_name]
+    if asset_ids:
+        asset_map = {a.name: a.asset_name for a in frappe.get_all("Asset", filters={"name": ["in", asset_ids]}, fields=["name", "asset_name"])}
+        for r in requests:
+            if r.asset and not r.asset_name:
+                r.asset_name = asset_map.get(r.asset)
+
+    return {"data": requests, "total": total}
+
+@frappe.whitelist()
+def approve_declaration(request_name, hr_remarks=None, asset_name=None, asset_tag=None, asset_category=None, purchase_date=None, purchase_cost=None):
+    from frappe.utils import nowdate
+    
+    # 1. Fetch the request
+    req = frappe.get_doc("Asset Request", request_name)
+    if req.workflow_state == "Completed":
+        return {"message": "Request is already completed."}
+        
+    # 2. Create the Asset
+    asset = frappe.get_doc({
+        "doctype": "Asset",
+        "asset_name": asset_name,
+        "asset_tag": asset_tag,
+        "category": asset_category,
+        "purchase_date": purchase_date,
+        "purchase_cost": purchase_cost,
+        "current_status": "Assigned"
+    })
+    asset.insert(ignore_permissions=True)
+    
+    # 3. Create the Assignment
+    assignment = frappe.get_doc({
+        "doctype": "Asset Assignment",
+        "asset": asset.name,
+        "assigned_to": req.employee,
+        "assigned_on": nowdate(),
+        "remarks": hr_remarks or "Generated from Asset Declaration"
+    })
+    assignment.insert(ignore_permissions=True)
+    
+    # 4. Push Request to Completed directly to bypass default on_update auto-creation
+    req.db_set("hr_remarks", hr_remarks)
+    req.db_set("asset", asset.name)
+    req.db_set("assigned_asset", asset.name)
+    req.db_set("status", "Completed")
+    req.db_set("workflow_state", "Completed")
+    
+    frappe.publish_realtime(
+        event="asset_request_updated",
+        message={"name": req.name, "workflow_state": "Completed"},
+    )
+    
+    frappe.db.commit()
+    return {"message": "Declaration approved and Asset registered successfully."}
+
+@frappe.whitelist()
+def get_available_assets_list():
+    """
+    Returns only Assets that reflect truly available status.
+    Must have current_status="Available" AND no active Asset Assignment.
+    """
+    # 1. Get all assets marked as Available
+    available_assets = frappe.get_all(
+        "Asset",
+        filters={"current_status": "Available"},
+        fields=["name", "asset_name", "asset_tag", "category"]
+    )
+    
+    # 2. Get names of assets currently assigned (no returned_on date)
+    assigned_asset_names = frappe.get_all(
+        "Asset Assignment",
+        filters={"returned_on": ["is", "not set"]},
+        pluck="asset"
+    )
+    
+    # 3. Filter out any that might be assigned but still marked Available (safeguard)
+    return [a for a in available_assets if a.name not in assigned_asset_names]
+
+@frappe.whitelist()
+def get_my_assigned_assets(employee=None):
+    """
+    Returns assets currently assigned to the given employee (where returned_on is null).
+    """
+    if not employee:
+        employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+        
+    if not employee:
+        return []
+
+    # Get active assignments for the employee
+    active_assignments = frappe.get_all(
+        "Asset Assignment",
+        filters={
+            "assigned_to": employee,
+            "returned_on": ["is", "not set"]
+        },
+        fields=["asset", "asset_name"]
+    )
+    
+    return active_assignments
+
+
+@frappe.whitelist()
+def get_hr_task_stats(project=None, department=None, from_date=None, to_date=None, employee_id=None):
+    """
+    Fetch task statistics for the HR Dashboard with optional filtering.
+    Returns counts for total, open, in-progress, completed, and on-hold tasks.
+    """
+    if not frappe.has_permission("Task Manager", "read"):
+        return {}
+
+    filters = {}
+    if project and project != 'All':
+        filters["project"] = project
+    if department and department != 'All':
+        filters["department"] = department
+    
+    if from_date and to_date:
+        filters["due_date"] = ["between", [from_date, to_date]]
+
+    tasks_list = None
+    if employee_id:
+        tasks_with_employee = frappe.get_all("Task Manager Assignee", filters={"employee": employee_id}, pluck="parent")
+        if tasks_with_employee:
+            filters["name"] = ["in", tasks_with_employee]
+            tasks_list = tasks_with_employee
+        else:
+            return {
+                "total": 0, "open": 0, "reopen": 0, "in_progress": 0, "completed": 0, "on_hold": 0, "employee_task_names": []
+            }
+
+    return {
+        "total": frappe.db.count("Task Manager", filters),
+        "open": frappe.db.count("Task Manager", {**filters, "status": "Open"}),
+        "reopen": frappe.db.count("Task Manager", {**filters, "status": "Reopened"}),
+        "in_progress": frappe.db.count("Task Manager", {**filters, "status": "In Progress"}),
+        "completed": frappe.db.count("Task Manager", {**filters, "status": "Completed"}),
+        "on_hold": frappe.db.count("Task Manager", {**filters, "status": "On Hold"}),
+        "employee_task_names": tasks_list
+    }
+
+
+@frappe.whitelist()
+def get_account_details(name):
+    account = frappe.get_doc("Accounts", name).as_dict()
+    if account.get("owner"):
+        account["owner_name"] = frappe.db.get_value("User", account["owner"], "full_name") or account["owner"]
+    return account
+
+
+
+@frappe.whitelist()
+def get_contacts_by_account(account_id, limit_start=0, limit_page_length=20):
+    """
+    Fetch contacts linked to a specific Account (company) via the Contact Company child table.
+    This is a direct child-table lookup and works reliably regardless of filter handling.
+    """
+    import json
+    limit_start = int(limit_start)
+    limit_page_length = int(limit_page_length)
+
+    # Find all Contact documents that have this account in their Contact Company child table
+    linked_contacts = frappe.get_all(
+        "Contact Company",
+        filters={"company_name": account_id, "parenttype": "Contacts"},
+        pluck="parent"
+    )
+
+    if not linked_contacts:
+        return {"contacts": [], "total": 0}
+
+    total = len(linked_contacts)
+    paged_names = linked_contacts[limit_start: limit_start + limit_page_length]
+
+    contacts = frappe.get_list(
+        "Contacts",
+        filters=[["Contacts", "name", "in", paged_names]],
+        fields=[
+            "name", "first_name", "email", "phone", "designation",
+            "source_lead", "address", "notes", "country", "state",
+            "city", "customer_type", "owner", "creation", "modified"
+        ],
+        order_by="creation desc"
+    )
+
+    # Enrich each contact with their company names
+    contact_names = [c["name"] for c in contacts]
+    child_entries = frappe.get_all(
+        "Contact Company",
+        filters={"parent": ["in", contact_names], "parenttype": "Contacts"},
+        fields=["parent", "company_name"]
+    )
+    company_ids = list(set(e["company_name"] for e in child_entries if e.get("company_name")))
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all("Accounts", filters={"name": ["in", company_ids]}, fields=["name", "account_name"])
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    company_by_contact = {}
+    for entry in child_entries:
+        parent = entry["parent"]
+        comp_id = entry["company_name"]
+        comp_name = account_map.get(comp_id, comp_id)
+        if comp_name:
+            company_by_contact.setdefault(parent, []).append(comp_name)
+
+    for c in contacts:
+        c["company_names"] = company_by_contact.get(c["name"], [])
+        c["company_name"] = ", ".join(c["company_names"])
+
+    return {"contacts": contacts, "total": total}
+
+
+def clean_contacts_or_filters(or_filters):
+    cleaned_or_filters = []
+    has_company_search = False
+    company_search_val = ""
+    for f in or_filters:
+        if isinstance(f, list) and len(f) >= 3:
+            # Field could be company_name
+            fieldname = f[1] if len(f) > 3 or (len(f) == 3 and f[0] == "Contacts") else f[0]
+            if fieldname == "company_name":
+                has_company_search = True
+                company_search_val = f[3] if len(f) > 3 else f[2]
+            else:
+                cleaned_or_filters.append(f)
+        else:
+            cleaned_or_filters.append(f)
+
+    if has_company_search and company_search_val:
+        matching_accounts = frappe.get_all("Accounts", filters={"account_name": ["like", company_search_val]}, pluck="name")
+        if matching_accounts:
+            matching_parents = frappe.get_all("Contact Company", filters={"company_name": ["in", matching_accounts]}, pluck="parent")
+            if matching_parents:
+                cleaned_or_filters.append(["Contacts", "name", "in", matching_parents])
+            else:
+                cleaned_or_filters.append(["Contacts", "name", "=", ""])
+        else:
+            cleaned_or_filters.append(["Contacts", "name", "=", ""])
+
+    return cleaned_or_filters
+
+
+@frappe.whitelist()
+def get_contact_list(filters=None, or_filters=None, limit_start=0, limit_page_length=20, order_by="creation desc"):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    if isinstance(or_filters, str):
+        or_filters = json.loads(or_filters)
+
+    if or_filters:
+        or_filters = clean_contacts_or_filters(or_filters)
+
+    # Handle company_name filter in filters (AND filter) — it's a child table field,
+    # so we resolve it manually and replace with name IN [...]
+    if filters:
+        new_filters = []
+        for f in filters:
+            if isinstance(f, list) and len(f) >= 3:
+                fieldname = f[1] if len(f) == 4 else f[0]
+                if fieldname == "company_name":
+                    company_val = f[3] if len(f) == 4 else f[2]
+                    # Lookup matching Account by name (exact)
+                    matching_account = frappe.db.get_value("Accounts", {"account_name": company_val}, "name")
+                    if matching_account:
+                        matching_parents = frappe.get_all(
+                            "Contact Company",
+                            filters={"company_name": matching_account, "parenttype": "Contacts"},
+                            pluck="parent"
+                        )
+                    else:
+                        matching_parents = []
+                    # Add as hard AND filter — contacts whose name is in matching_parents
+                    new_filters.append(["Contacts", "name", "in", matching_parents if matching_parents else [""]])
+                else:
+                    new_filters.append(f)
+            else:
+                new_filters.append(f)
+        filters = new_filters
+
+    contacts = frappe.get_list(
+        "Contacts",
+        fields=[
+            "name",
+            "first_name",
+            "email",
+            "phone",
+            "designation",
+            "source_lead",
+            "source_lead.lead_name",
+            "address",
+            "notes",
+            "country",
+            "state",
+            "city",
+            "customer_type",
+            "owner",
+            "creation",
+            "modified"
+        ],
+        filters=filters,
+        or_filters=or_filters,
+        limit_start=limit_start,
+        limit_page_length=limit_page_length,
+        order_by=order_by
+    )
+
+    if not contacts:
+        return []
+
+    # Map lead_name to source_lead.lead_name if needed
+    for c in contacts:
+        if "lead_name" in c:
+            c["source_lead.lead_name"] = c["lead_name"]
+
+    # Fetch all child table entries for these contacts
+    contact_names = [c["name"] for c in contacts]
+    child_entries = frappe.get_all(
+        "Contact Company",
+        filters={"parent": ["in", contact_names], "parenttype": "Contacts"},
+        fields=["parent", "company_name"]
+    )
+
+    # Fetch human-readable account names for these companies
+    company_ids = list(set(e["company_name"] for e in child_entries if e.get("company_name")))
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all(
+            "Accounts",
+            filters={"name": ["in", company_ids]},
+            fields=["name", "account_name"]
+        )
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    # Group by parent
+    company_by_contact = {}
+    for entry in child_entries:
+        parent = entry["parent"]
+        comp_id = entry["company_name"]
+        comp_name = account_map.get(comp_id, comp_id)
+        if comp_name:
+            if parent not in company_by_contact:
+                company_by_contact[parent] = []
+            company_by_contact[parent].append(comp_name)
+
+    # Attach to contacts
+    for c in contacts:
+        c["company_names"] = company_by_contact.get(c["name"], [])
+        c["company_name"] = ", ".join(c["company_names"])
+
+    return contacts
+
+
+@frappe.whitelist()
+def get_contact_detail(name):
+    doc = frappe.get_doc("Contacts", name)
+    doc_dict = doc.as_dict()
+
+    # Map company names to human-readable names
+    company_ids = []
+    if doc_dict.get("company_name"):
+        company_ids = [row.get("company_name") for row in doc_dict["company_name"] if row.get("company_name")]
+    
+    account_map = {}
+    if company_ids:
+        accounts = frappe.get_all(
+            "Accounts",
+            filters={"name": ["in", company_ids]},
+            fields=["name", "account_name"]
+        )
+        account_map = {a["name"]: a["account_name"] for a in accounts}
+
+    # Format company_name for simple display
+    company_names = [account_map.get(cid, cid) for cid in company_ids]
+    doc_dict["company_name_display"] = ", ".join(company_names)
+    doc_dict["company_name_list"] = company_names
+    doc_dict["company_names"] = company_ids # keep raw IDs for form state
+
+    return doc_dict
+
+
+@frappe.whitelist()
+def get_account_related_records(account_id, doctype, limit_start=0, limit_page_length=20):
+    """
+    Fetch related records for an Account.
+
+    Relationships:
+    - Deal        -> Directly linked using Deal.account
+    - Invoice     -> Linked via Contacts (Invoice.client_name)
+    - Estimation  -> Linked via Contacts (Estimation.client_name)
+    - Purchase    -> Linked via Contacts (Purchase.client_name)
+    """
+    limit_start = int(limit_start)
+    limit_page_length = int(limit_page_length)
+
+    # Configuration for each supported doctype
+    doctype_map = {
+        "Invoice": {
+            "fields": [
+                "name", "ref_no", "client_name", "customer_name",
+                "billing_name", "invoice_date", "grand_total",
+                "received_amount", "balance_amount", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Estimation": {
+            "fields": [
+                "name", "ref_no", "client_name", "customer_name",
+                "estimate_date", "grand_total", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Purchase": {
+            "fields": [
+                "name", "bill_no", "client_name", "bill_date",
+                "grand_total", "paid_amount", "balance_amount", "creation"
+            ],
+            "client_field": "client_name"
+        },
+        "Deal": {
+            "fields": [
+                "name", "deal_title", "account", "contact",
+                "stage", "value", "expected_close_date", "creation"
+            ],
+            # Deal is linked directly to Account
+            "client_field": "account"
+        }
+    }
+
+    if doctype not in doctype_map:
+        frappe.throw(f"Unsupported doctype: {doctype}")
+
+    config = doctype_map[doctype]
+
+    # ---------------------------------------------------------
+    # DEAL: Fetch directly by account (Contact is optional)
+    # ---------------------------------------------------------
+    if doctype == "Deal":
+        all_records = frappe.get_list(
+            "Deal",
+            filters={"account": account_id},
+            fields=config["fields"],
+            order_by="creation desc",
+            limit=None
+        )
+
+        total = len(all_records)
+        paged = all_records[limit_start: limit_start + limit_page_length]
+
+        return {
+            "records": paged,
+            "total": total
+        }
+
+    # ---------------------------------------------------------
+    # OTHER DOCTYPES: Fetch via linked contacts
+    # ---------------------------------------------------------
+    linked_contact_ids = frappe.get_all(
+        "Contact Company",
+        filters={
+            "company_name": account_id,
+            "parenttype": "Contacts"
+        },
+        pluck="parent"
+    )
+
+    # If no contacts are linked, there can be no related
+    # invoices/estimations/purchases.
+    if not linked_contact_ids:
+        return {
+            "records": [],
+            "total": 0
+        }
+
+    all_records = frappe.get_list(
+        doctype,
+        filters=[
+            [doctype, config["client_field"], "in", linked_contact_ids]
+        ],
+        fields=config["fields"],
+        order_by="creation desc",
+        limit=None
+    )
+
+    total = len(all_records)
+    paged = all_records[limit_start: limit_start + limit_page_length]
+
+    return {
+        "records": paged,
+        "total": total
+    }

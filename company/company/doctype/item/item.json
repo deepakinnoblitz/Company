@@ -6,8 +6,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "item_code",
   "item_name",
+  "item_code",
   "available_qty",
   "rate"
  ],
@@ -27,6 +27,7 @@
   {
    "fieldname": "available_qty",
    "fieldtype": "Float",
+   "hidden": 1,
    "label": "Available Qty"
   },
   {
@@ -39,7 +40,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-09 14:04:20.975489",
+ "modified": "2026-05-18 12:37:18.049891",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Item",
