@@ -5,13 +5,26 @@ from frappe.utils import getdate, flt
 class Invoice(Document):
 
     def validate(self):
+        self.validate_prices()
         self.calculate_child_rows()
         self.calculate_totals()
+        self.validate_grand_total()
 
         # Only validate collections for existing invoices
         if not self.is_new():
             if frappe.db.exists("Invoice Collection", {"invoice": self.name}):
                 frappe.throw("This invoice already has collections. Editing is not allowed.")
+    
+    def validate_prices(self):
+        """Ensure all items have price > 0"""
+        for idx, item in enumerate(self.table_qecz, 1):
+            if not item.price or float(item.price) <= 0:
+                frappe.throw(f"Row {idx}: Price cannot be zero or negative")
+    
+    def validate_grand_total(self):
+        """Ensure grand_total > 0"""
+        if not self.grand_total or float(self.grand_total) <= 0:
+            frappe.throw("Grand Total cannot be zero or negative")
 
     
     def autoname(self):

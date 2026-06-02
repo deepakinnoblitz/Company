@@ -32,7 +32,27 @@ class Lead(Document):
         # Convert to percentage
         self.lead_score = (score / max_score) * 100
 
+    def validate_phone_and_email(self):
+        # Validate that at least one phone number exists
+        if not self.get("phone_numbers"):
+            frappe.throw("At least one Phone Number is required")
+        
+        # Check first phone number value
+        first_phone = self.get("phone_numbers")[0].phone
+        if not first_phone or not first_phone.strip():
+            frappe.throw("Phone Number in the first row is mandatory")
+
+        # Synchronize first phone to the main phone_number field
+        self.phone_number = first_phone.strip()
+
+        # Synchronize first email (if any) to the main email field
+        if self.get("emails") and self.get("emails")[0].email:
+            self.email = self.get("emails")[0].email.strip()
+        else:
+            self.email = None
+
     def before_save(self):
+        self.validate_phone_and_email()
         self.calculate_lead_score()
         self.log_pipeline_timeline()
 
