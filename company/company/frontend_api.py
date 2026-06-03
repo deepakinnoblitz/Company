@@ -290,6 +290,9 @@ def get_dashboard_stats(start_date=None, end_date=None):
     stats = {}
     user = frappe.session.user
 
+    # Check if user has a User Permission restricting their view to their own records
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
+
     # Get counts for each DocType
     doctypes = {
         "leads": "Lead",
@@ -312,7 +315,9 @@ def get_dashboard_stats(start_date=None, end_date=None):
     for key, doctype in doctypes.items():
         try:
             if frappe.has_permission(doctype, "read"):
-                filters = {'owner_name': user}
+                filters = {}
+                if has_user_permission:
+                    filters["owner_name"] = user
                 filters.update(date_filter)
                 stats[key] = frappe.db.count(doctype, filters)
             else:
@@ -326,12 +331,20 @@ def get_dashboard_stats(start_date=None, end_date=None):
             cond = ""
             if start_date and end_date:
                 cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
-            stats["leads_by_status"] = frappe.db.sql(f"""
-                SELECT workflow_state as status, COUNT(*) as count
-                FROM `tabLead`
-                WHERE owner_name = %s {cond}
-                GROUP BY workflow_state
-            """, (user,), as_dict=True)
+            if has_user_permission:
+                stats["leads_by_status"] = frappe.db.sql(f"""
+                    SELECT workflow_state as status, COUNT(*) as count
+                    FROM `tabLead`
+                    WHERE owner_name = %s {cond}
+                    GROUP BY workflow_state
+                """, (user,), as_dict=True)
+            else:
+                stats["leads_by_status"] = frappe.db.sql(f"""
+                    SELECT workflow_state as status, COUNT(*) as count
+                    FROM `tabLead`
+                    WHERE 1=1 {cond}
+                    GROUP BY workflow_state
+                """, as_dict=True)
         else:
             stats["leads_by_status"] = []
     except Exception:
@@ -343,12 +356,20 @@ def get_dashboard_stats(start_date=None, end_date=None):
             cond = ""
             if start_date and end_date:
                 cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
-            stats["deals_by_stage"] = frappe.db.sql(f"""
-                SELECT stage, COUNT(*) as count
-                FROM `tabDeal`
-                WHERE owner_name = %s {cond}
-                GROUP BY stage
-            """, (user,), as_dict=True)
+            if has_user_permission:
+                stats["deals_by_stage"] = frappe.db.sql(f"""
+                    SELECT stage, COUNT(*) as count
+                    FROM `tabDeal`
+                    WHERE owner_name = %s {cond}
+                    GROUP BY stage
+                """, (user,), as_dict=True)
+            else:
+                stats["deals_by_stage"] = frappe.db.sql(f"""
+                    SELECT stage, COUNT(*) as count
+                    FROM `tabDeal`
+                    WHERE 1=1 {cond}
+                    GROUP BY stage
+                """, as_dict=True)
         else:
             stats["deals_by_stage"] = []
     except Exception:
@@ -370,13 +391,22 @@ def get_dashboard_stats(start_date=None, end_date=None):
             day_name = frappe.utils.get_datetime(date).strftime('%a')
             days.append(day_name)
 
-            lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            proposal_series.append(frappe.db.count("Proposal", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            estimation_series.append(frappe.db.count("Estimation", {"creation": ["like", f"{date}%"], "owner_name": user}))
-            invoice_series.append(frappe.db.count("Invoice", {"creation": ["like", f"{date}%"], "owner_name": user}))
+            if has_user_permission:
+                lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                proposal_series.append(frappe.db.count("Proposal", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                estimation_series.append(frappe.db.count("Estimation", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                invoice_series.append(frappe.db.count("Invoice", {"creation": ["like", f"{date}%"], "owner_name": user}))
+            else:
+                lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"]}))
+                contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"]}))
+                account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"]}))
+                deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"]}))
+                proposal_series.append(frappe.db.count("Proposal", {"creation": ["like", f"{date}%"]}))
+                estimation_series.append(frappe.db.count("Estimation", {"creation": ["like", f"{date}%"]}))
+                invoice_series.append(frappe.db.count("Invoice", {"creation": ["like", f"{date}%"]}))
 
         stats["charts"] = {
             "categories": days,
@@ -526,6 +556,9 @@ def get_today_activities():
     user = frappe.get_value("User", frappe.session.user, "name")
     from datetime import datetime
 
+    # Only filter by owner if the user has a User Permission record
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
+
     activities = {
         "calls": [],
         "meetings": []
@@ -537,30 +570,46 @@ def get_today_activities():
     # Fetch and filter calls
     try:
         if frappe.has_permission("Calls", "read"):
-            # Use SQL for calls too for consistency and to avoid field issues
-            activities["calls"] = frappe.db.sql("""
-                SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
-                FROM `tabCalls`
-                WHERE DATE(call_start_time) = %s
-                ORDER BY call_start_time ASC
-                owner_name = %s
-                LIMIT 10
-            """, (today_date, user), as_dict=True)
+            if has_user_permission:
+                activities["calls"] = frappe.db.sql("""
+                    SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
+                    FROM `tabCalls`
+                    WHERE DATE(call_start_time) = %s
+                    AND owner_name = %s
+                    ORDER BY call_start_time ASC
+                    LIMIT 10
+                """, (today_date, user), as_dict=True)
+            else:
+                activities["calls"] = frappe.db.sql("""
+                    SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
+                    FROM `tabCalls`
+                    WHERE DATE(call_start_time) = %s
+                    ORDER BY call_start_time ASC
+                    LIMIT 10
+                """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching calls for dashboard: {str(e)}")
 
     # Fetch and filter meetings (strictly from Meeting DocType)
     try:
         if frappe.has_permission("Meeting", "read"):
-            # Using direct SQL because 'from' is a reserved keyword in SQL
-            activities["meetings"] = frappe.db.sql("""
-                SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
-                FROM `tabMeeting`
-                WHERE DATE(`from`) = %s
-                ORDER BY `from` ASC
-                owner_name = %s
-                LIMIT 10
-            """, (today_date, user), as_dict=True)
+            if has_user_permission:
+                activities["meetings"] = frappe.db.sql("""
+                    SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
+                    FROM `tabMeeting`
+                    WHERE DATE(`from`) = %s
+                    AND owner_name = %s
+                    ORDER BY `from` ASC
+                    LIMIT 10
+                """, (today_date, user), as_dict=True)
+            else:
+                activities["meetings"] = frappe.db.sql("""
+                    SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
+                    FROM `tabMeeting`
+                    WHERE DATE(`from`) = %s
+                    ORDER BY `from` ASC
+                    LIMIT 10
+                """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching meetings for dashboard: {str(e)}")
 
@@ -1137,6 +1186,10 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
     """
     Fetch Sales dashboard statistics and data.
     """
+    user = frappe.session.user
+    # Only filter by owner if the user has a User Permission record restricting their view
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
+    owner_name = user if has_user_permission else None
     data = {}
     today = frappe.utils.today()
     first_day_month = frappe.utils.get_first_day(today)
@@ -1151,6 +1204,9 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             invoice_filters["invoice_date"] = [">=", start_date]
         elif end_date:
             invoice_filters["invoice_date"] = ["<=", end_date]
+
+        if owner_name:
+            invoice_filters["owner_name"] = owner_name
 
         invoices = frappe.get_all("Invoice", filters=invoice_filters, fields=[
             "grand_total", "total_amount", "overall_discount",
@@ -1180,14 +1236,32 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             deal_filters["creation"] = [">=", start_date]
         elif end_date:
             deal_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+
+        if owner_name:
+            deal_filters["owner_name"] = owner_name
             
         deals = frappe.get_all("Deal", filters=deal_filters, fields=["value", "stage"])
         data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
 
         # 3. Top Customers
-        cond = ""
+        sql_conds = []
+        sql_params = {}
         if start_date and end_date:
-            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+            sql_conds.append("DATE(i.invoice_date) BETWEEN %(start_date)s AND %(end_date)s")
+            sql_params["start_date"] = start_date
+            sql_params["end_date"] = end_date
+        elif start_date:
+            sql_conds.append("DATE(i.invoice_date) >= %(start_date)s")
+            sql_params["start_date"] = start_date
+        elif end_date:
+            sql_conds.append("DATE(i.invoice_date) <= %(end_date)s")
+            sql_params["end_date"] = end_date
+
+        if owner_name:
+            sql_conds.append("i.owner_name = %(owner_name)s")
+            sql_params["owner_name"] = owner_name
+
+        cond = "WHERE " + " AND ".join(sql_conds) if sql_conds else ""
             
         data["top_customers_by_revenue"] = frappe.db.sql(f"""
             SELECT
@@ -1204,7 +1278,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             GROUP BY i.client_name, i.billing_name, c.first_name, c.last_name, a.account_name
             ORDER BY revenue DESC
             LIMIT 5
-        """, as_dict=True)
+        """, sql_params, as_dict=True)
 
         data["most_repeated_customers"] = frappe.db.sql(f"""
             SELECT
@@ -1221,15 +1295,26 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             GROUP BY i.client_name, i.billing_name, c.first_name, c.last_name, a.account_name
             ORDER BY order_count DESC
             LIMIT 5
-        """, as_dict=True)
+        """, sql_params, as_dict=True)
 
         # 4. Overdue / Pending Orders
+        overdue_filters = [
+            ["balance_amount", ">", 0],
+            ["due_date", "<", today],
+            ["due_date", "is", "set"]
+        ]
+        if start_date and end_date:
+            overdue_filters.append(["invoice_date", "between", [start_date, end_date]])
+        elif start_date:
+            overdue_filters.append(["invoice_date", ">=", start_date])
+        elif end_date:
+            overdue_filters.append(["invoice_date", "<=", end_date])
+
+        if owner_name:
+            overdue_filters.append(["owner_name", "=", owner_name])
+
         overdue_orders = frappe.get_all("Invoice",
-            filters=[
-                ["balance_amount", ">", 0],
-                ["due_date", "<", today],
-                ["due_date", "is", "set"]
-            ],
+            filters=overdue_filters,
             fields=["name", "billing_name", "due_date", "balance_amount", "grand_total"],
             order_by="due_date asc",
             limit=5
@@ -1250,32 +1335,75 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             reordered_overdue.append(new_order)
 
         data["overdue_orders"] = reordered_overdue
-        data["pending_orders_count"] = frappe.db.count("Invoice", {"balance_amount": [">", 0]})
+        
+        pending_filters = {"balance_amount": [">", 0]}
+        if start_date and end_date:
+            pending_filters["invoice_date"] = ["between", [start_date, end_date]]
+        elif start_date:
+            pending_filters["invoice_date"] = [">=", start_date]
+        elif end_date:
+            pending_filters["invoice_date"] = ["<=", end_date]
 
-        # 5. Trends (Last 12 months)
-        trends = frappe.db.sql("""
+        if owner_name:
+            pending_filters["owner_name"] = owner_name
+        data["pending_orders_count"] = frappe.db.count("Invoice", pending_filters)
+
+        # 5. Trends
+        trend_conds = []
+        trend_params = []
+        if start_date and end_date:
+            trend_conds.append("invoice_date BETWEEN %s AND %s")
+            trend_params.extend([start_date, end_date])
+        elif start_date:
+            trend_conds.append("invoice_date >= %s")
+            trend_params.append(start_date)
+        elif end_date:
+            trend_conds.append("invoice_date <= %s")
+            trend_params.append(end_date)
+        else:
+            # Default to last 12 months
+            trend_conds.append("invoice_date >= DATE_SUB(%s, INTERVAL 12 MONTH)")
+            trend_params.append(today)
+
+        if owner_name:
+            trend_conds.append("owner_name = %s")
+            trend_params.append(owner_name)
+
+        trends = frappe.db.sql(f"""
             SELECT
                 DATE_FORMAT(invoice_date, '%%Y-%%m') as month,
                 SUM(grand_total) as total_sales,
                 SUM(overall_discount) as total_discount
             FROM `tabInvoice`
-            WHERE invoice_date >= DATE_SUB(%s, INTERVAL 12 MONTH)
+            WHERE {" AND ".join(trend_conds)}
             GROUP BY month
             ORDER BY month ASC
-        """, (today,), as_dict=True)
+        """, tuple(trend_params), as_dict=True)
 
         data["sales_trend"] = {
             "categories": [t.month for t in trends],
             "series": [frappe.utils.flt(t.total_sales) for t in trends]
         }
-        data["discount_trend"] = {
-            "categories": [t.month for t in trends],
-            "series": [frappe.utils.flt(t.total_discount) for t in trends]
-        }
 
         # 6. Conversion Rate (Estimations to Invoices)
-        total_estimations = frappe.db.count("Estimation")
-        converted_estimations = frappe.db.count("Invoice", {"converted_from_estimation": 1})
+        est_filters = {}
+        inv_filters = {"converted_from_estimation": 1}
+        if start_date and end_date:
+            est_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+            inv_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+        elif start_date:
+            est_filters["creation"] = [">=", start_date]
+            inv_filters["creation"] = [">=", start_date]
+        elif end_date:
+            est_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+            inv_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+
+        if owner_name:
+            est_filters["owner_name"] = owner_name
+            inv_filters["owner_name"] = owner_name
+
+        total_estimations = frappe.db.count("Estimation", est_filters)
+        converted_estimations = frappe.db.count("Invoice", inv_filters)
         data["conversion_rate"] = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
 
     except Exception as e:
