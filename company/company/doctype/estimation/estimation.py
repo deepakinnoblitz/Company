@@ -28,24 +28,36 @@ class Estimation(Document):
             self.name = self.ref_no
 
     def before_insert(self):
-        today = getdate()
-        year = today.year
+        if not self.ref_no:
+            today = getdate()
+            year = today.year
 
-        # Financial Year (April → March)
-        if today.month < 4:
-            start_year = year - 1
-            end_year = year
-        else:
-            start_year = year
-            end_year = year + 1
+            if today.month < 4:
+                start_year = year - 1
+                end_year = year
+            else:
+                start_year = year
+                end_year = year + 1
 
-        fy = f"{str(start_year)[-2:]}-{str(end_year)[-2:]}"
+            fy = f"{str(start_year)[-2:]}-{str(end_year)[-2:]}"
 
-        # ✅ Use correct make_autoname format with dot
-        seq = make_autoname(".###", doc=self)  # IB-E/.001, .002, etc.
+            last = frappe.db.sql("""
+                SELECT ref_no
+                FROM `tabEstimation`
+                WHERE ref_no LIKE %s
+                ORDER BY creation DESC
+                LIMIT 1
+            """, (f"IB-E/{fy}/%",), as_dict=True)
 
-        # Assign to ref_no (which will also become name)
-        self.ref_no = f"IB-E/{fy}/{seq.split('.')[-1]}"
+            if last:
+                last_num = int(last[0].ref_no.split("/")[-1])
+                next_num = last_num + 1
+            else:
+                next_num = 1
+
+            self.ref_no = f"IB-E/{fy}/{str(next_num).zfill(3)}"
+            self.name = self.ref_no
+
         
     def calculate_child_rows(self):
         for item in self.table_qecz:
