@@ -10,7 +10,9 @@
   "lead_name",
   "gstin",
   "phone_number",
+  "phone_numbers",
   "email",
+  "emails",
   "service",
   "leads_type",
   "leads_from",
@@ -63,13 +65,25 @@
   {
    "fieldname": "phone_number",
    "fieldtype": "Phone",
-   "label": "Phone Number (+91-)"
+   "label": "Phone Number"
+  },
+  {
+   "fieldname": "phone_numbers",
+   "fieldtype": "Table",
+   "label": "Phone Numbers",
+   "options": "Lead Phone"
   },
   {
    "fieldname": "email",
    "fieldtype": "Data",
    "label": "Email",
    "options": "Email"
+  },
+  {
+   "fieldname": "emails",
+   "fieldtype": "Table",
+   "label": "Emails",
+   "options": "Lead Email"
   },
   {
    "fieldname": "service",
@@ -123,7 +137,7 @@
    "fieldtype": "Select",
    "hidden": 1,
    "label": "Status",
-   "options": "New Lead\nContacted\nQualified\nProposal Sent\nIn Negotiation\nFollow-up Scheduled\nOn Hold\nNot Interested\nIn Active\nClosed"
+   "options": "Converted\nNot Converted"
   },
   {
    "fieldname": "leads_details_section",
@@ -244,7 +258,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-10 11:34:15.016876",
+ "modified": "2026-06-02 12:02:16.096928",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",

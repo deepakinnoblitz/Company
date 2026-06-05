@@ -10,6 +10,7 @@ class Proposal(Document):
         self.validate_dates()
         self.populate_attachment_metadata()
         self.set_total_attachments()
+        self.validate_send_stage_requirements()
 
     def autoname(self):
         """Set document name = reference_no"""
@@ -119,3 +120,8 @@ class Proposal(Document):
         """Count non-empty attachment rows."""
         count = sum(1 for row in (self.attachments_table or []) if row.attachment)
         self.total_attachments = count
+
+    def validate_send_stage_requirements(self):
+        """Require at least one attachment before moving to Send stage."""
+        if self.status == "Sent" and self.total_attachments < 1:
+            frappe.throw("At least one attachment is required before marking the proposal as Sent.")
