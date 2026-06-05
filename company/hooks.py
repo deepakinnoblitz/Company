@@ -124,6 +124,11 @@ doc_events = {
         ],
         "validate": "company.company.crm_api.validate_event",
         "on_trash": "company.company.crm_api.delete_linked_record_on_event_trash"
+    },
+    "ToDo": {
+        "after_insert": "company.company.crm_api.create_event_for_todo",
+        "on_update": "company.company.crm_api.update_event_for_todo",
+        "on_trash": "company.company.crm_api.delete_event_for_todo"
     }
 }
 

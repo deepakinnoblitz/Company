@@ -652,3 +652,76 @@ def force_delete_doc(doctype, name):
     except Exception as e:
         frappe.db.rollback()
         frappe.throw(f"Failed to delete {doctype}: {str(e)}")
+
+
+def create_event_for_todo(doc, method=None):
+    """Create Event when ToDo is created."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    # Check if event already exists
+    if frappe.db.exists("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}):
+        return
+
+    event = frappe.new_doc("Event")
+    event.subject = doc.description or "Todo Tasks"
+    event.event_category = "Todo"
+    event.event_type = "Private"
+    
+    date_str = doc.date or doc.creation
+    if date_str:
+        event.starts_on = f"{date_str} 00:00:00" if len(str(date_str)) <= 10 else str(date_str)
+        event.ends_on = event.starts_on
+    else:
+        event.starts_on = frappe.utils.now_datetime()
+        event.ends_on = event.starts_on
+
+    event.status = "Closed" if doc.status == "Closed" else "Open"
+    event.all_day = 1
+    event.reference_doctype = "ToDo"
+    event.reference_docname = doc.name
+
+    frappe.flags.ignore_todo_sync = True
+    event.insert(ignore_permissions=True)
+    frappe.flags.ignore_todo_sync = False
+    frappe.db.commit()
+
+
+def update_event_for_todo(doc, method=None):
+    """Update Event when ToDo is updated."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    event_name = frappe.db.get_value("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}, "name")
+    
+    if not event_name:
+        create_event_for_todo(doc)
+        return
+
+    event = frappe.get_doc("Event", event_name)
+    event.subject = doc.description or "Todo Tasks"
+    
+    date_str = doc.date or doc.creation
+    if date_str:
+        event.starts_on = f"{date_str} 00:00:00" if len(str(date_str)) <= 10 else str(date_str)
+        event.ends_on = event.starts_on
+
+    event.status = "Closed" if doc.status == "Closed" else "Open"
+    
+    frappe.flags.ignore_todo_sync = True
+    event.save(ignore_permissions=True)
+    frappe.flags.ignore_todo_sync = False
+    frappe.db.commit()
+
+
+def delete_event_for_todo(doc, method=None):
+    """Delete Event when ToDo is deleted."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    event_name = frappe.db.get_value("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}, "name")
+    if event_name:
+        frappe.flags.ignore_todo_sync = True
+        frappe.delete_doc("Event", event_name, ignore_permissions=True, force=True)
+        frappe.flags.ignore_todo_sync = False
+        frappe.db.commit()
