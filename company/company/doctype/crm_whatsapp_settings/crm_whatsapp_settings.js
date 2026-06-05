@@ -1,44 +1,111 @@
 frappe.ui.form.on('CRM WhatsApp Settings', {
     refresh(frm) {
-
         frm.add_custom_button('Test Connection', () => {
             frappe.call({
-                method: 'company.company.whatsapp_api.test_connection',
+                method: 'company.company.crm_whatsapp_api.test_connection',
+                freeze: true,
+                freeze_message: 'Testing Connection...',
                 callback(r) {
-                    frappe.msgprint('✅ Connected Successfully');
+                    if (r.message?.success) {
+                        frappe.show_alert({
+                            message: 'WhatsApp Connected Successfully ✅',
+                            indicator: 'green'
+                        });
+                    } else {
+                        frappe.msgprint({
+                            title: 'Error',
+                            indicator: 'red',
+                            message: r.message?.error || 'Connection Failed'
+                        });
+                    }
                 }
             });
         });
 
-        frm.add_custom_button('Send Test Message', () => {
+        frm.add_custom_button('Send WhatsApp Message', () => {
             frappe.prompt(
                 [
                     {
                         label: 'Phone Number',
                         fieldname: 'phone',
                         fieldtype: 'Data',
+                        default: '919751523553',
                         reqd: 1
+                    },
+                    {
+                        label: 'Message',
+                        fieldname: 'message',
+                        fieldtype: 'Small Text'
+                    },
+                    {
+                        label: 'Attachment',
+                        fieldname: 'attachment',
+                        fieldtype: 'Attach'
                     }
                 ],
                 (values) => {
                     frappe.call({
-                        method: 'company.company.whatsapp_api.send_test_message',
+                        method: 'company.company.crm_whatsapp_api.send_whatsapp',
                         args: {
-                            phone: values.phone
+                            phone: values.phone,
+                            message: values.message,
+                            attachment: values.attachment
+                        },
+                        freeze: true,
+                        freeze_message: 'Sending WhatsApp Message...',
+                        callback(r) {
+                            if (r.message?.success) {
+                                frappe.show_alert({
+                                    message: 'WhatsApp Message Sent Successfully ✅',
+                                    indicator: 'green'
+                                });
+                            } else {
+                                frappe.msgprint({
+                                    title: 'WhatsApp Error',
+                                    indicator: 'red',
+                                    message:
+                                        r.message?.error?.error?.message ||
+                                        r.message?.error ||
+                                        'Failed to send message'
+                                });
+                            }
                         }
                     });
                 },
-                'Send Test Message',
+                'Send WhatsApp Message',
                 'Send'
             );
         });
 
         frm.add_custom_button('Copy Webhook URL', () => {
-            navigator.clipboard.writeText(frm.doc.webhook_url);
-            frappe.show_alert({
-                message: 'Webhook URL Copied',
-                indicator: 'green'
-            });
+            const webhook_url =
+                window.location.origin +
+                '/api/method/company.company.crm_whatsapp_webhook.webhook';
+            if (
+                navigator.clipboard &&
+                navigator.clipboard.writeText
+            ) {
+                navigator.clipboard.writeText(webhook_url)
+                    .then(() => {
+                        frappe.show_alert({
+                            message: 'Webhook URL Copied ✅',
+                            indicator: 'green'
+                        });
+                    });
+            } else {
+                const textarea =
+                    document.createElement('textarea');
+                textarea.value = webhook_url;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+
+                frappe.show_alert({
+                    message: 'Webhook URL Copied ✅',
+                    indicator: 'green'
+                });
+            }
         });
     }
 });
