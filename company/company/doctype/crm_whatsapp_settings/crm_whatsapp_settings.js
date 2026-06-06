@@ -1,5 +1,8 @@
 frappe.ui.form.on('CRM WhatsApp Settings', {
     refresh(frm) {
+
+        toggle_whatsapp_fields(frm);
+
         frm.add_custom_button('Test Connection', () => {
             frappe.call({
                 method: 'company.company.crm_whatsapp_api.test_connection',
@@ -35,7 +38,7 @@ frappe.ui.form.on('CRM WhatsApp Settings', {
                     {
                         label: 'Message',
                         fieldname: 'message',
-                        fieldtype: 'Small Text'
+                        fieldtype: 'Long Text'
                     },
                     {
                         label: 'Attachment',
@@ -107,5 +110,31 @@ frappe.ui.form.on('CRM WhatsApp Settings', {
                 });
             }
         });
+    },
+
+    enable_whatsapp(frm) {
+        toggle_whatsapp_fields(frm);
     }
 });
+
+function toggle_whatsapp_fields(frm) {
+
+    const fields = [
+        'token_type',
+        
+        'access_token',
+        'phone_number_id',
+        'business_account_id',
+        'verify_token',
+        'webhook_secret',
+        'connection_status',
+        'last_connected_on'
+    ];
+
+    fields.forEach(field => {
+        frm.toggle_display(
+            field,
+            frm.doc.enable_whatsapp
+        );
+    });
+}

@@ -1,6 +1,8 @@
 import frappe
 import requests
-
+from frappe.utils import now_datetime
+from datetime import timedelta
+import secrets
 
 # --------------------------------------------------------------------
 # TEST CONNECTION
@@ -60,6 +62,51 @@ def test_connection():
         }
 
 
+def get_temporary_file_url(file_doc):
+
+    token = secrets.token_urlsafe(32)
+
+    frappe.cache().set_value(
+        f"wa_file:{token}",
+        file_doc.name,
+        expires_in_sec=300  # 5 minutes
+    )
+
+    return (
+        frappe.utils.get_url()
+        + f"/api/method/company.company.crm_whatsapp_api.download_file"
+        + f"?token={token}"
+    )
+
+@frappe.whitelist(allow_guest=True)
+def download_file(token):
+
+    file_name = frappe.cache().get_value(
+        f"wa_file:{token}"
+    )
+
+    if not file_name:
+        frappe.throw(
+            "Link expired",
+            frappe.PermissionError
+        )
+
+    file_doc = frappe.get_doc(
+        "File",
+        file_name
+    )
+
+    frappe.local.response.filename = (
+        file_doc.file_name
+    )
+
+    frappe.local.response.filecontent = (
+        file_doc.get_content()
+    )
+
+    frappe.local.response.type = "download"
+
+
 # --------------------------------------------------------------------
 # SEND WHATSAPP MESSAGE
 # --------------------------------------------------------------------
@@ -101,9 +148,14 @@ def send_whatsapp(phone, message=None, attachment=None):
                 }
             )
 
-            file_url = frappe.utils.get_url(
-                file_doc.file_url
-            )
+            if file_doc.is_private:
+                file_url = get_temporary_file_url(
+                    file_doc
+                )
+            else:
+                file_url = frappe.utils.get_url(
+                    file_doc.file_url
+                )
 
             extension = (
                 file_doc.file_name.split(".")[-1]
@@ -162,47 +214,19 @@ def send_whatsapp(phone, message=None, attachment=None):
             }
 
         # ----------------------------------------------------
-        # SEND PRIMARY MESSAGE
+        # SEND TEXT FIRST + DOCUMENT SECOND
         # ----------------------------------------------------
-
-        response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
-        result = response.json()
-
-        frappe.logger().info(
-            f"WhatsApp Response: {result}"
-        )
-
-        if response.status_code != 200:
-
-            return {
-                "success": False,
-                "error": result
-            }
 
         meta_message_id = ""
-
-        if result.get("messages"):
-
-            meta_message_id = (
-                result["messages"][0]
-                .get("id", "")
-            )
-
-        # ----------------------------------------------------
-        # DOCUMENT + TEXT
-        # ----------------------------------------------------
+        result = {}
 
         if (
             attachment
             and message
             and message_type == "Document"
         ):
+
+            # Send text first
 
             text_payload = {
                 "messaging_product": "whatsapp",
@@ -213,11 +237,79 @@ def send_whatsapp(phone, message=None, attachment=None):
                 }
             }
 
-            requests.post(
+            text_response = requests.post(
                 url,
                 headers=headers,
                 json=text_payload,
                 timeout=30
+            )
+
+            text_result = text_response.json()
+
+            frappe.logger().info(
+                f"WhatsApp Text Response: {text_result}"
+            )
+
+            if text_response.status_code != 200:
+
+                return {
+                    "success": False,
+                    "error": text_result
+                }
+
+            # Send document second
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+
+            result = response.json()
+
+            frappe.logger().info(
+                f"WhatsApp Document Response: {result}"
+            )
+
+            if response.status_code != 200:
+
+                return {
+                    "success": False,
+                    "error": result
+                }
+
+        else:
+
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+
+            result = response.json()
+
+            frappe.logger().info(
+                f"WhatsApp Response: {result}"
+            )
+
+            if response.status_code != 200:
+
+                return {
+                    "success": False,
+                    "error": result
+                }
+
+        # ----------------------------------------------------
+        # GET META MESSAGE ID
+        # ----------------------------------------------------
+
+        if result.get("messages"):
+
+            meta_message_id = (
+                result["messages"][0]
+                .get("id", "")
             )
 
         # ----------------------------------------------------

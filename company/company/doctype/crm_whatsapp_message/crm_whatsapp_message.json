@@ -72,7 +72,7 @@
   },
   {
    "fieldname": "message_content",
-   "fieldtype": "Text Editor",
+   "fieldtype": "Long Text",
    "label": "Message Content"
   },
   {
@@ -168,7 +168,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-05 18:05:03.874708",
+ "modified": "2026-06-05 18:33:10.530029",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Message",
