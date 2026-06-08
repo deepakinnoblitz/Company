@@ -3429,3 +3429,208 @@ def get_account_related_records(account_id, doctype, limit_start=0, limit_page_l
         "records": paged,
         "total": total
     }
+
+@frappe.whitelist()
+def get_followup_history(
+    reference_type,
+    reference_name
+):
+    """
+    reference_type:
+        Lead
+        Contact
+        Account
+
+    reference_name:
+        LEAD-0001
+        CLT-0001
+        CMP-0001
+    """
+
+    filters_calls = {}
+    filters_meetings = {}
+
+    reference_type = (
+        reference_type or ""
+    ).strip()
+
+    reference_name = (
+        reference_name or ""
+    ).strip()
+
+    if reference_type == "Lead":
+
+        filters_calls["lead_name"] = (
+            reference_name
+        )
+
+        filters_meetings["lead_name"] = (
+            reference_name
+        )
+
+    elif reference_type == "Contact":
+
+        filters_calls["contact_name"] = (
+            reference_name
+        )
+
+        filters_meetings["contact_name"] = (
+            reference_name
+        )
+
+    elif reference_type == "Account":
+
+        filters_calls["account_name"] = (
+            reference_name
+        )
+
+        filters_meetings["accounts_name"] = (
+            reference_name
+        )
+
+    else:
+
+        frappe.throw(
+            "Invalid Reference Type"
+        )
+
+    # ----------------------------------------------------
+    # CALLS
+    # ----------------------------------------------------
+
+    calls = frappe.get_all(
+        "Calls",
+        filters=filters_calls,
+        fields=[
+            "name",
+            "title",
+            "call_start_time",
+            "call_end_time",
+            "outgoing_call_status",
+            "completed_call_status",
+            "completed_call_notes",
+            "owner_name",
+            "creation"
+        ]
+    )
+
+    # ----------------------------------------------------
+    # MEETINGS
+    # ----------------------------------------------------
+
+    meetings = frappe.get_all(
+        "Meeting",
+        filters=filters_meetings,
+        fields=[
+            "name",
+            "title",
+            "from",
+            "to",
+            "outgoing_call_status",
+            "completed_meet_status",
+            "completed_meet_notes",
+            "owner_name",
+            "creation"
+        ]
+    )
+
+    timeline = []
+
+    # ----------------------------------------------------
+    # CALL TIMELINE
+    # ----------------------------------------------------
+
+    for row in calls:
+
+        timeline.append({
+
+            "doctype":
+                "Calls",
+
+            "type":
+                "Call",
+
+            "name":
+                row.name,
+
+            "title":
+                row.title,
+
+            "status":
+                row.outgoing_call_status,
+
+            "result":
+                row.completed_call_status,
+
+            "notes":
+                row.completed_call_notes,
+
+            "owner":
+                row.owner_name,
+
+            "start_time":
+                row.call_start_time,
+
+            "end_time":
+                row.call_end_time,
+
+            "creation":
+                row.creation
+
+        })
+
+    # ----------------------------------------------------
+    # MEETING TIMELINE
+    # ----------------------------------------------------
+
+    for row in meetings:
+
+        timeline.append({
+
+            "doctype":
+                "Meeting",
+
+            "type":
+                "Meeting",
+
+            "name":
+                row.name,
+
+            "title":
+                row.title,
+
+            "status":
+                row.outgoing_call_status,
+
+            "result":
+                row.completed_meet_status,
+
+            "notes":
+                row.completed_meet_notes,
+
+            "owner":
+                row.owner_name,
+
+            "start_time":
+                row.get("from"),
+
+            "end_time":
+                row.get("to"),
+
+            "creation":
+                row.creation
+
+        })
+
+    # ----------------------------------------------------
+    # SORT TIMELINE
+    # ----------------------------------------------------
+
+    timeline.sort(
+        key=lambda x:
+            x.get("start_time")
+            or x.get("creation"),
+        reverse=True
+    )
+
+    return timeline
