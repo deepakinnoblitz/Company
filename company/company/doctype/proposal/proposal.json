@@ -16,7 +16,6 @@
   "customer_name",
   "column_break_billing",
   "billing_name",
-  "prospect",
   "section_break_details",
   "subject",
   "status",
@@ -99,12 +98,6 @@
    "options": "Accounts"
   },
   {
-   "fieldname": "prospect",
-   "fieldtype": "Link",
-   "label": "Prospect",
-   "options": "Deal"
-  },
-  {
    "fieldname": "section_break_details",
    "fieldtype": "Section Break",
    "label": "Details"
@@ -185,7 +178,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-02 16:30:04.476657",
+ "modified": "2026-06-08 16:08:11.403374",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Proposal",
