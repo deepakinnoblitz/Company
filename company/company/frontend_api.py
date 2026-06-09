@@ -3634,3 +3634,36 @@ def get_followup_history(
     )
 
     return timeline
+
+@frappe.whitelist()
+def get_proposal_by_lead_id(lead_id):
+    """
+    Get all proposals linked to a Lead.
+
+    Args:
+        lead_id (str): Lead ID (e.g. LEAD-00342-2026)
+    """
+
+    if not lead_id:
+        frappe.throw("Lead ID is required")
+
+    proposals = frappe.get_all(
+        "Proposal",
+        filters={"lead": lead_id},
+        fields=[
+            "name",
+            "proposal_title",
+            "reference_no",
+            "proposal_date",
+            "valid_until",
+            "status",
+            "lead",
+            "lead_name",
+            "company_name",
+            "creation",
+            "modified"
+        ],
+        order_by="creation desc"
+    )
+
+    return proposals
