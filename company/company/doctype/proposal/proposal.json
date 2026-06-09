@@ -12,10 +12,10 @@
   "proposal_date",
   "valid_until",
   "section_break_client",
-  "client_name",
-  "customer_name",
+  "lead",
+  "lead_name",
   "column_break_billing",
-  "billing_name",
+  "company_name",
   "section_break_details",
   "subject",
   "status",
@@ -71,31 +71,8 @@
    "label": "Client Details"
   },
   {
-   "fieldname": "client_name",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Client",
-   "options": "Contacts",
-   "reqd": 1
-  },
-  {
-   "fetch_from": "client_name.first_name",
-   "fieldname": "customer_name",
-   "fieldtype": "Data",
-   "label": "Customer Name",
-   "read_only": 1
-  },
-  {
    "fieldname": "column_break_billing",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "billing_name",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Billing Name",
-   "options": "Accounts"
   },
   {
    "fieldname": "section_break_details",
@@ -173,12 +150,35 @@
    "label": "Owner",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "lead",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Lead",
+   "options": "Lead",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "lead.lead_name",
+   "fieldname": "lead_name",
+   "fieldtype": "Data",
+   "label": "Lead Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "lead.company_name",
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company Name"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-08 16:08:11.403374",
+ "modified": "2026-06-08 18:43:21.767475",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Proposal",
@@ -223,7 +223,7 @@
   }
  ],
  "row_format": "Dynamic",
- "search_fields": "proposal_title,client_name,reference_no",
+ "search_fields": "proposal_title,reference_no",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
