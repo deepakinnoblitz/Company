@@ -3348,3 +3348,12 @@ def get_salary_slips_with_child_tables(start_date=None, end_date=None, employee=
         
     return detailed_slips
 
+@frappe.whitelist(allow_guest=True)
+def track_open(id):
+	from company.company.doctype.crm_email_campaign.crm_email_campaign import track_open as _track_open
+	return _track_open(id)
+
+@frappe.whitelist(allow_guest=True)
+def track_click(id, url):
+	from company.company.doctype.crm_email_campaign.crm_email_campaign import track_click as _track_click
+	return _track_click(id, url)

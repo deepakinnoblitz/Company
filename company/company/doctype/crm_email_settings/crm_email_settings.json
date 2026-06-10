@@ -1,0 +1,276 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2026-06-10 14:15:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "issingle": 1,
+    "field_order": [
+        "smtp_section",
+        "default_email_account",
+        "campaign_section",
+        "max_emails_per_batch",
+        "batch_delay",
+        "campaign_cb",
+        "maximum_retry_count",
+        "auto_retry_failed_emails",
+        "automation_section",
+        "enable_email_automation",
+        "scheduler_interval",
+        "automation_cb",
+        "create_campaign_history",
+        "tracking_section",
+        "enable_open_tracking",
+        "enable_click_tracking",
+        "tracking_cb",
+        "enable_unsubscribe_link",
+        "track_ip_address",
+        "security_section",
+        "enable_allowed_ip_validation",
+        "allowed_ips",
+        "default_templates_section",
+        "welcome_email_template",
+        "follow_up_template",
+        "proposal_template",
+        "default_templates_cb",
+        "invoice_reminder_template",
+        "newsletter_template",
+        "queue_section",
+        "queue_size",
+        "auto_delete_old_queue_records",
+        "queue_cb",
+        "queue_retention_days",
+        "enable_debug_logs"
+    ],
+    "fields": [
+        {
+            "fieldname": "smtp_section",
+            "label": "SMTP Configuration",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "default_email_account",
+            "label": "Default Email Account",
+            "fieldtype": "Link",
+            "options": "Email Account",
+            "reqd": 1
+        },
+        {
+            "fieldname": "campaign_section",
+            "label": "Campaign Configuration",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "max_emails_per_batch",
+            "label": "Max Emails Per Batch",
+            "fieldtype": "Int",
+            "default": "100"
+        },
+        {
+            "fieldname": "batch_delay",
+            "label": "Batch Delay (Seconds)",
+            "fieldtype": "Int",
+            "default": "5"
+        },
+        {
+            "fieldname": "campaign_cb",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "maximum_retry_count",
+            "label": "Maximum Retry Count",
+            "fieldtype": "Int",
+            "default": "3"
+        },
+        {
+            "fieldname": "auto_retry_failed_emails",
+            "label": "Auto Retry Failed Emails",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "automation_section",
+            "label": "Automation Configuration",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "enable_email_automation",
+            "label": "Enable Email Automation",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "scheduler_interval",
+            "label": "Scheduler Interval",
+            "fieldtype": "Select",
+            "options": "Every 15 Minutes\nEvery 30 Minutes\nHourly\nDaily",
+            "default": "Hourly"
+        },
+        {
+            "fieldname": "automation_cb",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "create_campaign_history",
+            "label": "Create Campaign History",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "tracking_section",
+            "label": "Tracking Configuration",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "enable_open_tracking",
+            "label": "Enable Open Tracking",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "enable_click_tracking",
+            "label": "Enable Click Tracking",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "tracking_cb",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "enable_unsubscribe_link",
+            "label": "Enable Unsubscribe Link",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "track_ip_address",
+            "label": "Track IP Address",
+            "fieldtype": "Check",
+            "default": "1"
+        },
+        {
+            "fieldname": "security_section",
+            "label": "Security Configuration",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "enable_allowed_ip_validation",
+            "label": "Enable Allowed IP Validation",
+            "fieldtype": "Check",
+            "default": "0"
+        },
+        {
+            "fieldname": "allowed_ips",
+            "label": "Allowed IPs",
+            "fieldtype": "Table",
+            "options": "CRM Allowed IP",
+            "depends_on": "eval:doc.enable_allowed_ip_validation"
+        },
+        {
+            "fieldname": "default_templates_section",
+            "label": "Default Templates",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "welcome_email_template",
+            "label": "Welcome Email Template",
+            "fieldtype": "Link",
+            "options": "CRM Email Template"
+        },
+        {
+            "fieldname": "follow_up_template",
+            "label": "Follow Up Template",
+            "fieldtype": "Link",
+            "options": "CRM Email Template"
+        },
+        {
+            "fieldname": "proposal_template",
+            "label": "Proposal Template",
+            "fieldtype": "Link",
+            "options": "CRM Email Template"
+        },
+        {
+            "fieldname": "default_templates_cb",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "invoice_reminder_template",
+            "label": "Invoice Reminder Template",
+            "fieldtype": "Link",
+            "options": "CRM Email Template"
+        },
+        {
+            "fieldname": "newsletter_template",
+            "label": "Newsletter Template",
+            "fieldtype": "Link",
+            "options": "CRM Email Template"
+        },
+        {
+            "fieldname": "queue_section",
+            "label": "Queue Configuration",
+            "fieldtype": "Section Break",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "queue_size",
+            "label": "Queue Size",
+            "fieldtype": "Int",
+            "default": "1000"
+        },
+        {
+            "fieldname": "auto_delete_old_queue_records",
+            "label": "Auto Delete Old Queue Records",
+            "fieldtype": "Check",
+            "default": "0"
+        },
+        {
+            "fieldname": "queue_cb",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "queue_retention_days",
+            "label": "Queue Retention Days",
+            "fieldtype": "Int",
+            "default": "30",
+            "depends_on": "eval:doc.auto_delete_old_queue_records"
+        },
+        {
+            "fieldname": "enable_debug_logs",
+            "label": "Enable Debug Logs",
+            "fieldtype": "Check",
+            "default": "0"
+        }
+    ],
+    "grid_page_length": 50,
+    "index_web_pages_for_search": 1,
+    "modified": "2026-06-10 14:15:00.000000",
+    "modified_by": "Administrator",
+    "module": "Company",
+    "name": "CRM Email Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "row_format": "Dynamic",
+    "rows_threshold_for_grid_search": 20,
+    "sort_field": "creation",
+    "sort_order": "DESC",
+    "states": []
+}
