@@ -83,6 +83,14 @@ def calculate_next_run(frequency, start_date, run_time_str, week_day=None, day_o
 
 @frappe.whitelist()
 def process_email_automations():
+	# Check if email automation is globally enabled
+	try:
+		settings = frappe.get_single("CRM Email Settings")
+		if not settings.enable_email_automation:
+			return
+	except Exception:
+		pass
+
 	now = frappe.utils.now_datetime()
 	
 	# Fetch active automations whose schedule has reached

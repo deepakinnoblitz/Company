@@ -333,40 +333,83 @@ def get_campaign_recipients(campaign_name):
 
 def process_campaign(campaign_name):
 	campaign = frappe.get_doc("CRM Email Campaign", campaign_name)
+	import time
 
-	queues = frappe.get_all(
-		"CRM Email Queue",
-		filters={
-			"campaign": campaign.name,
-			"status": "Pending"
-		},
-		fields=["name"]
-	)
+	max_batch_size = 100
+	batch_delay = 5
+	max_retries = 3
+	auto_retry = True
 
-	for row in queues:
+	try:
+		settings = frappe.get_single("CRM Email Settings")
+		max_batch_size = int(settings.max_emails_per_batch or 100)
+		batch_delay = int(settings.batch_delay or 5)
+		max_retries = int(settings.maximum_retry_count or 3)
+		auto_retry = bool(settings.auto_retry_failed_emails)
+	except Exception:
+		pass
+
+	while True:
 		campaign.reload()
 		if campaign.status in ["Paused", "Cancelled"]:
 			break
 
-		queue_doc = frappe.get_doc("CRM Email Queue", row.name)
+		db_filters = [
+			["campaign", "=", campaign.name],
+			["status", "in", ["Pending", "Failed"]]
+		]
+		
+		if not auto_retry:
+			db_filters = [
+				["campaign", "=", campaign.name],
+				["status", "=", "Pending"]
+			]
 
-		try:
-			queue_doc.status = "Processing"
-			queue_doc.save(ignore_permissions=True)
+		queues = frappe.get_all(
+			"CRM Email Queue",
+			filters=db_filters,
+			fields=["name", "status", "retry_count"],
+			limit=max_batch_size
+		)
 
-			send_campaign_email(queue_doc)
+		if not queues:
+			break
 
-			queue_doc.status = "Sent"
-			queue_doc.sent_on = frappe.utils.now()
-			queue_doc.save(ignore_permissions=True)
-		except Exception as e:
-			queue_doc.status = "Failed"
-			queue_doc.error_message = str(e)
-			queue_doc.save(ignore_permissions=True)
+		processed_any = False
+		for row in queues:
+			campaign.reload()
+			if campaign.status in ["Paused", "Cancelled"]:
+				break
 
-		campaign.sent_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "status": "Sent"})
-		campaign.failed_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "status": "Failed"})
-		campaign.save(ignore_permissions=True)
+			if row.status == "Failed" and (row.retry_count or 0) >= max_retries:
+				continue
+
+			queue_doc = frappe.get_doc("CRM Email Queue", row.name)
+			processed_any = True
+
+			try:
+				queue_doc.status = "Processing"
+				queue_doc.retry_count = (queue_doc.retry_count or 0) + 1
+				queue_doc.save(ignore_permissions=True)
+
+				send_campaign_email(queue_doc)
+
+				queue_doc.status = "Sent"
+				queue_doc.sent_on = frappe.utils.now()
+				queue_doc.save(ignore_permissions=True)
+			except Exception as e:
+				queue_doc.status = "Failed"
+				queue_doc.error_message = str(e)
+				queue_doc.save(ignore_permissions=True)
+
+			campaign.sent_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "status": "Sent"})
+			campaign.failed_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "status": "Failed"})
+			campaign.save(ignore_permissions=True)
+
+		if not processed_any:
+			break
+
+		time.sleep(batch_delay)
 
 	remaining = frappe.db.count(
 		"CRM Email Queue",
