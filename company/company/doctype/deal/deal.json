@@ -64,7 +64,7 @@
    "fieldname": "stage",
    "fieldtype": "Select",
    "label": "Stage",
-   "options": "Just In\nWorking\nProposal Sent\nEstimation Created\nEstimation Sent\nInvoice Created\nInvoice Sent\nSpecial Approval\nProject Started\nClosed",
+   "options": "Just In\nWorking\nEstimation Created\nEstimation Sent\nInvoice Created\nInvoice Sent\nSpecial Approval\nProject Started\nClosed",
    "reqd": 1
   },
   {
