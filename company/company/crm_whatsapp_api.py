@@ -119,6 +119,12 @@ def send_whatsapp(phone, message=None, attachment=None):
     )
 
     try:
+        clean_phone = "".join(filter(str.isdigit, str(phone)))
+        if not clean_phone:
+            return {
+                "success": False,
+                "error": "Invalid phone number"
+            }
 
         url = (
             f"https://graph.facebook.com/v23.0/"
@@ -174,7 +180,7 @@ def send_whatsapp(phone, message=None, attachment=None):
 
                 payload = {
                     "messaging_product": "whatsapp",
-                    "to": str(phone),
+                    "to": clean_phone,
                     "type": "image",
                     "image": {
                         "link": file_url,
@@ -188,7 +194,7 @@ def send_whatsapp(phone, message=None, attachment=None):
 
                 payload = {
                     "messaging_product": "whatsapp",
-                    "to": str(phone),
+                    "to": clean_phone,
                     "type": "document",
                     "document": {
                         "link": file_url,
@@ -206,7 +212,7 @@ def send_whatsapp(phone, message=None, attachment=None):
 
             payload = {
                 "messaging_product": "whatsapp",
-                "to": str(phone),
+                "to": clean_phone,
                 "type": "text",
                 "text": {
                     "body": message or ""
@@ -230,7 +236,7 @@ def send_whatsapp(phone, message=None, attachment=None):
 
             text_payload = {
                 "messaging_product": "whatsapp",
-                "to": str(phone),
+                "to": clean_phone,
                 "type": "text",
                 "text": {
                     "body": message
@@ -319,7 +325,7 @@ def send_whatsapp(phone, message=None, attachment=None):
         conversation_name = frappe.db.exists(
             "CRM WhatsApp Conversation",
             {
-                "mobile_number": str(phone)
+                "mobile_number": clean_phone
             }
         )
 
@@ -338,10 +344,10 @@ def send_whatsapp(phone, message=None, attachment=None):
                     "CRM WhatsApp Conversation",
 
                 "mobile_number":
-                    str(phone),
+                    clean_phone,
 
                 "contact_name":
-                    str(phone),
+                    clean_phone,
 
                 "status":
                     "Open",
@@ -359,6 +365,9 @@ def send_whatsapp(phone, message=None, attachment=None):
         # STORE MESSAGE
         # ----------------------------------------------------
 
+        # Try to find a matching lead to link
+        lead_name = frappe.db.get_value("Lead", {"phone_number": ["like", f"%{clean_phone[-10:]}"]})
+
         msg_doc = frappe.get_doc({
 
             "doctype":
@@ -368,7 +377,7 @@ def send_whatsapp(phone, message=None, attachment=None):
                 conversation.name,
 
             "mobile_number":
-                str(phone),
+                clean_phone,
 
             "message_direction":
                 "Outgoing",
@@ -388,6 +397,9 @@ def send_whatsapp(phone, message=None, attachment=None):
             "status":
                 "Sent",
 
+            "lead":
+                lead_name,
+
             "raw_payload":
                 frappe.as_json(
                     result,
@@ -404,22 +416,19 @@ def send_whatsapp(phone, message=None, attachment=None):
         # UPDATE CONVERSATION
         # ----------------------------------------------------
 
+        update_vals = {
+            "last_message_on": frappe.utils.now()
+        }
+
         if message:
-
-            conversation.last_message = message
-
+            update_vals["last_message"] = message
         elif attachment:
+            update_vals["last_message"] = f"{message_type} Sent"
 
-            conversation.last_message = (
-                f"{message_type} Sent"
-            )
-
-        conversation.last_message_on = (
-            frappe.utils.now()
-        )
-
-        conversation.save(
-            ignore_permissions=True
+        frappe.db.set_value(
+            "CRM WhatsApp Conversation",
+            conversation.name,
+            update_vals
         )
 
         frappe.db.commit()
@@ -460,3 +469,51 @@ def send_whatsapp(phone, message=None, attachment=None):
                 frappe.get_traceback()
 
         }
+
+
+# --------------------------------------------------------------------
+# GET WHATSAPP MESSAGES
+# --------------------------------------------------------------------
+
+@frappe.whitelist()
+def get_whatsapp_messages(phone, start=0, limit=10):
+    if not phone:
+        return []
+
+    clean_phone = "".join(filter(str.isdigit, str(phone)))
+
+    conversation_name = frappe.db.get_value(
+        "CRM WhatsApp Conversation",
+        {"mobile_number": clean_phone}
+    )
+
+    if not conversation_name and clean_phone != phone:
+        conversation_name = frappe.db.get_value(
+            "CRM WhatsApp Conversation",
+            {"mobile_number": phone}
+        )
+
+    if not conversation_name:
+        return []
+
+    # Reset unread count
+    frappe.db.set_value(
+        "CRM WhatsApp Conversation",
+        conversation_name,
+        "unread_count",
+        0
+    )
+    frappe.db.commit()
+
+    messages = frappe.get_all(
+        "CRM WhatsApp Message",
+        filters={"conversation": conversation_name},
+        fields=["name", "message_direction", "message_type", "message_content", "attachment", "status", "creation"],
+        order_by="creation desc",
+        limit_start=int(start),
+        limit_page_length=int(limit)
+    )
+
+    messages.reverse()
+
+    return messages

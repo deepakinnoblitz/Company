@@ -196,10 +196,16 @@ Meta Message ID:
 def get_or_create_conversation(phone):
 
     try:
+        clean_phone = "".join(filter(str.isdigit, str(phone)))
 
         conversation_name = frappe.db.get_value(
-            "CRM WhatsApp Conversation", {"mobile_number": phone}
+            "CRM WhatsApp Conversation", {"mobile_number": clean_phone}
         )
+
+        if not conversation_name:
+            conversation_name = frappe.db.get_value(
+                "CRM WhatsApp Conversation", {"mobile_number": phone}
+            )
 
         if conversation_name:
 
@@ -210,7 +216,7 @@ def get_or_create_conversation(phone):
         doc = frappe.get_doc(
             {
                 "doctype": "CRM WhatsApp Conversation",
-                "mobile_number": phone,
+                "mobile_number": clean_phone,
                 "status": "Open",
             }
         )
@@ -240,6 +246,7 @@ def create_message(
 ):
 
     try:
+        clean_phone = "".join(filter(str.isdigit, str(phone)))
 
         if frappe.db.exists(
             "CRM WhatsApp Message", {"meta_message_id": meta_message_id}
@@ -249,16 +256,20 @@ def create_message(
 
             return
 
+        # Try to find a matching lead to link
+        lead_name = frappe.db.get_value("Lead", {"phone_number": ["like", f"%{clean_phone[-10:]}"]})
+
         doc = frappe.get_doc(
             {
                 "doctype": "CRM WhatsApp Message",
                 "conversation": conversation,
-                "mobile_number": phone,
+                "mobile_number": clean_phone,
                 "message_direction": direction,
                 "message_type": message_type,
                 "message_content": body,
                 "meta_message_id": meta_message_id,
                 "status": "Delivered",
+                "lead": lead_name,
                 "raw_payload": json.dumps(raw_payload, indent=2),
             }
         )
