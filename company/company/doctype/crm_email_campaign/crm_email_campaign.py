@@ -302,6 +302,30 @@ def calculate_recipients(campaign_name):
 	return campaign.total_recipients
 
 @frappe.whitelist()
+def preview_recipients(target_type, filters=None):
+    import json
+    import frappe
+
+    filters = json.loads(filters or "[]")
+
+    filters = [
+        frappe._dict(f)
+        for f in filters
+    ]
+
+    campaign = frappe._dict({
+        "target_type": target_type,
+        "filters": filters
+    })
+
+    recipients = get_recipients(campaign)
+
+    return {
+        "count": len(recipients),
+        "recipients": recipients[:100]
+    }
+
+@frappe.whitelist()
 def get_campaign_recipients(campaign_name):
 	campaign = frappe.get_doc("CRM Email Campaign", campaign_name)
 	if campaign.status != "Draft":
