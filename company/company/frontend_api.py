@@ -2,6 +2,8 @@ import frappe
 from frappe.auth import LoginManager
 from frappe import _
 from livekit import api
+from frappe.utils import getdate, add_months, get_first_day, get_last_day, flt
+from datetime import datetime
 
 
 @frappe.whitelist(allow_guest=True)
@@ -3667,3 +3669,390 @@ def get_proposal_by_lead_id(lead_id):
     )
 
     return proposals
+
+# --------------------------------------------------------------------------
+# LEAVE ALLOCATION
+# --------------------------------------------------------------------------
+
+def get_active_leave_types():
+    return frappe.get_all(
+        "Leave Type",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "leave_type_name",
+            "is_paid",
+            "max_leaves",
+            "carry_forward",
+            "reset_frequency"
+        ]
+    )
+
+@frappe.whitelist()
+def get_leave_allocation_preview(year: int, month: int):
+    """
+    Returns a preview of leave allocations for all active employees
+    based on the Leave Type master.
+    """
+
+    year = int(year)
+    month = int(month)
+
+    month_start = get_first_day(datetime(year, month, 1))
+    month_end = get_last_day(datetime(year, month, 1))
+
+    prev_month_start = get_first_day(add_months(month_start, -1))
+    prev_month_end = get_last_day(add_months(month_start, -1))
+
+    freq_map = {
+        "Every 3 months": 3,
+        "Every 4 months": 4,
+        "Every 6 months": 6,
+        "Whole year": 12,
+    }
+
+    # Active Employees
+    employees = frappe.get_all(
+        "Employee",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "employee_id",
+            "employee_name",
+            "date_of_joining",
+            "skip_probation",
+        ],
+    )
+
+    # Active Leave Types
+    leave_types = frappe.get_all(
+        "Leave Type",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "leave_type_name",
+            "is_paid",
+            "max_leaves",
+            "carry_forward",
+            "reset_frequency",
+        ],
+        order_by="creation asc",
+    )
+
+    preview_data = []
+
+    for emp in employees:
+
+        # -----------------------------
+        # Probation Check
+        # -----------------------------
+        in_probation = False
+
+        if emp.date_of_joining and not emp.skip_probation:
+            probation_end = add_months(
+                getdate(emp.date_of_joining),
+                3
+            )
+
+            if probation_end > month_start:
+                in_probation = True
+
+        allocations = []
+
+        for leave in leave_types:
+
+            # Skip paid leave during probation
+            if in_probation and leave.is_paid:
+                continue
+
+            # Already allocated?
+            exists = frappe.db.exists(
+                "Leave Allocation",
+                {
+                    "employee": emp.name,
+                    "leave_type": leave.name,
+                    "from_date": month_start,
+                    "to_date": month_end,
+                    "status": "Approved",
+                },
+            )
+
+            carry_forward_balance = 0
+            base_count = leave.max_leaves or 0
+
+            # -----------------------------
+            # Carry Forward Calculation
+            # -----------------------------
+            if leave.carry_forward:
+
+                frequency = leave.reset_frequency or "Every 3 months"
+
+                reset_interval = freq_map.get(
+                    frequency,
+                    3,
+                )
+
+                is_reset_month = (
+                    (month - 1) % reset_interval
+                ) == 0
+
+                if not is_reset_month:
+
+                    prev_alloc = frappe.get_value(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave.name,
+                            "from_date": prev_month_start,
+                            "to_date": prev_month_end,
+                            "status": "Approved",
+                        },
+                        [
+                            "total_leaves_allocated",
+                            "total_leaves_taken",
+                        ],
+                        as_dict=True,
+                    )
+
+                    if prev_alloc:
+
+                        balance = (
+                            flt(prev_alloc.total_leaves_allocated)
+                            - flt(prev_alloc.total_leaves_taken)
+                        )
+
+                        if balance > 0:
+                            carry_forward_balance = balance
+
+            allocations.append({
+                "leave_type": leave.name,
+                "leave_type_name": leave.leave_type_name,
+                "base_leaves": base_count,
+                "carry_forward_balance": carry_forward_balance,
+                "total_leaves": base_count + carry_forward_balance,
+                "exists": bool(exists),
+                "is_paid": leave.is_paid,
+                "carry_forward": leave.carry_forward,
+                "reset_frequency": leave.reset_frequency,
+            })
+
+        preview_data.append({
+            "employee": emp.name,
+            "employee_id": emp.employee_id,
+            "employee_name": emp.employee_name,
+            "date_of_joining": emp.date_of_joining,
+            "in_probation": in_probation,
+            "allocations": allocations,
+        })
+
+    return preview_data
+
+@frappe.whitelist()
+def auto_allocate_monthly_leaves(year: int, month: int):
+    """
+    Automatically allocate leaves for all active employees
+    based on the Leave Type master.
+    """
+
+    year = int(year)
+    month = int(month)
+
+    try:
+        month_start = get_first_day(datetime(year, month, 1))
+        month_end = get_last_day(datetime(year, month, 1))
+
+        prev_month_start = get_first_day(add_months(month_start, -1))
+        prev_month_end = get_last_day(add_months(month_start, -1))
+
+        # Active Employees
+        employees = frappe.get_all(
+            "Employee",
+            filters={"status": "Active"},
+            fields=[
+                "name",
+                "employee_id",
+                "employee_name",
+                "date_of_joining",
+                "skip_probation",
+            ],
+        )
+
+        # Active Leave Types
+        leave_types = frappe.get_all(
+            "Leave Type",
+            filters={"status": "Active"},
+            fields=[
+                "name",
+                "leave_type_name",
+                "is_paid",
+                "max_leaves",
+                "carry_forward",
+                "reset_frequency",
+            ],
+            order_by="creation asc",
+        )
+
+        freq_map = {
+            "Every 3 months": 3,
+            "Every 4 months": 4,
+            "Every 6 months": 6,
+            "Whole year": 12,
+        }
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+        created_details = []
+
+        for emp in employees:
+
+            # ------------------------
+            # Probation Check
+            # ------------------------
+            in_probation = False
+
+            if emp.date_of_joining and not emp.skip_probation:
+                probation_end = add_months(
+                    getdate(emp.date_of_joining), 3
+                )
+
+                if probation_end > month_start:
+                    in_probation = True
+
+            # ------------------------
+            # Loop Through Leave Types
+            # ------------------------
+            for leave in leave_types:
+
+                leave_type = leave.leave_type_name
+                base_leave_count = leave.max_leaves or 0
+
+                try:
+
+                    # Skip Paid Leave during probation
+                    if in_probation and leave.is_paid:
+                        continue
+
+                    # Skip if already allocated
+                    if frappe.db.exists(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave_type,
+                            "from_date": month_start,
+                            "to_date": month_end,
+                            "status": "Approved",
+                        },
+                    ):
+                        skipped_count += 1
+                        continue
+
+                    # Previous Allocation
+                    prev_alloc = frappe.get_value(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave_type,
+                            "from_date": prev_month_start,
+                            "to_date": prev_month_end,
+                            "status": "Approved",
+                        },
+                        [
+                            "total_leaves_allocated",
+                            "total_leaves_taken",
+                        ],
+                        as_dict=True,
+                    )
+
+                    carry_forward_balance = 0
+                    leave_count = base_leave_count
+
+                    # ------------------------
+                    # Carry Forward Logic
+                    # ------------------------
+                    if leave.carry_forward:
+
+                        frequency = (
+                            leave.reset_frequency
+                            or "Every 3 months"
+                        )
+
+                        reset_interval = freq_map.get(
+                            frequency,
+                            3,
+                        )
+
+                        is_reset_month = (
+                            (month - 1) % reset_interval
+                        ) == 0
+
+                        if is_reset_month:
+                            carry_forward_balance = 0
+
+                        elif prev_alloc:
+
+                            balance = (
+                                flt(
+                                    prev_alloc.total_leaves_allocated
+                                )
+                                - flt(
+                                    prev_alloc.total_leaves_taken
+                                )
+                            )
+
+                            if balance > 0:
+                                carry_forward_balance = balance
+
+                    total_allocation = (
+                        leave_count + carry_forward_balance
+                    )
+
+                    # ------------------------
+                    # Create Allocation
+                    # ------------------------
+                    allocation = frappe.get_doc(
+                        {
+                            "doctype": "Leave Allocation",
+                            "employee": emp.name,
+                            "leave_type": leave_type,
+                            "from_date": month_start,
+                            "to_date": month_end,
+                            "total_leaves_allocated": total_allocation,
+                            "total_leaves_taken": 0,
+                            "status": "Approved",
+                        }
+                    )
+
+                    allocation.insert(
+                        ignore_permissions=True,
+                        ignore_mandatory=True,
+                    )
+
+                    created_count += 1
+
+                    created_details.append(
+                        {
+                            "employee_name": emp.employee_name,
+                            "employee_id": emp.employee_id,
+                            "leave_type": leave_type,
+                            "allocated": total_allocation,
+                            "carry_forward": carry_forward_balance,
+                        }
+                    )
+
+                except Exception as e:
+                    errors.append(
+                        f"{emp.employee_id} - {leave_type} - {str(e)}"
+                    )
+
+        frappe.db.commit()
+
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "created_details": created_details,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        frappe.throw(f"Error in auto leave allocation: {e}")
