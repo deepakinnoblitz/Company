@@ -1213,7 +1213,7 @@ def has_approved_leave(employee, from_date, to_date, exclude_doc=None):
 #         f"Total taken now: {new_taken} minutes."
 #     )
 
-def sync_future_leave_allocations(employee, leave_type, from_date):
+def sync_future_leave_allocations(employee, leave_type, from_date, previous_balance):
     """
     Recalculate future carry-forward allocations until the next reset period.
     """
@@ -1255,157 +1255,145 @@ def sync_future_leave_allocations(employee, leave_type, from_date):
     if len(allocations) <= 1:
         return
 
-    # Current month's remaining balance
-    previous_balance = (
-        flt(allocations[0].total_leaves_allocated)
-        - flt(allocations[0].total_leaves_taken)
-    )
-
     # Update future months
-    for alloc in allocations[1:]:
+    base = flt(leave.max_leaves)
 
-        month = getdate(alloc.from_date).month
+    for index, alloc in enumerate(allocations[1:], start=1):
 
-        # Stop at reset month
-        if ((month - 1) % reset_interval) == 0:
+        # Stop at the configured reset interval
+        if index >= reset_interval:
             break
 
-        new_total = flt(leave.max_leaves) + max(previous_balance, 0)
+        carry = max(previous_balance, 0)
 
-        frappe.db.set_value(
-            "Leave Allocation",
-            alloc.name,
-            "total_leaves_allocated",
-            new_total
-        )
+        new_total = base + carry
 
-        previous_balance = (
-            new_total
-            - flt(alloc.total_leaves_taken)
-        )
+        if flt(alloc.total_leaves_allocated) != new_total:
+            frappe.db.set_value(
+                "Leave Allocation",
+                alloc.name,
+                "total_leaves_allocated",
+                new_total
+            )
 
-        sync_future_leave_allocations(
-            doc.employee,
-            doc.leave_type,
-            alloc.from_date
+        previous_balance = max(
+            0,
+            new_total - flt(alloc.total_leaves_taken)
         )
 
 def update_leave_allocation(doc, method=None):
     """
-    Unified hook for Leave Application — updates Leave Allocation when workflow is Approved.
-    Handles Permission (in minutes) and other Leave Types (in days).
+    Update Leave Allocation when Leave Application is Approved.
+    Deducts only from the current month's allocation and
+    recalculates future carry-forward allocations.
     """
-    # ✅ Run only when workflow state is Approved
+
+    if getattr(doc.flags, "in_delete", False):
+        return
+
     if doc.workflow_state != "Approved":
         return
 
-    # 🚫 Prevent double deduction if it was already approved
     before_save = doc.get_doc_before_save()
     if before_save and before_save.workflow_state == "Approved":
         return
 
-    if not doc.leave_type or not doc.employee:
+    if not doc.employee or not doc.leave_type:
         return
 
     leave_type_lower = doc.leave_type.lower()
-    
-    # 1️⃣ Calculate amount to add
+
+    # -----------------------------
+    # Calculate Leave Amount
+    # -----------------------------
     if leave_type_lower == "permission":
+
         if not doc.permission_hours:
-            frappe.throw("Permission Hours are required for Permission leave type.")
+            frappe.throw("Permission Hours are required.")
+
         to_add = flt(doc.permission_hours)
         unit = "minutes"
+
     else:
-        # For Paid Leave, Unpaid Leave, etc.
-        from_date = getdate(doc.from_date)
-        to_date = getdate(doc.to_date)
-        to_add = (to_date - from_date).days + 1
+
+        to_add = (
+            getdate(doc.to_date)
+            - getdate(doc.from_date)
+        ).days + 1
+
         if doc.half_day:
             to_add = 0.5
+
         unit = "days"
 
-    # 2️⃣ Fetch ALL Approved Leave Allocations (Current + Future)
-    allocations = frappe.get_all(
+    # -----------------------------
+    # Current Month Allocation
+    # -----------------------------
+    allocation = frappe.get_value(
         "Leave Allocation",
-        filters={
+        {
             "employee": doc.employee,
             "leave_type": doc.leave_type,
             "status": "Approved",
-            "to_date": [">=", doc.from_date]
+            "from_date": ["<=", doc.from_date],
+            "to_date": [">=", doc.to_date],
         },
-        fields=["name", "from_date", "total_leaves_allocated", "total_leaves_taken"],
-        order_by="from_date asc"
+        [
+            "name",
+            "from_date",
+            "total_leaves_allocated",
+            "total_leaves_taken",
+        ],
+        as_dict=True,
     )
 
-    if not allocations:
-        frappe.msgprint(f"No Leave Allocation found for {doc.employee} - {doc.leave_type}")
-        return
+    if not allocation:
+        frappe.throw(
+            f"No Leave Allocation found for {doc.employee}"
+        )
 
-    # 3️⃣ Sequential Deduction
-    remainder = to_add
-    updated_allocations = []
+    allocated = flt(allocation.total_leaves_allocated)
+    taken = flt(allocation.total_leaves_taken)
 
-    for alloc in allocations:
-        if remainder <= 0:
-            break
-        
-        taken = flt(alloc.total_leaves_taken)
-        allocated = flt(alloc.total_leaves_allocated)
-        available_in_this_alloc = max(0, allocated - taken)
+    available = allocated - taken
 
-        if available_in_this_alloc > 0:
-            deduct = min(remainder, available_in_this_alloc)
-            new_taken = taken + deduct
-            frappe.db.set_value("Leave Allocation", alloc.name, "total_leaves_taken", new_taken)
-            
-            # ✅ Sync future months if this is a carry-forward change
-            sync_future_leave_allocations(doc.employee, doc.leave_type, alloc.from_date, deduct)
+    if available < to_add:
+        frappe.throw(
+            f"Only {available} {unit} available."
+        )
 
-            remainder -= deduct
-            updated_allocations.append({
-                "name": alloc.name,
-                "added": deduct,
-                "total": new_taken
-            })
+    new_taken = taken + to_add
 
-    # If there is still a remainder, add it to the LAST allocation (overflow)
-    if remainder > 0:
-        last_alloc = allocations[-1]
-        new_taken = flt(last_alloc.total_leaves_taken) + remainder
-        # If we already updated this one in the loop, we should update it again with the extra
-        # Actually, if it's the last one, it was already processed in the loop if it had space.
-        # If it didn't have space, it wasn't.
-        # Let's just update it anyway to ensure all 'to_add' is accounted for.
-        frappe.db.set_value("Leave Allocation", last_alloc.name, "total_leaves_taken", new_taken)
-        
-        # ✅ Sync future months for the overflow part too
-        sync_future_leave_allocations(doc.employee, doc.leave_type, last_alloc.from_date)
+    frappe.db.set_value(
+        "Leave Allocation",
+        allocation.name,
+        "total_leaves_taken",
+        new_taken
+    )
 
-        # Update our list for the message
-        found = False
-        for ua in updated_allocations:
-            if ua["name"] == last_alloc.name:
-                ua["added"] += remainder
-                ua["total"] = new_taken
-                found = True
-                break
-        if not found:
-            updated_allocations.append({
-                "name": last_alloc.name,
-                "added": remainder,
-                "total": new_taken
-            })
+    previous_balance = max(
+        0,
+        allocated - new_taken
+    )
+
+    sync_future_leave_allocations(
+        doc.employee,
+        doc.leave_type,
+        allocation.from_date,
+        previous_balance
+    )
 
     frappe.db.commit()
 
-    # 4️⃣ Format Message
-    msg = f"✅ {doc.leave_type} updated for {doc.employee}.<br>"
-    msg += f"Total Added: {to_add} {unit}.<br><br>"
-    msg += "<b>Deduction Breakdown:</b><br>"
-    for ua in updated_allocations:
-        msg += f"- {ua['name']}: {ua['added']} {unit} added (Total: {ua['total']})<br>"
+    frappe.msgprint(
+        f"""
+        <b>{doc.leave_type}</b> updated successfully.<br><br>
 
-    frappe.msgprint(msg)
+        Allocated : <b>{allocated}</b><br>
+        Taken : <b>{new_taken}</b><br>
+        Remaining : <b>{previous_balance}</b>
+        """
+    )
 
 
 
