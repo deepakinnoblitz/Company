@@ -146,7 +146,6 @@ scheduler_events = {
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",
-        "company.company.presence_api.force_offline_all",
         "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards",
         "company.company.doctype.crm_email_settings.crm_email_settings.daily_queue_cleanup"
     ]
