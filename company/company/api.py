@@ -933,13 +933,10 @@ def get_today_leave_employees():
 
     today_date = getdate(today())
 
-    allowed_leave_types = ["Paid Leave", "Unpaid Leave"]
-
     leave_apps = frappe.get_all(
         "Leave Application",
         filters={
             "workflow_state": "Approved",
-            "leave_type": ["in", allowed_leave_types],
             "from_date": ["<=", today_date],
             "to_date": [">=", today_date],
         },
@@ -952,7 +949,6 @@ def get_today_leave_employees():
         app["to_date"] = str(app["to_date"])
 
     return leave_apps
-
 
 
 
@@ -1217,61 +1213,82 @@ def has_approved_leave(employee, from_date, to_date, exclude_doc=None):
 #         f"Total taken now: {new_taken} minutes."
 #     )
 
-def sync_future_leave_allocations(employee, leave_type, from_date, delta):
+def sync_future_leave_allocations(employee, leave_type, from_date):
     """
-    If leave balance of an allocation changes by delta,
-    cascades this change to all future contiguous allocations (if any).
-    delta > 0: more leave taken (balance decreases in next month's allocated)
-    delta < 0: leave cancelled (balance increases in next month's allocated)
+    Recalculate future carry-forward allocations until the next reset period.
     """
-    if leave_type != "Paid Leave":
+
+    leave = frappe.get_doc("Leave Type", leave_type)
+
+    if not leave.carry_forward:
         return
 
-    # Find the next contiguous monthly allocation
-    current_month_end = get_last_day(getdate(from_date))
-    next_month_start = add_days(current_month_end, 1)
+    freq_map = {
+        "Every 3 months": 3,
+        "Every 4 months": 4,
+        "Every 6 months": 6,
+        "Whole year": 12,
+    }
 
-    next_alloc = frappe.get_all(
+    reset_interval = freq_map.get(
+        leave.reset_frequency,
+        3
+    )
+
+    allocations = frappe.get_all(
         "Leave Allocation",
         filters={
             "employee": employee,
             "leave_type": leave_type,
-            "from_date": next_month_start,
-            "status": "Approved"
+            "status": "Approved",
+            "from_date": [">=", from_date]
         },
-        fields=["name", "total_leaves_allocated"],
-        limit=1
+        fields=[
+            "name",
+            "from_date",
+            "total_leaves_allocated",
+            "total_leaves_taken",
+        ],
+        order_by="from_date asc",
     )
 
-    if next_alloc:
-        next_alloc = next_alloc[0]
-        
-        # 1️⃣ Fetch reset frequency from Leave Type
-        paid_leave_frequency = frappe.db.get_value("Leave Type", "Paid Leave", "reset_frequency") or "Every 3 months"
-        
-        freq_map = {
-            "Every 3 months": 3,
-            "Every 4 months": 4,
-            "Every 6 months": 6,
-            "Whole year": 12
-        }
-        reset_interval = freq_map.get(paid_leave_frequency, 3)
+    if len(allocations) <= 1:
+        return
 
-        # 2️⃣ Check if NEXT month is a calendar-based reset month (Start of a fresh period)
-        # If it is a reset month, we STOP cascading the carry-forward balance.
-        next_month = next_month_start.month
-        is_reset_month = (next_month - 1) % reset_interval == 0
+    # Current month's remaining balance
+    previous_balance = (
+        flt(allocations[0].total_leaves_allocated)
+        - flt(allocations[0].total_leaves_taken)
+    )
 
-        if is_reset_month:
-            # Reached a restart point, stop cascading carry-forward
-            return
+    # Update future months
+    for alloc in allocations[1:]:
 
-        # 3️⃣ Apply delta and ripple forward
-        new_total_allocated = flt(next_alloc.total_leaves_allocated) - delta
-        frappe.db.set_value("Leave Allocation", next_alloc.name, "total_leaves_allocated", new_total_allocated)
-        
-        # Ripple forward recursively
-        sync_future_leave_allocations(employee, leave_type, next_month_start, delta)
+        month = getdate(alloc.from_date).month
+
+        # Stop at reset month
+        if ((month - 1) % reset_interval) == 0:
+            break
+
+        new_total = flt(leave.max_leaves) + max(previous_balance, 0)
+
+        frappe.db.set_value(
+            "Leave Allocation",
+            alloc.name,
+            "total_leaves_allocated",
+            new_total
+        )
+
+        previous_balance = (
+            new_total
+            - flt(alloc.total_leaves_taken)
+        )
+
+        sync_future_leave_allocations(
+            doc.employee,
+            doc.leave_type,
+            alloc.from_date
+        )
 
 def update_leave_allocation(doc, method=None):
     """
@@ -1362,7 +1379,7 @@ def update_leave_allocation(doc, method=None):
         frappe.db.set_value("Leave Allocation", last_alloc.name, "total_leaves_taken", new_taken)
         
         # ✅ Sync future months for the overflow part too
-        sync_future_leave_allocations(doc.employee, doc.leave_type, last_alloc.from_date, remainder)
+        sync_future_leave_allocations(doc.employee, doc.leave_type, last_alloc.from_date)
 
         # Update our list for the message
         found = False
