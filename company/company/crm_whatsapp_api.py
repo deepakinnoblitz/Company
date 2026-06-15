@@ -159,8 +159,9 @@ def send_whatsapp(phone, message=None, attachment=None):
                     file_doc
                 )
             else:
+                import urllib.parse
                 file_url = frappe.utils.get_url(
-                    file_doc.file_url
+                    urllib.parse.quote(file_doc.file_url, safe='/')
                 )
 
             extension = (
