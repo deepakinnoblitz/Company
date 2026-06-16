@@ -25,23 +25,12 @@ class LeaveApplication(Document):
 
     def validate(self):
         self.validate_dates()
-        self.validate_probation_period()
 
     def validate_dates(self):
         from frappe.utils import getdate
         if self.from_date and self.to_date:
             if getdate(self.to_date) < getdate(self.from_date):
                 frappe.throw("To Date cannot be before From Date")
-
-    def validate_probation_period(self):
-        if self.leave_type == "Paid Leave":
-            from company.company.api import get_employee_probation_info
-            probation_info = get_employee_probation_info(self.employee, self.from_date)
-            if probation_info.get("in_probation"):
-                frappe.throw(
-                    _("Paid Leave is not available during probation period (until {0}).")
-                    .format(frappe.utils.formatdate(probation_info.get("probation_end_date")))
-                )
 
     # =================================================
     # ALL WORKFLOW CHANGES AFTER SUBMIT
