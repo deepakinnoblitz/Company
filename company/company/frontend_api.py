@@ -3791,11 +3791,13 @@ def get_leave_allocation_preview(year: int, month: int):
 
         if emp.date_of_joining and not emp.skip_probation:
 
+            current_date = getdate(today())
+
             in_probation = any(
                 add_months(
                     getdate(emp.date_of_joining),
                     lt.probation_period_months or 3
-                ) > month_start
+                ) >= current_date
                 for lt in leave_types
                 if lt.restrict_during_probation
             )
@@ -3817,7 +3819,7 @@ def get_leave_allocation_preview(year: int, month: int):
                     leave.probation_period_months or 3,
                 )
 
-                leave_in_probation = probation_end > month_start
+                leave_in_probation = probation_end > month_end
 
             if leave_in_probation:
                 continue
@@ -3967,7 +3969,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         leave.probation_period_months or 3,
                     )
 
-                    if probation_end > month_start:
+                    if probation_end > month_end:
                         continue
 
                 leave_type = leave.leave_type_name
