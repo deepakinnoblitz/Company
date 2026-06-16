@@ -27,7 +27,7 @@ app_include_js = [
     "/assets/company/js/custom_back_button.js",
     "/assets/company/js/birthday_animation.js",
     "/assets/company/js/custom_sidebar_menu.js",
-    "/assets/company/js/default_phone_no.js",
+    # "/assets/company/js/default_phone_no.js",
     "/assets/company/js/logo.js",
     "/assets/company/js/clear_cache.js?v=2",
     # "/assets/company/js/profile_picture.js",
