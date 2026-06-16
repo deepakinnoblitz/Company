@@ -1950,7 +1950,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         total_days_in_period = frappe.utils.getdate(end_date).day
     
     # Get probation info
-    from company.company.api import get_employee_probation_info
     probation_info = get_employee_probation_info(employee)
     
     data = {
