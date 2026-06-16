@@ -1960,7 +1960,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         "start_date": str(start_date),
         "end_date": str(end_date),
         "total_days_in_period": total_days_in_period,
-        "in_probation": probation_info.get("in_probation", False)
+        "in_probation": probation_info.get("is_probation", False)
     }
 
     # 1. Last 7 Days Attendance with Check-in/Out Times
