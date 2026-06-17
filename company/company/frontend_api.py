@@ -2,7 +2,7 @@ import frappe
 from frappe.auth import LoginManager
 from frappe import _
 from livekit import api
-from frappe.utils import getdate, add_months, get_first_day, get_last_day, flt
+from frappe.utils import getdate, add_months, get_first_day, get_last_day, flt, today
 from datetime import datetime
 
 
@@ -1950,7 +1950,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         total_days_in_period = frappe.utils.getdate(end_date).day
     
     # Get probation info
-    from company.company.api import get_employee_probation_info
     probation_info = get_employee_probation_info(employee)
     
     data = {
@@ -1960,7 +1959,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         "start_date": str(start_date),
         "end_date": str(end_date),
         "total_days_in_period": total_days_in_period,
-        "in_probation": probation_info.get("in_probation", False)
+        "in_probation": probation_info.get("is_probation", False)
     }
 
     # 1. Last 7 Days Attendance with Check-in/Out Times
@@ -2100,28 +2099,76 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     # 2. Leave Allocations by Type (for Leave Status cards)
     try:
         leave_allocations = frappe.db.sql("""
-            SELECT 
-                leave_type, 
-                total_leaves_allocated, 
-                total_leaves_taken
-            FROM `tabLeave Allocation`
-            WHERE employee = %s
-            AND from_date <= %s
-            AND to_date >= %s
-            AND docstatus < 2
+            SELECT
+                la.leave_type,
+                la.total_leaves_allocated,
+                la.total_leaves_taken,
+                lt.is_paid
+            FROM `tabLeave Allocation` la
+            INNER JOIN `tabLeave Type` lt
+                ON lt.name = la.leave_type
+            WHERE
+                la.employee = %s
+                AND la.from_date <= %s
+                AND la.to_date >= %s
+                AND la.docstatus < 2
+                AND lt.status = 'Active'
         """, (employee, today, today), as_dict=True)
-        
+
+        paid_allocated = 0
+        paid_taken = 0
+
+        unpaid_allocated = 0
+        unpaid_taken = 0
+
+        permission_allocated = 0
+        permission_taken = 0
+
+        for l in leave_allocations:
+
+            allocated = flt(l.total_leaves_allocated)
+            taken = flt(l.total_leaves_taken)
+
+            # Permission (separate)
+            if l.leave_type == "Permission":
+                permission_allocated += allocated
+                permission_taken += taken
+
+            # Paid Leave (sum all paid leave types)
+            elif l.is_paid:
+                paid_allocated += allocated
+                paid_taken += taken
+
+            # Unpaid Leave (sum every non-paid leave except Permission)
+            else:
+                unpaid_allocated += allocated
+                unpaid_taken += taken
+
         data["leave_allocations"] = [
             {
-                "leave_type": l.get("leave_type"),
-                "total_leaves_allocated": float(l.get("total_leaves_allocated") or 0),
-                "total_leaves_taken": float(l.get("total_leaves_taken") or 0),
-                "unused_leaves": 0.0 # Field doesn't exist in table
-            } for l in leave_allocations
+                "leave_type": "Paid Leave",
+                "total_leaves_allocated": paid_allocated,
+                "total_leaves_taken": paid_taken,
+                "unused_leaves": paid_allocated - paid_taken,
+            },
+            {
+                "leave_type": "Unpaid Leave",
+                "total_leaves_allocated": unpaid_allocated,
+                "total_leaves_taken": unpaid_taken,
+                "unused_leaves": unpaid_allocated - unpaid_taken,
+            },
+            {
+                "leave_type": "Permission",
+                "total_leaves_allocated": permission_allocated,
+                "total_leaves_taken": permission_taken,
+                "unused_leaves": permission_allocated - permission_taken,
+            },
         ]
-    except Exception as e:
-        frappe.log_error(f"Error fetching leave allocations: {str(e)}")
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Error fetching leave allocations")
         data["leave_allocations"] = []
+
 
     # -------------------- HOLIDAY DEBUG --------------------
     try:
@@ -3684,8 +3731,11 @@ def get_active_leave_types():
             "is_paid",
             "max_leaves",
             "carry_forward",
-            "reset_frequency"
-        ]
+            "reset_frequency",
+            "restrict_during_probation",
+            "probation_period_months",
+        ],
+        order_by="creation asc",
     )
 
 @frappe.whitelist()
@@ -3725,44 +3775,52 @@ def get_leave_allocation_preview(year: int, month: int):
     )
 
     # Active Leave Types
-    leave_types = frappe.get_all(
-        "Leave Type",
-        filters={"status": "Active"},
-        fields=[
-            "name",
-            "leave_type_name",
-            "is_paid",
-            "max_leaves",
-            "carry_forward",
-            "reset_frequency",
-        ],
-        order_by="creation asc",
-    )
+    leave_types = get_active_leave_types()
 
     preview_data = []
 
     for emp in employees:
 
-        # -----------------------------
-        # Probation Check
-        # -----------------------------
+        allocations = []
+
+        # ---------------------------------
+        # Employee Probation Status (UI)
+        # ---------------------------------
         in_probation = False
 
         if emp.date_of_joining and not emp.skip_probation:
-            probation_end = add_months(
-                getdate(emp.date_of_joining),
-                3
+
+            current_date = getdate(today())
+
+            in_probation = any(
+                add_months(
+                    getdate(emp.date_of_joining),
+                    lt.probation_period_months or 3
+                ) >= current_date
+                for lt in leave_types
+                if lt.restrict_during_probation
             )
-
-            if probation_end > month_start:
-                in_probation = True
-
-        allocations = []
 
         for leave in leave_types:
 
-            # Skip paid leave during probation
-            if in_probation and leave.is_paid:
+            # ---------------------------------
+            # Leave Type Probation Check
+            # ---------------------------------
+            leave_in_probation = False
+
+            if (
+                leave.restrict_during_probation
+                and not emp.skip_probation
+                and emp.date_of_joining
+            ):
+                probation_end = add_months(
+                    getdate(emp.date_of_joining),
+                    leave.probation_period_months or 3,
+                )
+
+                leave_in_probation = probation_end > month_end
+
+            if leave_in_probation:
                 continue
 
             # Already allocated?
@@ -3878,19 +3936,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
         )
 
         # Active Leave Types
-        leave_types = frappe.get_all(
-            "Leave Type",
-            filters={"status": "Active"},
-            fields=[
-                "name",
-                "leave_type_name",
-                "is_paid",
-                "max_leaves",
-                "carry_forward",
-                "reset_frequency",
-            ],
-            order_by="creation asc",
-        )
+        leave_types = get_active_leave_types()
 
         freq_map = {
             "Every 3 months": 3,
@@ -3907,38 +3953,35 @@ def auto_allocate_monthly_leaves(year: int, month: int):
         for emp in employees:
 
             # ------------------------
-            # Probation Check
-            # ------------------------
-            in_probation = False
-
-            if emp.date_of_joining and not emp.skip_probation:
-                probation_end = add_months(
-                    getdate(emp.date_of_joining), 3
-                )
-
-                if probation_end > month_start:
-                    in_probation = True
-
-            # ------------------------
             # Loop Through Leave Types
             # ------------------------
             for leave in leave_types:
+
+                # Probation
+                if (
+                    leave.restrict_during_probation
+                    and not emp.skip_probation
+                    and emp.date_of_joining
+                ):
+                    probation_end = add_months(
+                        getdate(emp.date_of_joining),
+                        leave.probation_period_months or 3,
+                    )
+
+                    if probation_end > month_end:
+                        continue
 
                 leave_type = leave.leave_type_name
                 base_leave_count = leave.max_leaves or 0
 
                 try:
 
-                    # Skip Paid Leave during probation
-                    if in_probation and leave.is_paid:
-                        continue
-
                     # Skip if already allocated
                     if frappe.db.exists(
                         "Leave Allocation",
                         {
                             "employee": emp.name,
-                            "leave_type": leave_type,
+                            "leave_type": leave.name,
                             "from_date": month_start,
                             "to_date": month_end,
                             "status": "Approved",
@@ -3952,7 +3995,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         "Leave Allocation",
                         {
                             "employee": emp.name,
-                            "leave_type": leave_type,
+                            "leave_type": leave.name,
                             "from_date": prev_month_start,
                             "to_date": prev_month_end,
                             "status": "Approved",
@@ -4014,7 +4057,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         {
                             "doctype": "Leave Allocation",
                             "employee": emp.name,
-                            "leave_type": leave_type,
+                            "leave_type": leave.name,
                             "from_date": month_start,
                             "to_date": month_end,
                             "total_leaves_allocated": total_allocation,
@@ -4034,7 +4077,7 @@ def auto_allocate_monthly_leaves(year: int, month: int):
                         {
                             "employee_name": emp.employee_name,
                             "employee_id": emp.employee_id,
-                            "leave_type": leave_type,
+                            "leave_type": leave.name,
                             "allocated": total_allocation,
                             "carry_forward": carry_forward_balance,
                         }
@@ -4056,3 +4099,76 @@ def auto_allocate_monthly_leaves(year: int, month: int):
 
     except Exception as e:
         frappe.throw(f"Error in auto leave allocation: {e}")
+
+
+@frappe.whitelist()
+def get_employee_probation_info(employee, date=None):
+    """
+    Returns probation status and restricted leave types for an employee.
+    """
+
+    if not employee:
+        return {
+            "is_probation": False,
+            "restricted_types": [],
+            "probation_end_date": None,
+        }
+
+    emp = frappe.db.get_value(
+        "Employee",
+        employee,
+        ["date_of_joining", "skip_probation"],
+        as_dict=True,
+    )
+
+    if (
+        not emp
+        or not emp.date_of_joining
+        or emp.skip_probation
+    ):
+        return {
+            "is_probation": False,
+            "restricted_types": [],
+            "probation_end_date": None,
+        }
+
+    check_date = getdate(date) if date else getdate(today())
+
+    leave_types = frappe.get_all(
+        "Leave Type",
+        filters={
+            "status": "Active",
+            "restrict_during_probation": 1,
+        },
+        fields=[
+            "name",
+            "probation_period_months",
+        ],
+    )
+
+    restricted_types = []
+    probation_end_date = None
+
+    for leave in leave_types:
+
+        months = leave.probation_period_months or 3
+
+        end_date = add_months(
+            getdate(emp.date_of_joining),
+            months,
+        )
+
+        if end_date >= check_date:
+            restricted_types.append(leave.name)
+
+            if (
+                probation_end_date is None
+                or end_date > probation_end_date
+            ):
+                probation_end_date = end_date
+
+    return {
+        "is_probation": bool(restricted_types),
+        "restricted_types": restricted_types,
+        "probation_end_date": probation_end_date,
+    }

@@ -27,7 +27,7 @@ app_include_js = [
     "/assets/company/js/custom_back_button.js",
     "/assets/company/js/birthday_animation.js",
     "/assets/company/js/custom_sidebar_menu.js",
-    "/assets/company/js/default_phone_no.js",
+    # "/assets/company/js/default_phone_no.js",
     "/assets/company/js/logo.js",
     "/assets/company/js/clear_cache.js?v=2",
     # "/assets/company/js/profile_picture.js",
@@ -146,7 +146,6 @@ scheduler_events = {
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",
-        "company.company.presence_api.force_offline_all",
         "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards",
         "company.company.doctype.crm_email_settings.crm_email_settings.daily_queue_cleanup"
     ]
@@ -165,7 +164,7 @@ spa_routes = [
     "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
     "products", "invoices", "estimations", "blog", "employee", "attendance",
     "leaves", "leave-allocations", "payroll", "requests", "announcements",
-    "assets", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
+    "asset", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
