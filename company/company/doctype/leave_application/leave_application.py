@@ -59,17 +59,18 @@ class LeaveApplication(Document):
         emp_emails, primary_email = self.get_employee_emails()
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
-        self.send_email(
-            recipients=emp_emails,
-            subject="❌ Leave Rejected",
-            header="Leave Rejected",
-            icon="❌",
-            intro="Your leave application has been rejected/cancelled.",
-            greeting=f"Hello {self.employee_name},",
-            color="#dc3545",
-            sender=sender,
-            reply_to=hr_email
-        )
+        if emp_emails:
+            self.send_email(
+                recipients=emp_emails,
+                subject="❌ Leave Rejected",
+                header="Leave Rejected",
+                icon="❌",
+                intro="Your leave application has been rejected/cancelled.",
+                greeting=f"Hello {self.employee_name},",
+                color="#dc3545",
+                sender=sender,
+                reply_to=hr_email
+            )
 
         # InnoChat Notification to Employee
         receiver = frappe.db.get_value("Employee", self.employee, "user")
@@ -242,28 +243,26 @@ class LeaveApplication(Document):
         hr_email = hr_settings.get("hr_email")
         cc_emails = hr_settings.get("hr_cc_emails")
 
-        if not hr_email:
-            return
-
         emp_emails, primary_email = self.get_employee_emails()
         sender_name = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
-
+    
         cc_list = []
         if cc_emails:
             cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
-
-        self.send_email(
-            recipients=[hr_email],
-            cc=cc_list,
-            subject=f"📩 New Leave Request - {self.employee_name}",
-            header="New Leave Request",
-            icon="📩",
-            intro=f"{self.employee_name} has submitted a leave application.",
-            greeting="Dear HR,",
-            color="#0062cc",
-            sender=sender_name,
-            reply_to=primary_email or hr_email
-        )
+        
+        if hr_email:
+            self.send_email(
+                recipients=[hr_email],
+                cc=cc_list,
+                subject=f"📩 New Leave Request - {self.employee_name}",
+                header="New Leave Request",
+                icon="📩",
+                intro=f"{self.employee_name} has submitted a leave application.",
+                greeting="Dear HR,",
+                color="#0062cc",
+                sender=sender_name,
+                reply_to=primary_email or hr_email
+            )
 
         # Notication to Chat
 
@@ -333,18 +332,19 @@ class LeaveApplication(Document):
         if current_state == "Clarification Requested":
             hr_msg = self.get_latest_hr_query()
 
-            self.send_email(
-                recipients=emp_emails,
-                subject="📩 Reply from HR - Leave Application",
-                header="Reply from HR",
-                icon="📩",
-                intro="HR has replied to your leave application.",
-                greeting=f"Hello {self.employee_name},",
-                extra_message=self.hr_message_block(hr_msg),
-                color="#ffc107",
-                sender=hr_sender,
-                reply_to=hr_email
-            )
+            if emp_emails:
+                self.send_email(
+                    recipients=emp_emails,
+                    subject="📩 Reply from HR - Leave Application",
+                    header="Reply from HR",
+                    icon="📩",
+                    intro="HR has replied to your leave application.",
+                    greeting=f"Hello {self.employee_name},",
+                    extra_message=self.hr_message_block(hr_msg),
+                    color="#ffc107",
+                    sender=hr_sender,
+                    reply_to=hr_email
+                )
 
             # InnoChat Notification to Employee
             receiver = frappe.db.get_value("Employee", self.employee, "user")
@@ -370,19 +370,20 @@ class LeaveApplication(Document):
             if cc_emails:
                 cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
 
-            self.send_email(
-                recipients=[hr_email],
-                cc=cc_list,
-                subject=f"📩 Reply from Employee - {self.employee_name}",
-                header="Reply Received",
-                icon="📩",
-                intro=f"{self.employee_name} has replied to your clarification request.",
-                greeting="Dear HR,",
-                extra_message=self.employee_reply_block(emp_reply),
-                color="#0062cc",
-                sender=employee_sender,
-                reply_to=primary_email or hr_email
-            )
+            if hr_email:
+                self.send_email(
+                    recipients=[hr_email],
+                    cc=cc_list,
+                    subject=f"📩 Reply from Employee - {self.employee_name}",
+                    header="Reply Received",
+                    icon="📩",
+                    intro=f"{self.employee_name} has replied to your clarification request.",
+                    greeting="Dear HR,",
+                    extra_message=self.employee_reply_block(emp_reply),
+                    color="#0062cc",
+                    sender=employee_sender,
+                    reply_to=primary_email or hr_email
+                )
 
             # InnoChat Notification to HR
             hr_users = self.get_hr_users()
@@ -402,17 +403,18 @@ class LeaveApplication(Document):
         # HR → APPROVE → EMPLOYEE ONLY
         # -------------------------------------------------
         elif current_state == "Approved":
-            self.send_email(
-                recipients=emp_emails,
-                subject="✅ Leave Approved",
-                header="Leave Approved",
-                icon="✅",
-                intro="Your leave application has been approved.",
-                greeting=f"Hello {self.employee_name},",
-                color="#28a745",
-                sender=hr_sender,
-                reply_to=hr_email
-            )
+            if emp_emails:
+                self.send_email(
+                    recipients=emp_emails,
+                    subject="✅ Leave Approved",
+                    header="Leave Approved",
+                    icon="✅",
+                    intro="Your leave application has been approved.",
+                    greeting=f"Hello {self.employee_name},",
+                    color="#28a745",
+                    sender=hr_sender,
+                    reply_to=hr_email
+                )
 
             # InnoChat Notification to Employee
             receiver = frappe.db.get_value("Employee", self.employee, "user")
