@@ -164,7 +164,7 @@ spa_routes = [
     "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
     "products", "invoices", "estimations", "blog", "employee", "attendance",
     "leaves", "leave-allocations", "payroll", "requests", "announcements",
-    "assets", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
+    "asset", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
