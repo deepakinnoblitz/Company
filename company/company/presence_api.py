@@ -956,3 +956,71 @@ def force_offline_all():
         update_presence(status="Offline", employee=p.employee, source="System")
         
     frappe.db.commit()
+
+@frappe.whitelist()
+def log_location(latitude, longitude, accuracy=None, status=None, source=None, device_type=None, ip_address=None):
+    settings = frappe.get_single("Employee Presence Settings")
+    if not settings.enable_location_tracking:
+        return {"status": "ignored", "message": "Location tracking is disabled globally."}
+
+    min_accuracy = settings.minimum_gps_accuracy or 100
+    if accuracy is not None and float(accuracy) > float(min_accuracy):
+        return {"status": "ignored", "message": f"GPS accuracy ({accuracy}m) is worse than minimum allowed ({min_accuracy}m)."}
+
+    employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
+    if not employee:
+        frappe.throw(_("Employee not found for current user"))
+
+    active_session = get_active_session(employee)
+    session_name = active_session.name if active_session else None
+
+    if not session_name and source == "Logout":
+        session_name = frappe.db.get_value("Employee Session", {"employee": employee}, "name", order_by="modified desc")
+
+    # Get details if not provided
+    if not device_type and hasattr(frappe, "request") and frappe.request:
+        device_type = frappe.request.headers.get("User-Agent")
+    if not ip_address and hasattr(frappe, "local") and frappe.local:
+        ip_address = frappe.local.request_ip
+
+    doc = frappe.get_doc({
+        "doctype": "Employee Location Log",
+        "employee": employee,
+        "session": session_name,
+        "status": status,
+        "source": source,
+        "latitude": flt(latitude),
+        "longitude": flt(longitude),
+        "accuracy": flt(accuracy) if accuracy is not None else None,
+        "logged_at": now_datetime(),
+        "device_type": device_type,
+        "ip_address": ip_address
+    })
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {"status": "success", "name": doc.name}
+
+@frappe.whitelist()
+def get_location_logs(employee=None, session=None, from_date=None, to_date=None, status=None, source=None):
+    is_hr_or_admin = "HR" in frappe.get_roles() or "Administrator" in frappe.get_roles()
+    if not is_hr_or_admin:
+        employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
+        if not employee:
+            return []
+
+    filters = {}
+    if employee:
+        filters["employee"] = employee
+    if session:
+        filters["session"] = session
+    if status and status != "all":
+        filters["status"] = status
+    if source and source != "all":
+        filters["source"] = source
+
+    logs = frappe.get_all("Employee Location Log",
+        filters=filters,
+        fields=["name", "employee", "session", "status", "source", "latitude", "longitude", "accuracy", "logged_at", "device_type", "ip_address"],
+        order_by="logged_at asc"
+    )
+    return logs
