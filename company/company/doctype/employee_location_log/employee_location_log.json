@@ -2,19 +2,20 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "hash",
- "creation": "2026-03-23 06:10:00.000000",
+ "creation": "2026-06-17 10:12:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "employee",
-  "login_time",
-  "login_date",
-  "logout_time",
-  "total_work_hours",
-  "total_break_hours",
+  "session",
   "status",
-  "intervals",
-  "last_seen"
+  "source",
+  "latitude",
+  "longitude",
+  "accuracy",
+  "logged_at",
+  "device_type",
+  "ip_address"
  ],
  "fields": [
   {
@@ -26,59 +27,66 @@
    "reqd": 1
   },
   {
-   "fieldname": "login_time",
-   "fieldtype": "Datetime",
+   "fieldname": "session",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Login Time"
+   "label": "Session",
+   "options": "Employee Session"
   },
   {
-   "fieldname": "login_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Login Date"
-  },
-  {
-   "fieldname": "logout_time",
-   "fieldtype": "Datetime",
-   "in_list_view": 1,
-   "label": "Logout Time"
-  },
-  {
-   "fieldname": "total_work_hours",
-   "fieldtype": "Float",
-   "label": "Total Work Hours",
-   "read_only": 1
-  },
-  {
-   "fieldname": "total_break_hours",
-   "fieldtype": "Float",
-   "label": "Total Break Hours",
-   "read_only": 1
-  },
-  {
-   "default": "Active",
    "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Status"
+  },
+  {
+   "fieldname": "source",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Status",
-   "options": "Active\nInactive"
+   "label": "Source",
+   "options": "Login\nLogout\nStatus Change\nAuto Tracking"
   },
   {
-   "fieldname": "last_seen",
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Latitude",
+   "reqd": 1
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Longitude",
+   "reqd": 1
+  },
+  {
+   "fieldname": "accuracy",
+   "fieldtype": "Float",
+   "label": "Accuracy"
+  },
+  {
+   "fieldname": "logged_at",
    "fieldtype": "Datetime",
-   "label": "Last Seen"
+   "in_list_view": 1,
+   "label": "Logged At",
+   "reqd": 1
   },
   {
-   "fieldname": "intervals",
-   "fieldtype": "Table",
-   "label": "Intervals",
-   "options": "Employee Session Interval"
+   "fieldname": "device_type",
+   "fieldtype": "Data",
+   "label": "Device Type"
+  },
+  {
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address"
   }
  ],
- "modified": "2026-03-23 06:10:00.000000",
+ "modified": "2026-06-17 10:12:00.000000",
  "modified_by": "Administrator",
  "module": "Company",
- "name": "Employee Session",
+ "name": "Employee Location Log",
  "owner": "Administrator",
  "permissions": [
   {
@@ -93,7 +101,7 @@
    "share": 1,
    "write": 1
   },
-{
+  {
    "create": 1,
    "email": 1,
    "export": 1,
@@ -109,20 +117,13 @@
   },
   {
    "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
    "read": 1,
-   "delete": 1,
-   "report": 1,
    "role": "Employee",
-   "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1
   }
  ],
- "sort_field": "modified",
+ "sort_field": "logged_at",
  "sort_order": "DESC",
  "states": []
 }

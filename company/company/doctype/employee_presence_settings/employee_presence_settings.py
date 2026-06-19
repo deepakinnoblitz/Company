@@ -25,7 +25,13 @@ class EmployeePresenceSettings(Document):
             "event_keydown": self.event_keydown,
             "event_scroll": self.event_scroll,
             "event_click": self.event_click,
-            "event_touchstart": self.event_touchstart
+            "event_touchstart": self.event_touchstart,
+            "enable_location_tracking": self.enable_location_tracking,
+            "track_on_login": self.track_on_login,
+            "track_on_logout": self.track_on_logout,
+            "track_on_status_change": self.track_on_status_change,
+            "tracking_interval_minutes": self.tracking_interval_minutes,
+            "minimum_gps_accuracy": self.minimum_gps_accuracy
         })
 
 @frappe.whitelist()
@@ -42,7 +48,13 @@ def get_presence_settings():
         "event_keydown": settings.event_keydown,
         "event_scroll": settings.event_scroll,
         "event_click": settings.event_click,
-        "event_touchstart": settings.event_touchstart
+        "event_touchstart": settings.event_touchstart,
+        "enable_location_tracking": settings.enable_location_tracking,
+        "track_on_login": settings.track_on_login,
+        "track_on_logout": settings.track_on_logout,
+        "track_on_status_change": settings.track_on_status_change,
+        "tracking_interval_minutes": settings.tracking_interval_minutes,
+        "minimum_gps_accuracy": settings.minimum_gps_accuracy
     }
 
 @frappe.whitelist()
@@ -62,12 +74,19 @@ def set_presence_settings(enable_auto_status, idle_threshold=60, away_threshold=
     settings.enable_auto_resume_break = frappe.parse_json(enable_auto_resume_break)
     
     # Update checkboxes
-    for field in ["event_mousemove", "event_keydown", "event_scroll", "event_click", "event_touchstart"]:
+    for field in [
+        "event_mousemove", "event_keydown", "event_scroll", "event_click", "event_touchstart",
+        "enable_location_tracking", "track_on_login", "track_on_logout", "track_on_status_change"
+    ]:
         if field in kwargs:
             setattr(settings, field, frappe.parse_json(kwargs[field]))
         else:
-            # Default to 0 if not provided in kwargs (though they usually should be)
             setattr(settings, field, 0)
+
+    if "tracking_interval_minutes" in kwargs:
+        settings.tracking_interval_minutes = frappe.parse_json(kwargs["tracking_interval_minutes"])
+    if "minimum_gps_accuracy" in kwargs:
+        settings.minimum_gps_accuracy = frappe.parse_json(kwargs["minimum_gps_accuracy"])
             
     settings.save()
     

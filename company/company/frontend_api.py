@@ -835,6 +835,15 @@ def download_import_template(doctype):
             if f not in fields:
                 fields.append(f)
 
+    # Ensure requested fields are included for Attendance
+    if doctype == "Attendance":
+        extra_fields = ["in_time", "out_time"]
+        for f in extra_fields:
+            if f not in fields:
+                fields.append(f)
+        unwanted_fields = ["working_hours", "overtime_hours"]
+        fields = [f for f in fields if f not in unwanted_fields]
+
     # Ensure requested fields are included for Accounts
     if doctype == "Accounts":
         extra_fields = ["gstin", "website"]
@@ -853,7 +862,7 @@ def download_import_template(doctype):
             if f not in fields:
                 fields.append(f)
 
-    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts", "Asset", "Asset Assignment"):
+    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts", "Asset", "Asset Assignment", "Attendance"):
         fields.insert(0, "name")
 
     export_fields = {doctype: fields}
@@ -875,50 +884,67 @@ def download_import_template(doctype):
     header = csv_array[0]
     phone_indices = [i for i, label in enumerate(header) if "(+91-)" in label]
 
-    for row_idx, row_data in enumerate(csv_array):
-        # We need to handle list length consistency
-        ws.append(row_data)
-
-        # Format Header
-        if row_idx == 0:
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
+    ws.append(header)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
 
     # Add Sample Data for Attendance
     if doctype == "Attendance":
         try:
-            sample_employee = frappe.db.get_value("Employee", {"status": "Active"}, ["name", "employee_name"], as_dict=True)
-            if sample_employee:
-                from frappe.utils import nowdate
+            # Bypass cache completely by using direct SQL query to fetch the freshest record
+            latest_attendance = frappe.db.sql("""
+                SELECT employee, employee_name, attendance_date, status, in_time, out_time 
+                FROM `tabAttendance` 
+                ORDER BY modified DESC 
+                LIMIT 1
+            """, as_dict=True)
 
-                # Create a map of fieldname to column index
-                col_map = {col: i + 1 for i, col in enumerate(header)}
-
-                # Sample row data
+            if latest_attendance:
+                sample = latest_attendance[0]
                 sample_row = []
                 for col in header:
                     val = ""
-                    # Match against Labels (as seen in Debug Output)
                     if col == "Employee":
-                        val = sample_employee.name
+                        val = sample.get("employee") or ""
                     elif col == "Employee Name":
-                        val = sample_employee.employee_name
+                        val = sample.get("employee_name") or ""
                     elif col == "Date":
-                        val = nowdate()
+                        val = str(sample.get("attendance_date")) if sample.get("attendance_date") else ""
                     elif col == "Status":
-                        val = "Present"
+                        val = sample.get("status") or ""
                     elif col == "In Time":
-                        val = "09:00:00"
+                        val = str(sample.get("in_time")) if sample.get("in_time") is not None else ""
                     elif col == "Out Time":
-                        val = "18:00:00"
-                    elif col == "Working Hours":
-                        val = "09:00"
-                    elif col == "Overtime Hours":
-                        val = "00:00"
+                        val = str(sample.get("out_time")) if sample.get("out_time") is not None else ""
 
                     sample_row.append(val)
 
                 ws.append(sample_row)
+            else:
+                # Fallback if no records exist yet
+                sample_employee = frappe.db.sql("SELECT name, employee_name FROM `tabEmployee` WHERE status='Active' LIMIT 1", as_dict=True)
+                if sample_employee:
+                    from frappe.utils import nowdate
+                    sample = sample_employee[0]
+                    sample_row = []
+                    for col in header:
+                        val = ""
+                        if col == "Employee":
+                            val = sample.get("name") or ""
+                        elif col == "Employee Name":
+                            val = sample.get("employee_name") or ""
+                        elif col == "Date":
+                            val = nowdate()
+                        elif col == "Status":
+                            val = "Present"
+                        elif col == "In Time":
+                            val = "09:00:00"
+                        elif col == "Out Time":
+                            val = "18:00:00"
+
+                        sample_row.append(val)
+
+                    ws.append(sample_row)
         except Exception as e:
             frappe.log_error(f"Error adding sample data for Attendance: {str(e)}")
 
