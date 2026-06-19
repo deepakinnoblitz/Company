@@ -8,6 +8,15 @@ class AssetAssignment(Document):
     def validate(self):
         self.check_asset_availability()
 
+    def after_insert(self):
+        self.update_asset_status()
+
+    def on_update(self):
+        self.update_asset_status()
+
+    def on_trash(self):
+        frappe.db.set_value("Asset", self.asset, "current_status", "Available")
+
     def check_asset_availability(self):
         """
         Check if the Asset is already assigned and not yet returned
@@ -28,3 +37,22 @@ class AssetAssignment(Document):
                     msg=f"Asset <b>{self.asset}</b> is already assigned to <b>{existing.employee_name} ({existing.assigned_to})</b> and has not been returned yet.",
                     title="Asset Already Assigned"
                 )
+    def update_asset_status(self):
+        """
+        Update Asset status based on assignment/return.
+        """
+        if not self.asset:
+            return
+
+        if self.returned_on:
+            status = "Available"
+        else:
+            status = "Assigned"
+
+        frappe.db.set_value(
+            "Asset",
+            self.asset,
+            "current_status",
+            status,
+            update_modified=False
+        )
