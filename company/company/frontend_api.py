@@ -837,12 +837,21 @@ def download_import_template(doctype):
 
     # Ensure requested fields are included for Attendance
     if doctype == "Attendance":
-        extra_fields = ["in_time", "out_time"]
-        for f in extra_fields:
-            if f not in fields:
-                fields.append(f)
-        unwanted_fields = ["working_hours", "overtime_hours"]
-        fields = [f for f in fields if f not in unwanted_fields]
+        existing = [f.fieldname if hasattr(f, 'fieldname') else f for f in fields]
+        target_fields = ["employee", "employee_name", "attendance_date", "status", "in_time", "out_time"]
+        
+        new_fields = []
+        for fn in target_fields:
+            if fn in existing:
+                for orig_f in fields:
+                    if (orig_f.fieldname if hasattr(orig_f, 'fieldname') else orig_f) == fn:
+                        new_fields.append(orig_f)
+                        break
+            else:
+                f_obj = meta.get_field(fn)
+                new_fields.append(f_obj if f_obj else fn)
+                
+        fields = new_fields
 
     # Ensure requested fields are included for Accounts
     if doctype == "Accounts":
