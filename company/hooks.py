@@ -97,6 +97,10 @@ doc_events = {
     "Request": {
         "after_insert": "company.company.api.create_unread_entry_for_hr"
     },
+    "Asset Request": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr",
+        "on_update": "company.company.api.create_unread_entry_for_employee"
+    },
     # "Salary Slip": {
     #     "on_submit": "company.company.api.salary_slip_after_submit"
     # },

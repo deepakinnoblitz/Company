@@ -2073,6 +2073,33 @@ def create_unread_entry_for_hr(doc, method=None):
         _push_unread_count_update(user)
 
 @frappe.whitelist()
+def create_unread_entry_for_employee(doc, method=None):
+    # This is for notifying the employee when HR acts on their request.
+    # We skip if the current user is the employee themselves (e.g., they just edited it).
+    owner = doc.owner
+    if frappe.session.user == owner:
+        return
+
+    # Avoid duplicates
+    if frappe.db.exists("HR Read Tracker", {
+        "reference_doctype": doc.doctype,
+        "reference_name": doc.name,
+        "read_by": owner
+    }):
+        return
+
+    frappe.get_doc({
+        "doctype": "HR Read Tracker",
+        "reference_doctype": doc.doctype,
+        "reference_name": doc.name,
+        "read_by": owner,
+        "is_read": 0
+    }).insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    _push_unread_count_update(owner)
+
+@frappe.whitelist()
 def mark_hr_item_as_read(doctype, name):
     """Mark document as read for logged-in HR."""
     user = frappe.session.user
