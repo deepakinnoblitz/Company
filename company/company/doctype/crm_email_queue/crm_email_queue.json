@@ -208,7 +208,6 @@
             "role": "CRM And Sales",
             "share": 1,
             "write": 1,
-            "import": 1,
             "select": 1
         }
     ],

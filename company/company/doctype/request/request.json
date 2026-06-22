@@ -196,8 +196,7 @@
    "write": 1,
    "select": 1,
    "amend": 1,
-   "cancel": 1,
-   "import": 1
+   "cancel": 1
   },
   {
    "create": 1,
@@ -210,7 +209,6 @@
    "role": "HR",
    "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1,
    "submit": 1,
    "amend": 1,
@@ -226,7 +224,6 @@
    "role": "Employee",
    "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1,
    "submit": 1
   }

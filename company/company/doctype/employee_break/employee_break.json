@@ -84,7 +84,6 @@
    "role": "HR",
    "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1
   },
   {
@@ -97,7 +96,6 @@
    "role": "Employee",
    "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1
   }
  ],
