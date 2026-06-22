@@ -62,6 +62,14 @@ def get_permitted_count(doctype, filters=None, or_filters=None):
     if doctype == "Contacts" and or_filters:
         or_filters = clean_contacts_or_filters(or_filters)
 
+    if doctype in ("Leave Application", "Request", "WFH Attendance") and filters:
+        if isinstance(filters, list):
+            filters = [f for f in filters if not (isinstance(f, list) and len(f) >= 3 and (f[1] if len(f) == 4 else f[0]) in ("unread_only", "unread_messages"))]
+        elif isinstance(filters, dict):
+            filters.pop("unread_only", None)
+            filters.pop("unread_messages", None)
+
+
     # Resolve company_name filter for Contacts (child table field)
     if doctype == "Contacts" and filters:
         new_filters = []

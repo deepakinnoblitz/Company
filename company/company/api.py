@@ -3389,3 +3389,92 @@ def track_open(id):
 def track_click(id, url):
 	from company.company.doctype.crm_email_campaign.crm_email_campaign import track_click as _track_click
 	return _track_click(id, url)
+
+
+@frappe.whitelist()
+def get_leave_application_permission_query_conditions(user):
+    # Check roles of the user
+    hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+    user_roles = frappe.get_roles(user)
+    is_hr = any(role in user_roles for role in hr_roles)
+    
+    if not is_hr:
+        return ""
+        
+    unread_only_requested = False
+    
+    # Check direct form_dict parameter
+    if frappe.form_dict.get('unread_only') in ('true', '1') or frappe.form_dict.get('unread_messages') in ('true', '1'):
+        unread_only_requested = True
+        
+    # Check filters in form_dict
+    filters_str = frappe.form_dict.get('filters')
+    if filters_str:
+        try:
+            import json
+            filters_list = json.loads(filters_str)
+            if isinstance(filters_list, list):
+                for f in filters_list:
+                    if isinstance(f, list) and len(f) >= 3:
+                        fieldname = f[1] if len(f) == 4 else f[0]
+                        value = f[3] if len(f) == 4 else f[2]
+                        if fieldname in ('unread_only', 'unread_messages') and value in (True, 'true', 1, '1'):
+                            unread_only_requested = True
+                            break
+                    elif isinstance(f, dict):
+                        if f.get('unread_only') or f.get('unread_messages'):
+                            unread_only_requested = True
+                            break
+        except Exception:
+            pass
+            
+    if unread_only_requested:
+        return f"`tabLeave Application`.name in (select reference_name from `tabHR Read Tracker` where reference_doctype = 'Leave Application' and read_by = {frappe.db.escape(user)} and is_read = 0)"
+        
+    return ""
+
+
+@frappe.whitelist()
+def get_request_permission_query_conditions(user):
+    # Only HR roles get the unread filter applied
+    hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+    user_roles = frappe.get_roles(user)
+    is_hr = any(role in user_roles for role in hr_roles)
+
+    if not is_hr:
+        return ""
+
+    unread_only_requested = False
+
+    # Check direct form_dict parameter
+    if frappe.form_dict.get('unread_messages') in ('true', '1'):
+        unread_only_requested = True
+
+    if unread_only_requested:
+        return f"`tabRequest`.name in (select reference_name from `tabHR Read Tracker` where reference_doctype = 'Request' and read_by = {frappe.db.escape(user)} and is_read = 0)"
+
+    return ""
+
+
+@frappe.whitelist()
+def get_wfh_attendance_permission_query_conditions(user):
+    # Only HR roles get the unread filter applied
+    hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+    user_roles = frappe.get_roles(user)
+    is_hr = any(role in user_roles for role in hr_roles)
+
+    if not is_hr:
+        return ""
+
+    unread_only_requested = False
+
+    # Check direct form_dict parameter
+    if frappe.form_dict.get('unread_only') in ('true', '1') or frappe.form_dict.get('unread_messages') in ('true', '1'):
+        unread_only_requested = True
+
+    if unread_only_requested:
+        return f"`tabWFH Attendance`.name in (select reference_name from `tabHR Read Tracker` where reference_doctype = 'WFH Attendance' and read_by = {frappe.db.escape(user)} and is_read = 0)"
+
+    return ""
+
+
