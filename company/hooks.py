@@ -305,10 +305,12 @@ role_home_page = {
 # Permissions
 # -----------
 # Permissions evaluated in scripted ways
-
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"Leave Application": "company.company.api.get_leave_application_permission_query_conditions",
+	"Request": "company.company.api.get_request_permission_query_conditions",
+	"WFH Attendance": "company.company.api.get_wfh_attendance_permission_query_conditions",
+	"Reimbursement Claim": "company.company.api.get_reimbursement_claim_permission_query_conditions",
+}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
