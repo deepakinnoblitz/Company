@@ -68,8 +68,7 @@
    "role": "System Manager",
    "share": 1,
    "write": 1,
-   "select": 1,
-   "import": 1
+   "select": 1
   },
   {
    "create": 1,
@@ -82,7 +81,6 @@
    "role": "HR",
    "share": 1,
    "write": 1,
-   "import": 1,
    "select": 1
   },
   {
