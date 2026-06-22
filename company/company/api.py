@@ -3478,3 +3478,26 @@ def get_wfh_attendance_permission_query_conditions(user):
     return ""
 
 
+@frappe.whitelist()
+def get_reimbursement_claim_permission_query_conditions(user):
+    # Only HR / manager roles get the unread filter applied
+    hr_roles = ["HR", "HR Manager", "HR User", "System Manager", "Administrator", "Accounts Manager"]
+    user_roles = frappe.get_roles(user)
+    is_hr = any(role in user_roles for role in hr_roles)
+
+    if not is_hr:
+        return ""
+
+    unread_only_requested = False
+
+    # Check direct form_dict parameter
+    if frappe.form_dict.get('unread_only') in ('true', '1') or frappe.form_dict.get('unread_messages') in ('true', '1'):
+        unread_only_requested = True
+
+    if unread_only_requested:
+        return f"`tabReimbursement Claim`.name in (select reference_name from `tabHR Read Tracker` where reference_doctype = 'Reimbursement Claim' and read_by = {frappe.db.escape(user)} and is_read = 0)"
+
+    return ""
+
+
+

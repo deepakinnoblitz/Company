@@ -62,7 +62,7 @@ def get_permitted_count(doctype, filters=None, or_filters=None):
     if doctype == "Contacts" and or_filters:
         or_filters = clean_contacts_or_filters(or_filters)
 
-    if doctype in ("Leave Application", "Request", "WFH Attendance") and filters:
+    if doctype in ("Leave Application", "Request", "WFH Attendance", "Reimbursement Claim", "Asset Request") and filters:
         if isinstance(filters, list):
             filters = [f for f in filters if not (isinstance(f, list) and len(f) >= 3 and (f[1] if len(f) == 4 else f[0]) in ("unread_only", "unread_messages"))]
         elif isinstance(filters, dict):
@@ -2999,8 +2999,22 @@ def get_my_asset_requests(page=1, limit=10, request_type=None, status=None, sort
     return {"data": requests, "total": total}
 
 @frappe.whitelist()
-def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None, unread_only=None):
     filters = []
+    
+    # Check unread filter if requested
+    if unread_only in ('true', '1', True):
+        hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+        user_roles = frappe.get_roles(frappe.session.user)
+        is_hr = any(role in user_roles for role in hr_roles)
+        if is_hr:
+            unread_names = frappe.get_all(
+                "HR Read Tracker",
+                filters={"reference_doctype": "Asset Request", "read_by": frappe.session.user, "is_read": 0},
+                pluck="reference_name"
+            )
+            filters.append(["Asset Request", "name", "in", unread_names if unread_names else [""]])
+
     if request_type and request_type != 'all':
         filters.append(["Asset Request", "request_type", "=", request_type])
     if status and status != 'all':
