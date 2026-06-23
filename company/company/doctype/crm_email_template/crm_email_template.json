@@ -128,7 +128,6 @@
    "label": "Available Variables"
   },
   {
-   "default": "{{lead_name}}\n{{first_name}}\n{{last_name}}\n{{company_name}}\n{{email}}\n{{mobile_no}}\n{{owner}}\n{{current_date}}",
    "fieldname": "available_variables",
    "fieldtype": "Code",
    "label": "Variables",
@@ -147,7 +146,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-22 14:49:51.124672",
+ "modified": "2026-06-23 16:32:43.416597",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Email Template",

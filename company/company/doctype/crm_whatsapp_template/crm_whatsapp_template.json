@@ -17,6 +17,7 @@
   "column_break_1",
   "allow_attachment",
   "default_attachment",
+  "available_variables",
   "section_meta",
   "meta_template_name",
   "meta_template_id",
@@ -137,12 +138,19 @@
    "fieldtype": "Datetime",
    "label": "Last Synced On",
    "read_only": 1
+  },
+  {
+   "fieldname": "available_variables",
+   "fieldtype": "Code",
+   "label": "Variables",
+   "options": "Text",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-22 18:38:41.764494",
+ "modified": "2026-06-23 16:34:36.689057",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Template",
