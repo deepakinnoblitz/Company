@@ -429,6 +429,8 @@ function get_available_workflow_actions(frm) {
 
 
 function apply_workflow_action(frm, action) {
+    const previous_state = frm.doc.workflow_state;
+
     frappe.confirm(
         `Are you sure you want to <b>${action}</b>?`,
         () => {
@@ -446,7 +448,7 @@ function apply_workflow_action(frm, action) {
                 callback() {
                     frm.reload_doc().then(() => {
 
-                        show_whatsapp_automation_dialog(frm, () => {
+                        show_whatsapp_automation_dialog(frm, previous_state, () => {
 
                             if (
                                 frm.doc.workflow_state !== "New Lead" &&
@@ -544,13 +546,14 @@ frappe.realtime.on("lead_followup_updated", function (data) {
     }
 });
 
-function show_whatsapp_automation_dialog(frm, next = () => {}) {
+function show_whatsapp_automation_dialog(frm, previous_state, next = () => {}) {
 
     frappe.call({
         method: "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.get_automation_preview",
         args: {
             doctype: frm.doc.doctype,
-            docname: frm.doc.name
+            docname: frm.doc.name,
+            previous_state: previous_state
         },
 
         callback(r) {
@@ -567,38 +570,43 @@ function show_whatsapp_automation_dialog(frm, next = () => {}) {
                 return;
             }
 
+            let dialog_fields = [];
+            
+            if (frm.doc.workflow_state === "Proposal Sent") {
+                dialog_fields.push({
+                    fieldname: "proposal",
+                    label: __("Proposal"),
+                    fieldtype: "Link",
+                    options: "Proposal",
+                    reqd: 1
+                });
+            }
+
+            dialog_fields.push({
+                fieldtype: "HTML",
+                fieldname: "preview"
+            });
+
             const dialog = new frappe.ui.Dialog({
 
                 title: automation.title || __("Send WhatsApp Message"),
 
                 size: "large",
 
-                fields: [
-
-                    {
-                        fieldname: "proposal",
-                        label: __("Proposal"),
-                        fieldtype: "Link",
-                        options: "Proposal",
-                        reqd: 1
-                    },
-
-                    {
-                        fieldtype: "HTML",
-                        fieldname: "preview"
-                    }
-
-                ],
+                fields: dialog_fields,
 
                 primary_action_label: __("Send Message"),
 
                 primary_action() {
 
-                    const proposal = dialog.get_value("proposal");
+                    let proposal = null;
+                    if (frm.doc.workflow_state === "Proposal Sent") {
+                        proposal = dialog.get_value("proposal");
 
-                    if (!proposal) {
-                        frappe.msgprint(__("Please select a Proposal."));
-                        return;
+                        if (!proposal) {
+                            frappe.msgprint(__("Please select a Proposal."));
+                            return;
+                        }
                     }
 
                     dialog.disable_primary_action();
@@ -675,16 +683,18 @@ function show_whatsapp_automation_dialog(frm, next = () => {}) {
 
             dialog.show();
 
-            // Filter Proposal by Lead
-            dialog.set_query("proposal", () => {
+            if (frm.doc.workflow_state === "Proposal Sent") {
+                // Filter Proposal by Lead
+                dialog.set_query("proposal", () => {
 
-                return {
-                    filters: {
-                        lead: frm.doc.name
-                    }
-                };
+                    return {
+                        filters: {
+                            lead: frm.doc.name
+                        }
+                    };
 
-            });
+                });
+            }
 
             dialog.fields_dict.preview.$wrapper.html(`
 

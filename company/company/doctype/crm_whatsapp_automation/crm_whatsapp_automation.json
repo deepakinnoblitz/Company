@@ -72,25 +72,25 @@
   {
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "workflow_state",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Workflow State"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "previous_workflow_state",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Previous Workflow State"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
    "fieldname": "deal_stage",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Current Deal Stage"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
    "fieldname": "previous_deal_stage",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Previous Deal Stage"
   },
   {

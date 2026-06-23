@@ -4229,3 +4229,52 @@ def get_employee_probation_info(employee, date=None):
         "restricted_types": restricted_types,
         "probation_end_date": probation_end_date,
     }
+
+@frappe.whitelist()
+def get_automation_options():
+    """
+    Get necessary options for the CRM WhatsApp Automation frontend.
+    Returns Lead workflow states, active workflow name, Deal stages, and Lead fields.
+    """
+    options = {
+        "lead_workflow_states": [],
+        "deal_stages": [],
+        "lead_fields": [],
+        "active_lead_workflow": None
+    }
+    
+    # 1. Active Lead Workflow and States
+    workflow = frappe.db.get_value("Workflow", {"document_type": "Lead", "is_active": 1}, "name")
+    if workflow:
+        options["active_lead_workflow"] = workflow
+        states = frappe.get_all(
+            "Workflow Document State",
+            filters={"parent": workflow},
+            fields=["state"],
+            order_by="idx"
+        )
+        options["lead_workflow_states"] = [s.state for s in states]
+        
+    # 2. Deal Stages
+    try:
+        deal_meta = frappe.get_meta("Deal")
+        stage_field = deal_meta.get_field("stage")
+        if stage_field and stage_field.options:
+            options["deal_stages"] = [s for s in stage_field.options.split("\n") if s.strip()]
+    except Exception:
+        pass
+        
+    # 3. Lead Fields
+    try:
+        lead_meta = frappe.get_meta("Lead")
+        for df in lead_meta.fields:
+            if df.fieldtype not in ("Section Break", "Column Break", "Tab Break", "HTML", "Button"):
+                options["lead_fields"].append({
+                    "fieldname": df.fieldname,
+                    "label": df.label,
+                    "fieldtype": df.fieldtype
+                })
+    except Exception:
+        pass
+        
+    return options

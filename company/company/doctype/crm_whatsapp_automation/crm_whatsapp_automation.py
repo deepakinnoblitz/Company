@@ -54,7 +54,7 @@ def get_matching_automation(
     return frappe.get_doc("CRM WhatsApp Automation", automation[0].name)
 
 
-def replace_template_variables(message, doc):
+def replace_template_variables(message, doc, proposal_name=None):
     """
     Render template message using Frappe's Jinja environment.
     Provides {{ doc.fieldname }} and standard Frappe utilities.
@@ -68,6 +68,20 @@ def replace_template_variables(message, doc):
         context = doc.as_dict().copy()
         context["doc"] = doc
         
+        # Supply proposal context if applicable
+        if doc.doctype == "Lead":
+            if not proposal_name:
+                # For preview, try to grab the latest proposal
+                latest = frappe.db.get_value("Proposal", {"lead": doc.name}, "name", order_by="creation desc")
+                if latest:
+                    proposal_name = latest
+            
+            if proposal_name:
+                context["proposal"] = frappe.get_doc("Proposal", proposal_name).as_dict()
+            else:
+                # Provide an empty dict so jinja doesn't fail with UndefinedError
+                context["proposal"] = frappe._dict()
+
         rendered = frappe.render_template(message, context)
         
         # Convert paragraph and break tags to newlines to preserve spacing
@@ -88,7 +102,7 @@ def replace_template_variables(message, doc):
         return message
 
 
-def build_whatsapp_message(automation, doc):
+def build_whatsapp_message(automation, doc, proposal_name=None):
     """
     Load template and return rendered message.
     """
@@ -100,17 +114,17 @@ def build_whatsapp_message(automation, doc):
 
     header = replace_template_variables(
         template.header_text or "",
-        doc
+        doc, proposal_name
     )
 
     body = replace_template_variables(
         template.message_body or "",
-        doc
+        doc, proposal_name
     )
 
     footer = replace_template_variables(
         template.footer_text or "",
-        doc
+        doc, proposal_name
     )
 
     return "\n\n".join(
@@ -205,16 +219,16 @@ def get_automation_preview(
     }
 
 @frappe.whitelist()
-def send_automation_message(automation_name, doctype, docname):
+def send_automation_message(automation_name, doctype, docname, proposal_name=None):
     """
     Triggered manually via Frappe msgprint dialog confirmation.
     """
     automation = frappe.get_doc("CRM WhatsApp Automation", automation_name)
     doc = frappe.get_doc(doctype, docname)
-    _execute_automation(automation, doc)
+    _execute_automation(automation, doc, proposal_name)
 
 
-def _execute_automation(automation, doc):
+def _execute_automation(automation, doc, proposal_name=None):
     """
     Core logic to build message and call API.
     """
@@ -230,7 +244,7 @@ def _execute_automation(automation, doc):
                 return
 
     # Build Message
-    message_body = build_whatsapp_message(automation, doc)
+    message_body = build_whatsapp_message(automation, doc, proposal_name)
     
     # Get Phone Number
     phone_number = None
