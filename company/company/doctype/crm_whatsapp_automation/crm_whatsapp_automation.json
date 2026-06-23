@@ -8,13 +8,14 @@
   "automation_section",
   "is_active",
   "automation_name",
-  "priority",
   "description",
   "trigger_section",
   "document_type",
   "trigger_event",
   "workflow_state",
   "previous_workflow_state",
+  "deal_stage",
+  "previous_deal_stage",
   "template_section",
   "whatsapp_template",
   "dialog_section",
@@ -45,12 +46,6 @@
    "label": "Is Active"
   },
   {
-   "default": "1",
-   "fieldname": "priority",
-   "fieldtype": "Int",
-   "label": "Priority"
-  },
-  {
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
@@ -64,27 +59,39 @@
    "fieldname": "document_type",
    "fieldtype": "Select",
    "label": "Document Type",
-   "options": "Lead\nContacts\nAccounts\nDeal\nProposal\nEstimation\nInvoice",
+   "options": "Lead\nContacts\nAccounts\nDeal\nProposal",
    "reqd": 1
   },
   {
    "fieldname": "trigger_event",
    "fieldtype": "Select",
    "label": "Trigger Event",
-   "options": "Workflow State Change\nManual",
+   "options": "Lead Workflow State Change\nDeal Stage Change",
    "reqd": 1
   },
   {
-   "depends_on": "eval:doc.trigger_event=='Workflow State Change'",
+   "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "workflow_state",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Workflow State"
   },
   {
-   "depends_on": "eval:doc.trigger_event=='Workflow State Change'",
+   "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "previous_workflow_state",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Previous Workflow State"
+  },
+  {
+   "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
+   "fieldname": "deal_stage",
+   "fieldtype": "Select",
+   "label": "Current Deal Stage"
+  },
+  {
+   "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
+   "fieldname": "previous_deal_stage",
+   "fieldtype": "Select",
+   "label": "Previous Deal Stage"
   },
   {
    "fieldname": "template_section",
@@ -142,7 +149,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-22 14:56:04.388732",
+ "modified": "2026-06-23 14:17:56.452318",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Automation",

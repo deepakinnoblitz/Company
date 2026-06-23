@@ -40,7 +40,7 @@ app_include_js = [
     "/assets/company/js/expense_tracker.js?v=2",
     "/assets/company/js/auto_refresh.js?v=3",
     "/assets/company/js/list_pagination.js",
-    "/assets/company/js/desk_redirect.js?v=2",
+    "/assets/company/js/desk_redirect.js?v=2"
 ]
 
 app_include_css = "/assets/company/css/custom.css?v=17"
@@ -133,6 +133,12 @@ doc_events = {
         "after_insert": "company.company.crm_api.create_event_for_todo",
         "on_update": "company.company.crm_api.update_event_for_todo",
         "on_trash": "company.company.crm_api.delete_event_for_todo"
+    },
+    "Lead": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
+    },
+    "Deal": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
     }
 }
 
