@@ -137,9 +137,6 @@ doc_events = {
     "Lead": {
         "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
     },
-    "Proposal": {
-        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
-    },
     "Deal": {
         "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
     }
