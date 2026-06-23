@@ -38,7 +38,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Category",
-   "options": "General\nWelcome\nFollow Up\nProposal\nEstimation\nInvoice\nPayment Reminder\nSupport\nMarketing",
+   "options": "General\nWelcome\nLead\nFollow Up\nProposal\nEstimation\nInvoice\nPayment Reminder\nSupport\nMarketing",
    "reqd": 1
   },
   {
@@ -142,7 +142,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-22 14:09:33.255849",
+ "modified": "2026-06-22 18:38:41.764494",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Template",
