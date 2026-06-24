@@ -22,9 +22,7 @@
   "show_confirmation_dialog",
   "dialog_title",
   "dialog_message",
-  "auto_send",
-  "conditions_section",
-  "conditions"
+  "auto_send"
  ],
  "fields": [
   {
@@ -73,25 +71,29 @@
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "workflow_state",
    "fieldtype": "Select",
-   "label": "Workflow State"
+   "label": "Workflow State",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'",
    "fieldname": "previous_workflow_state",
    "fieldtype": "Select",
-   "label": "Previous Workflow State"
+   "label": "Previous Workflow State",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Lead Workflow State Change'"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
    "fieldname": "deal_stage",
    "fieldtype": "Select",
-   "label": "Current Deal Stage"
+   "label": "Current Deal Stage",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Deal Stage Change'"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change'",
    "fieldname": "previous_deal_stage",
    "fieldtype": "Select",
-   "label": "Previous Deal Stage"
+   "label": "Previous Deal Stage",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Deal Stage Change'"
   },
   {
    "fieldname": "template_section",
@@ -133,23 +135,12 @@
    "fieldname": "auto_send",
    "fieldtype": "Check",
    "label": "Auto Send"
-  },
-  {
-   "fieldname": "conditions_section",
-   "fieldtype": "Section Break",
-   "label": "Conditions"
-  },
-  {
-   "fieldname": "conditions",
-   "fieldtype": "Table",
-   "label": "Conditions",
-   "options": "CRM WhatsApp Automation Condition"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-23 14:17:56.452318",
+ "modified": "2026-06-24 14:08:46.469053",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Automation",
