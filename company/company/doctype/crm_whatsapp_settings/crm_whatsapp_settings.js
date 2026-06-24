@@ -32,7 +32,6 @@ frappe.ui.form.on('CRM WhatsApp Settings', {
                         label: 'Phone Number',
                         fieldname: 'phone',
                         fieldtype: 'Data',
-                        default: '919751523553',
                         reqd: 1
                     },
                     {
@@ -121,7 +120,7 @@ function toggle_whatsapp_fields(frm) {
 
     const fields = [
         'token_type',
-        
+
         'access_token',
         'phone_number_id',
         'business_account_id',

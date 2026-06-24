@@ -14,10 +14,9 @@
         {   
             "fieldname": "field_name",
             "label": "Field",
-            "fieldtype": "Select",
+            "fieldtype": "Data",
             "reqd": 1,
-            "in_list_view": 1,
-            "options": "workflow_status\nsource\nlead_name\nemail\nmobile_no\ncity\nstate\ncountry\nowner"
+            "in_list_view": 1
         },
         {
             "fieldname": "operator",

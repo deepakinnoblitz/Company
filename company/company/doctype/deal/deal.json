@@ -48,8 +48,8 @@
   {
    "fieldname": "value",
    "fieldtype": "Currency",
-   "label": "Deal Value",
-   "reqd": 1
+   "hidden": 1,
+   "label": "Deal Value"
   },
   {
    "fieldname": "expected_close_date",
@@ -70,6 +70,7 @@
   {
    "fieldname": "probability",
    "fieldtype": "Percent",
+   "hidden": 1,
    "label": "Probability"
   },
   {
@@ -82,6 +83,7 @@
   {
    "fieldname": "source_lead",
    "fieldtype": "Select",
+   "hidden": 1,
    "label": "Source Lead",
    "options": "Other"
   },
@@ -100,12 +102,14 @@
   {
    "fieldname": "type",
    "fieldtype": "Select",
+   "hidden": 1,
    "label": "Type",
    "options": "Existing Business\nNew Business"
   },
   {
    "fieldname": "next_step",
    "fieldtype": "Small Text",
+   "hidden": 1,
    "label": "Next Step"
   },
   {
@@ -134,13 +138,14 @@
   {
    "fieldname": "attachments",
    "fieldtype": "Attach",
+   "hidden": 1,
    "label": "Attachments"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-20 17:15:01.718931",
+ "modified": "2026-06-23 17:04:33.853380",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Deal",
@@ -161,17 +166,16 @@
   },
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
-   "delete": 1,
    "report": 1,
    "role": "CRM And Sales",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "import": 1,
-   "select": 1
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

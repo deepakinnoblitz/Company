@@ -18,12 +18,6 @@
   "scheduler_interval",
   "automation_cb",
   "create_campaign_history",
-  "tracking_section",
-  "enable_open_tracking",
-  "enable_click_tracking",
-  "tracking_cb",
-  "enable_unsubscribe_link",
-  "track_ip_address",
   "queue_section",
   "queue_size",
   "auto_delete_old_queue_records",
@@ -110,40 +104,6 @@
   },
   {
    "collapsible": 1,
-   "fieldname": "tracking_section",
-   "fieldtype": "Section Break",
-   "label": "Tracking Configuration"
-  },
-  {
-   "default": "1",
-   "fieldname": "enable_open_tracking",
-   "fieldtype": "Check",
-   "label": "Enable Open Tracking"
-  },
-  {
-   "default": "1",
-   "fieldname": "enable_click_tracking",
-   "fieldtype": "Check",
-   "label": "Enable Click Tracking"
-  },
-  {
-   "fieldname": "tracking_cb",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "enable_unsubscribe_link",
-   "fieldtype": "Check",
-   "label": "Enable Unsubscribe Link"
-  },
-  {
-   "default": "1",
-   "fieldname": "track_ip_address",
-   "fieldtype": "Check",
-   "label": "Track IP Address"
-  },
-  {
-   "collapsible": 1,
    "fieldname": "queue_section",
    "fieldtype": "Section Break",
    "label": "Queue Configuration"
@@ -182,7 +142,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-10 16:00:32.394048",
+ "modified": "2026-06-22 12:10:24.515611",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Email Settings",
@@ -200,18 +160,15 @@
   },
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
-   "export": 1,
    "print": 1,
    "read": 1,
-   "delete": 1,
-   "report": 1,
    "role": "CRM And Sales",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "import": 1,
-   "select": 1
- }
+   "write": 1
+  }
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,

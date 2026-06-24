@@ -12,20 +12,6 @@ from frappe.model.document import Document
 class CRMEmailCampaign(Document):
 	pass
 
-def get_actual_field_name(doctype, filter_field):
-	field_map = {
-		"workflow_status": "workflow_state",
-		"source": "leads_from" if doctype == "Lead" else ("source_lead" if doctype == "Contacts" else "source"),
-		"lead_name": "lead_name" if doctype == "Lead" else ("first_name" if doctype == "Contacts" else "account_name"),
-		"email": "email",
-		"mobile_no": "phone_number" if doctype in ["Lead", "Accounts"] else "phone",
-		"city": "city",
-		"state": "state",
-		"country": "country",
-		"owner": "owner_name"
-	}
-	return field_map.get(filter_field, filter_field)
-
 def get_recipients(campaign):
 	doctype_map = {
 		"Lead": "Lead",
@@ -38,31 +24,32 @@ def get_recipients(campaign):
 
 	db_filters = []
 	for row in campaign.filters:
-		actual_field = get_actual_field_name(doctype, row.field_name)
-		meta = frappe.get_meta(doctype)
-		if not meta.has_field(actual_field) and meta.has_field(row.field_name):
-			actual_field = row.field_name
+		actual_field = getattr(row, "field_name", None) or row.get("field_name")
+		if not actual_field:
+			continue
 		
 		# If the operator is Like or Not Like, format the value for SQL
-		val = row.value
-		if row.operator in ["Like", "Not Like"]:
+		val = getattr(row, "value", None) or row.get("value")
+		operator = getattr(row, "operator", None) or row.get("operator") or "="
+		if operator in ["Like", "Not Like"] and val:
 			if not val.startswith("%") and not val.endswith("%"):
 				val = f"%{val}%"
 
-		db_filters.append([doctype, actual_field, row.operator, val])
+		db_filters.append([doctype, actual_field, operator, val])
+
+	name_field = "lead_name" if doctype == "Lead" else ("first_name" if doctype == "Contacts" else "account_name")
 
 	try:
 		records = frappe.get_all(
 			doctype,
 			filters=db_filters,
-			fields=["name", "email", get_actual_field_name(doctype, "lead_name")]
+			fields=["name", "email", name_field]
 		)
 	except Exception as e:
 		frappe.log_error(f"Error querying campaign recipients: {str(e)}", "CRM Campaign Filter")
 		return []
 
 	recipients = []
-	name_field = get_actual_field_name(doctype, "lead_name")
 	for rec in records:
 		email = rec.get("email")
 		if doctype == "Accounts":
@@ -174,69 +161,45 @@ def render_template(template_doc, recipient_info):
 
 	return subject, full_html
 
-def inject_tracking(content, queue_id, enable_open=True, enable_click=True):
-	if enable_click:
-		def replace_link(match):
-			url = match.group(2)
-			if url.startswith("#") or url.startswith("mailto:") or url.startswith("tel:"):
-				return match.group(0)
-			tracking_url = f"/api/method/company.company.doctype.crm_email_campaign.crm_email_campaign.track_click?id={queue_id}&url={quote(url)}"
-			return f'{match.group(1)}="{tracking_url}"'
-
-		content = re.sub(r'(href)\s*=\s*["\']([^"\']*)["\']', replace_link, content, flags=re.IGNORECASE)
-
-	if enable_open:
-		pixel_url = f"/api/method/company.company.doctype.crm_email_campaign.crm_email_campaign.track_open?id={queue_id}"
-		pixel_tag = f'<img src="{pixel_url}" width="1" height="1" style="display:none;" alt="" />'
-		if "</body>" in content:
-			content = content.replace("</body>", f"{pixel_tag}</body>")
-		else:
-			content += pixel_tag
-
-	return content
-
-@frappe.whitelist(allow_guest=True)
-def track_open(id):
-	if id:
-		try:
-			queue = frappe.get_doc("CRM Email Queue", id)
-			if not queue.opened:
-				queue.opened = 1
-				queue.opened_on = frappe.utils.now()
-				queue.save(ignore_permissions=True)
-				if queue.campaign:
-					campaign = frappe.get_doc("CRM Email Campaign", queue.campaign)
-					campaign.open_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "opened": 1})
-					campaign.save(ignore_permissions=True)
-		except Exception as e:
-			frappe.log_error(f"Error tracking open: {str(e)}", "CRM Email Open Tracking")
-
-	frappe.response["type"] = "binary"
-	frappe.response["filename"] = "pixel.gif"
-	frappe.response["filecontent"] = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
-
-@frappe.whitelist(allow_guest=True)
-def track_click(id, url):
-	if id:
-		try:
-			queue = frappe.get_doc("CRM Email Queue", id)
-			if not queue.clicked:
-				queue.clicked = 1
-				queue.clicked_on = frappe.utils.now()
-				queue.save(ignore_permissions=True)
-				if queue.campaign:
-					campaign = frappe.get_doc("CRM Email Campaign", queue.campaign)
-					campaign.click_count = frappe.db.count("CRM Email Queue", {"campaign": campaign.name, "clicked": 1})
-					campaign.save(ignore_permissions=True)
-		except Exception as e:
-			frappe.log_error(f"Error tracking click: {str(e)}", "CRM Email Click Tracking")
-
-	frappe.local.response["type"] = "redirect"
-	frappe.local.response["location"] = url
-
 @frappe.whitelist(allow_guest=True)
 def unsubscribe(email):
 	return "<h3>You have been successfully unsubscribed from our mailing list.</h3>"
+
+@frappe.whitelist()
+def get_filter_fields(target_type):
+	doctype_map = {
+		"Lead": "Lead",
+		"Contact": "Contacts",
+		"Account": "Accounts"
+	}
+	doctype = doctype_map.get(target_type)
+	if not doctype:
+		return []
+
+	meta = frappe.get_meta(doctype)
+	fields = []
+
+	# Add workflow status if active/exists
+	if meta.has_field("workflow_status"):
+		fields.append({"value": "workflow_status", "label": "Workflow State"})
+
+	# List of common/standard fields to always include
+	fields.extend([
+		{"value": "owner", "label": "Owner"},
+		{"value": "creation", "label": "Created Date"},
+		{"value": "modified", "label": "Modified Date"}
+	])
+
+	for field in meta.fields:
+		if field.fieldtype in ["Select", "Link", "Data", "Int", "Float", "Currency", "Date", "Check", "Autocomplete"]:
+			# Ensure we do not add duplicate workflow_status or standard fields
+			if field.fieldname not in ["workflow_status", "owner", "creation", "modified"]:
+				fields.append({
+					"value": field.fieldname,
+					"label": field.label or field.fieldname
+				})
+
+	return fields
 
 @frappe.whitelist()
 def get_filter_value_options(target_type, field_name):
@@ -249,10 +212,10 @@ def get_filter_value_options(target_type, field_name):
 	if not doctype:
 		return []
 
-	actual_field = get_actual_field_name(doctype, field_name)
+	actual_field = field_name
 
 	# Handle Workflow Status specifically by querying active workflow states
-	if field_name == "workflow_status" or actual_field == "workflow_state":
+	if actual_field == "workflow_status":
 		workflow_name = frappe.db.get_value("Workflow", {"document_type": doctype, "is_active": 1}, "name")
 		if workflow_name:
 			states = frappe.get_all("Workflow Document State", filters={"parent": workflow_name}, fields=["state"])
@@ -262,10 +225,13 @@ def get_filter_value_options(target_type, field_name):
 
 	meta = frappe.get_meta(doctype)
 	if not meta.has_field(actual_field):
-		if meta.has_field(field_name):
-			actual_field = field_name
-		else:
-			return []
+		return []
+
+	# If Select field, extract options from field metadata
+	df = meta.get_field(actual_field)
+	if df and df.fieldtype == "Select" and df.options:
+		options = [opt.strip() for opt in df.options.split("\n") if opt.strip()]
+		return sorted(list(set(options)))
 
 	try:
 		values = frappe.get_all(
@@ -288,10 +254,11 @@ def get_filter_value_options(target_type, field_name):
 	options = []
 	for val in values:
 		v = val.get(actual_field)
-		if v:
+		if v is not None and v != "":
 			options.append(str(v))
 
 	return sorted(list(set(options)))
+
 
 @frappe.whitelist()
 def calculate_recipients(campaign_name):
@@ -528,8 +495,6 @@ def send_campaign_email(queue_doc):
 
 	sender = None
 	reply_to = None
-	enable_open = True
-	enable_click = True
 
 	if queue_doc.email_template:
 		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)
@@ -540,16 +505,10 @@ def send_campaign_email(queue_doc):
 				sender = template.sender_name
 		if template.reply_to_email:
 			reply_to = template.reply_to_email
-		enable_open = bool(template.enable_open_tracking)
-		enable_click = bool(template.enable_click_tracking)
 
-	# Override tracking & default email settings from CRM Email Settings if defined
+	# Override default email settings from CRM Email Settings if defined
 	try:
 		settings = frappe.get_single("CRM Email Settings")
-		if not settings.enable_open_tracking:
-			enable_open = False
-		if not settings.enable_click_tracking:
-			enable_click = False
 		if settings.default_email_account and not sender:
 			email_account = frappe.get_cached_doc("Email Account", settings.default_email_account)
 			if email_account.email_id:
@@ -558,7 +517,6 @@ def send_campaign_email(queue_doc):
 		pass
 
 	content = queue_doc.email_content
-	content = inject_tracking(content, queue_doc.name, enable_open, enable_click)
 
 	if queue_doc.email_template:
 		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)

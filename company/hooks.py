@@ -40,7 +40,7 @@ app_include_js = [
     "/assets/company/js/expense_tracker.js?v=2",
     "/assets/company/js/auto_refresh.js?v=3",
     "/assets/company/js/list_pagination.js",
-    "/assets/company/js/desk_redirect.js?v=2",
+    "/assets/company/js/desk_redirect.js?v=2"
 ]
 
 app_include_css = "/assets/company/css/custom.css?v=17"
@@ -97,6 +97,10 @@ doc_events = {
     "Request": {
         "after_insert": "company.company.api.create_unread_entry_for_hr"
     },
+    "Asset Request": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr",
+        "on_update": "company.company.api.create_unread_entry_for_employee"
+    },
     # "Salary Slip": {
     #     "on_submit": "company.company.api.salary_slip_after_submit"
     # },
@@ -129,6 +133,12 @@ doc_events = {
         "after_insert": "company.company.crm_api.create_event_for_todo",
         "on_update": "company.company.crm_api.update_event_for_todo",
         "on_trash": "company.company.crm_api.delete_event_for_todo"
+    },
+    "Lead": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
+    },
+    "Deal": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
     }
 }
 
@@ -301,10 +311,12 @@ role_home_page = {
 # Permissions
 # -----------
 # Permissions evaluated in scripted ways
-
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"Leave Application": "company.company.api.get_leave_application_permission_query_conditions",
+	"Request": "company.company.api.get_request_permission_query_conditions",
+	"WFH Attendance": "company.company.api.get_wfh_attendance_permission_query_conditions",
+	"Reimbursement Claim": "company.company.api.get_reimbursement_claim_permission_query_conditions",
+}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",
