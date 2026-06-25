@@ -1170,6 +1170,7 @@ def convert_estimation_to_invoice(estimation):
         "billing_name",
         "billing_address",
         "phone_number",
+        "deal",
         "total_qty",
         "total_amount",
         "overall_discount_type",
