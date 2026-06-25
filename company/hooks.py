@@ -184,7 +184,9 @@ spa_routes = [
     "employee-monthly-award" , "employee-evaluation", "reminders", "employee-referrals", 
     "employee-overall-report", "department", "project", "activity-type", "claim-type", 
     "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
-    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals"
+    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals",
+    "email-templates", "email-campaigns", "email-automations", "email-settings", "whatsapp-templates",
+    "whatsapp-automation", "whatsapp-settings"
 ]
 
 website_route_rules = []
