@@ -33,10 +33,6 @@ class Calls(Document):
 
         handle_call_reminder(self)
 
-        # ✅ RUN ONLY ON STATUS TRANSITION
-        if self.outgoing_call_status == "Completed":
-            sync_followup(self)
-
         """Update or create Event when Call is modified."""
 
         if frappe.flags.get("ignore_call_sync"):
