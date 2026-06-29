@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "hash",
- "creation": "2026-03-23 06:10:00.000000",
+ "creation": "2026-03-23 06:10:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -37,8 +37,7 @@
   {
    "fieldname": "break_duration",
    "fieldtype": "Float",
-   "label": "Break Duration (Mins)",
-   "read_only": 1
+   "label": "Break Duration (Mins)"
   },
   {
    "default": "Manual",
@@ -55,7 +54,8 @@
    "label": "Reason"
   }
  ],
- "modified": "2026-03-23 06:10:00.000000",
+ "links": [],
+ "modified": "2026-06-05 19:30:53.432164",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee Break",
@@ -78,6 +78,7 @@
    "role": "All"
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

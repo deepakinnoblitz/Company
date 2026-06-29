@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "hash",
- "creation": "2026-03-23 06:10:00.000000",
+ "creation": "2026-03-23 06:10:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -46,14 +46,12 @@
   {
    "fieldname": "total_work_hours",
    "fieldtype": "Float",
-   "label": "Total Work Hours",
-   "read_only": 1
+   "label": "Total Work Hours"
   },
   {
    "fieldname": "total_break_hours",
    "fieldtype": "Float",
-   "label": "Total Break Hours",
-   "read_only": 1
+   "label": "Total Break Hours"
   },
   {
    "default": "Active",
@@ -75,10 +73,12 @@
    "options": "Employee Session Interval"
   }
  ],
- "modified": "2026-03-23 06:10:00.000000",
+ "links": [],
+ "modified": "2026-06-05 19:25:53.873630",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee Session",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
@@ -98,6 +98,7 @@
    "role": "All"
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
