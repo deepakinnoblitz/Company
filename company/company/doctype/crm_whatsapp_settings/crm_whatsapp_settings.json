@@ -12,6 +12,8 @@
         "phone_number_id",
         "business_account_id",
         "whatsapp_number",
+        "limit_section",
+        "max_success_send_message_limit",
         "webhook_section",
         "webhook_verify_token",
         "webhook_url",
@@ -61,6 +63,18 @@
             "fieldtype": "Data",
             "label": "WhatsApp Number",
             "read_only": 1
+        },
+        {
+            "fieldname": "limit_section",
+            "fieldtype": "Section Break",
+            "label": "Limits & Analytics"
+        },
+        {
+            "default": "0",
+            "description": "Maximum number of successful messages that can be sent in a month (0 = unlimited).",
+            "fieldname": "max_success_send_message_limit",
+            "fieldtype": "Int",
+            "label": "Max Success Send Message Limit"
         },
         {
             "fieldname": "webhook_section",

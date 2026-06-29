@@ -624,39 +624,3 @@ def process_campaign(campaign_name):
 	if remaining == 0 and campaign.status == "Running":
 		campaign.status = "Completed"
 		campaign.save(ignore_permissions=True)
-
-
-# ---------------------------------------------------------------------------
-# SCHEDULED CLEANUP
-# ---------------------------------------------------------------------------
-
-def daily_queue_cleanup():
-	"""
-	Delete old CRM WhatsApp Queue records for completed/cancelled campaigns.
-	Retention: 30 days (Sent), 7 days (Failed).
-	Called daily via hooks.py scheduler_events.
-	"""
-	try:
-		# Delete Sent records older than 30 days
-		frappe.db.sql("""
-			DELETE FROM `tabCRM WhatsApp Queue`
-			WHERE status = 'Sent'
-			AND sent_on < DATE_SUB(NOW(), INTERVAL 30 DAY)
-		""")
-
-		# Delete Failed records older than 7 days for cancelled/completed campaigns
-		frappe.db.sql("""
-			DELETE q FROM `tabCRM WhatsApp Queue` q
-			JOIN `tabCRM WhatsApp Campaign` c ON c.name = q.campaign
-			WHERE q.status = 'Failed'
-			AND c.status IN ('Completed', 'Cancelled')
-			AND q.queued_on < DATE_SUB(NOW(), INTERVAL 7 DAY)
-		""")
-
-		frappe.db.commit()
-	except Exception as e:
-		frappe.log_error(
-			f"WhatsApp Campaign daily cleanup error: {str(e)}",
-			"CRM WhatsApp Campaign Cleanup"
-		)
-
