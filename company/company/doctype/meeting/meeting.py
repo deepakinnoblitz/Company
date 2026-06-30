@@ -47,10 +47,6 @@ class Meeting(Document):
 
         handle_meet_reminder(self)
 
-        # ✅ RUN ONLY ON STATUS TRANSITION
-        if self.outgoing_call_status == "Completed":
-            sync_followup(self)
-
         """Update or create Event when Meeting is modified."""
 
         if frappe.flags.get("ignore_meeting_sync"):

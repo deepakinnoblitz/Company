@@ -405,7 +405,7 @@ class WFHAttendance(Document):
                     </p>
 
                     <div style="margin-top:30px; text-align:center;">
-                        <a href="{frappe.utils.get_url('/app/wfh-attendance/' + self.name)}" 
+                        <a href="{frappe.utils.get_url('wfh-attendance')}" 
                         style="background:#7B2CBF; color:white; padding:12px 24px; text-decoration:none; 
                                 border-radius:8px; font-size:14px; font-weight:500; letter-spacing:0.3px; display:inline-block;">
                             View in ERP
@@ -498,7 +498,7 @@ class WFHAttendance(Document):
                     </table>
 
                     <div style="text-align:center; margin-top:28px;">
-                        <a href="{frappe.utils.get_url('/app/wfh-attendance/' + self.name)}"
+                        <a href="{frappe.utils.get_url('wfh-attendance')}"
                         style="background:#28a745; color:white; padding:12px 24px; text-decoration:none;
                                  border-radius:8px; font-size:14px; font-weight:500;">
                         View in ERP
@@ -582,7 +582,7 @@ class WFHAttendance(Document):
                     </table>
 
                     <div style="text-align:center; margin-top:28px;">
-                        <a href="{frappe.utils.get_url('/app/wfh-attendance/' + self.name)}"
+                        <a href="{frappe.utils.get_url('wfh-attendance')}"
                         style="background:#dc3545; color:white; padding:12px 24px; text-decoration:none;
                                 border-radius:8px; font-size:14px; font-weight:500;">
                         View Request

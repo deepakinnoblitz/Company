@@ -367,7 +367,7 @@ class ReimbursementClaim(Document):
                     </table>
 
                     <div style="text-align:center;margin-top:28px;">
-                        <a href="{frappe.utils.get_url('/app/reimbursement-claim/' + self.name)}"
+                        <a href="{frappe.utils.get_url('reimbursement-claims')}"
                         style="background:#28a745;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
                         View Claim</a>
                     </div>
@@ -447,7 +447,7 @@ class ReimbursementClaim(Document):
                     </table>
 
                     <div style="text-align:center;margin-top:28px;">
-                        <a href="{frappe.utils.get_url('/app/reimbursement-claim/' + self.name)}"
+                        <a href="{frappe.utils.get_url('reimbursement-claims')}"
                         style="background:#dc3545;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
                         View Claim</a>
                     </div>
@@ -530,7 +530,7 @@ class ReimbursementClaim(Document):
                     </table>
 
                     <div style="text-align:center;margin-top:28px;">
-                        <a href="{frappe.utils.get_url('/app/reimbursement-claim/' + self.name)}"
+                        <a href="{frappe.utils.get_url('reimbursement-claims')}"
                         style="background:#007bff;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
                         View Claim</a>
                     </div>

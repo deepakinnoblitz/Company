@@ -576,7 +576,7 @@ class LeaveApplication(Document):
                     
                     <!-- Action Button -->
                     <div style="text-align: center; margin-top: 30px;">
-                        <a href="{get_url('/app/leave-application/' + self.name)}" 
+                        <a href="{get_url('leaves')}" 
                            style="background-color: {color}; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                             View Leave Application
                         </a>
