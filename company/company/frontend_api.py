@@ -2567,67 +2567,116 @@ def get_personality_dashboard_data(employee=None):
         return {
             "totalScore": 100,
             "status": "Excellent",
-            "traits": []
+            "traits": [],
+            "performance_breakdown": [],
+            "recent_evaluations": []
         }
 
     employee = employee_doc
 
-    # Fetch last 20 evaluations to provide enough history for tallying trends
-    all_recent_evals = frappe.db.sql("""
-        SELECT trait, score_change, how_to_improve, creation
+    # Fetch all evaluations for calculating dynamic trait scores and recent list
+    all_evals = frappe.db.sql("""
+        SELECT name, trait, score_change, how_to_improve, creation
         FROM `tabEmployee Evaluation`
         WHERE employee = %s AND docstatus = 1
         ORDER BY creation DESC
-        LIMIT 20
     """, (employee.name,), as_dict=True)
 
-    if not all_recent_evals:
+    if not all_evals:
+        # Initialize default breakdown if there are no evaluations
+        db_traits = frappe.db.get_all("Evaluation Trait", fields=["name", "trait_name"])
+        performance_breakdown = [{
+            "trait": t.trait_name or t.name,
+            "score": 100,
+            "impact": 0
+        } for t in db_traits]
         return {
             "totalScore": 100,
             "status": "Excellent",
             "lastUpdated": None,
-            "traits": []
+            "traits": [],
+            "performance_breakdown": performance_breakdown,
+            "recent_evaluations": []
         }
 
-    # 1. Prepare traits list (Last 5 evaluations only, as per original logic)
+    # 1. Prepare traits list (compatibility/fallback)
     trait_scores = []
-    for ev in all_recent_evals[:5]:
+    for ev in all_evals[:5]:
         trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name")
         trait_scores.append({
             "trait": trait_name or ev.trait,
             "score": ev.score_change or 0
         })
 
-    # 2. Calculate tallies for how_to_improve (Based on last 20 evaluations)
+    # 2. Calculate dynamic performance breakdown (cumulative scores for all traits)
+    db_traits = frappe.db.get_all("Evaluation Trait", fields=["name", "trait_name"])
+    trait_data = {}
+    for t in db_traits:
+        trait_data[t.name] = {
+            "trait": t.trait_name or t.name,
+            "score": 100,
+            "impact": 0,
+            "latest_seen": False
+        }
+
+    for ev in all_evals:
+        t_id = ev.trait
+        if t_id in trait_data:
+            # Accumulate score change
+            trait_data[t_id]["score"] += (ev.score_change or 0)
+            
+            # The first evaluation we see in DESC order is the latest, so it sets the current impact
+            if not trait_data[t_id]["latest_seen"]:
+                trait_data[t_id]["impact"] = ev.score_change or 0
+                trait_data[t_id]["latest_seen"] = True
+
+    # Clamp scores between 0 and 100
+    for t_id in trait_data:
+        trait_data[t_id]["score"] = max(0, min(100, trait_data[t_id]["score"]))
+        # Remove helper flag
+        if "latest_seen" in trait_data[t_id]:
+            del trait_data[t_id]["latest_seen"]
+
+    performance_breakdown = list(trait_data.values())
+
+    # 3. Compile Recent Evaluations with detail fields
+    recent_evaluations = []
+    for ev in all_evals[:5]:
+        trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name") or ev.trait
+        recent_evaluations.append({
+            "name": ev.name,
+            "trait": trait_name,
+            "score_change": ev.score_change or 0,
+            "creation": str(ev.creation),
+            "remarks": ev.how_to_improve or ""
+        })
+
+    # 4. Calculate tallies for how_to_improve (Based on last 20 evaluations)
     trait_tally = {}
-    for ev in all_recent_evals:
+    for ev in all_evals[:20]:
         t_id = ev.trait
         score = ev.score_change or 0
         if t_id not in trait_tally:
-            # The first entry for each trait is the latest one due to 'ORDER BY creation DESC'
             trait_tally[t_id] = {
                 "score_sum": 0,
                 "latest_advice": None,
-                "date": ev.get("evaluation_date") or ev.creation
+                "date": ev.creation
             }
         
         trait_tally[t_id]["score_sum"] += score
         
-        # Capture the most recent specific advice for this trait from a NEGATIVE evaluation
         if not trait_tally[t_id]["latest_advice"] and score < 0 and ev.how_to_improve:
             trait_tally[t_id]["latest_advice"] = ev.how_to_improve
-            trait_tally[t_id]["date"] = ev.get("evaluation_date") or ev.creation
+            trait_tally[t_id]["date"] = ev.creation
 
     how_to_improve_list = []
     from frappe.utils import formatdate
     for t_id, counts in trait_tally.items():
-        # A trait needs improvement if the net balance is negative
         if counts["score_sum"] < 0:
             advice = counts["latest_advice"]
             trait_name = frappe.db.get_value("Evaluation Trait", t_id, "trait_name") or t_id
             
             if not advice:
-                # Fallback to master trait advice
                 advice = frappe.db.get_value("Evaluation Trait", t_id, "how_to_improve")
             
             if advice:
@@ -2637,8 +2686,7 @@ def get_personality_dashboard_data(employee=None):
                 if formatted_advice not in how_to_improve_list:
                     how_to_improve_list.append(formatted_advice)
 
-    # 3. Final data preparation
-    last_eval_time = all_recent_evals[0].creation
+    last_eval_time = all_evals[0].creation
     
     calculated_total = employee.evaluation_score if employee.evaluation_score is not None else 100
     calculated_total = max(0, min(100, calculated_total))
@@ -2653,9 +2701,11 @@ def get_personality_dashboard_data(employee=None):
     return {
         "totalScore": calculated_total,
         "status": status,
-        "howToImprove": how_to_improve_list[:5], # Return top 5 unique improvements
+        "howToImprove": how_to_improve_list[:5],
         "lastUpdated": str(last_eval_time),
-        "traits": trait_scores
+        "traits": trait_scores,
+        "performance_breakdown": performance_breakdown,
+        "recent_evaluations": recent_evaluations
     }
 
 
