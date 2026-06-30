@@ -8,6 +8,21 @@ import secrets
 # TEST CONNECTION
 # --------------------------------------------------------------------
 
+@frappe.whitelist(allow_guest=False)
+def get_monthly_message_count():
+    from frappe.utils import get_first_day, today
+    start_of_month = get_first_day(today())
+    count = frappe.db.count(
+        "CRM WhatsApp Message",
+        filters={
+            "creation": [">=", start_of_month],
+            "message_direction": "Outgoing",
+            "status": "Sent"
+        }
+    )
+    return count
+
+
 @frappe.whitelist()
 def test_connection():
 
@@ -125,6 +140,16 @@ def send_whatsapp(phone, message=None, attachment=None):
                 "success": False,
                 "error": "Invalid phone number"
             }
+
+        # Check max success send message limit
+        limit = settings.max_success_send_message_limit or 0
+        if limit > 0:
+            count = get_monthly_message_count()
+            if count >= limit:
+                return {
+                    "success": False,
+                    "error": f"Max success send message limit of {limit} reached."
+                }
 
         url = (
             f"https://graph.facebook.com/v23.0/"
