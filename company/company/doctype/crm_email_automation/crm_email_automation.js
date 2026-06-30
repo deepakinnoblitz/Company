@@ -1,15 +1,22 @@
 frappe.ui.form.on('CRM Email Automation', {
-    onload: function(frm) {
+    onload: function (frm) {
         if (frm.doc.filters) {
             frm.doc.filters.forEach(row => {
                 setup_value_suggestions(frm, row.doctype, row.name);
             });
         }
     },
-    refresh(frm) {
-        // Validation messages
+    for_campaigns(frm) {
+        if (frm.doc.for_campaigns) {
+            frm.set_value("for_status_change", 0);
+        }
     },
-    frequency: function(frm) {
+    for_status_change(frm) {
+        if (frm.doc.for_status_change) {
+            frm.set_value("for_campaigns", 0);
+        }
+    },
+    frequency: function (frm) {
         if (frm.doc.frequency !== 'Weekly') {
             frm.set_value('week_day', '');
         }
@@ -17,7 +24,7 @@ frappe.ui.form.on('CRM Email Automation', {
             frm.set_value('day_of_month', 0);
         }
     },
-    validate: function(frm) {
+    validate: function (frm) {
         if (frm.doc.frequency === 'Weekly' && !frm.doc.week_day) {
             frappe.msgprint(__('Please specify the Week Day for Weekly automation.'));
             frappe.validated = false;
@@ -30,15 +37,15 @@ frappe.ui.form.on('CRM Email Automation', {
 });
 
 frappe.ui.form.on('CRM Campaign Filter', {
-    field_name: function(frm, cdt, cdn) {
+    field_name: function (frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         frappe.model.set_value(cdt, cdn, 'value', '');
         setup_value_suggestions(frm, cdt, cdn);
     },
-    filters_add: function(frm, cdt, cdn) {
+    filters_add: function (frm, cdt, cdn) {
         setup_value_suggestions(frm, cdt, cdn);
     },
-    value: function(frm, cdt, cdn) {
+    value: function (frm, cdt, cdn) {
         setup_value_suggestions(frm, cdt, cdn);
     }
 });
@@ -48,14 +55,14 @@ function setup_value_suggestions(frm, cdt, cdn) {
     if (!row || !row.field_name || !frm.doc.target_type) {
         return;
     }
-    
+
     frappe.call({
         method: 'company.company.doctype.crm_email_campaign.crm_email_campaign.get_filter_value_options',
         args: {
             target_type: frm.doc.target_type,
             field_name: row.field_name
         },
-        callback: function(r) {
+        callback: function (r) {
             if (r.message) {
                 let grid_row = frm.fields_dict['filters'].grid.get_row(cdn);
                 if (grid_row) {
