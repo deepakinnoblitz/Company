@@ -204,7 +204,7 @@ def get_matching_automation(
     # Deal
     elif trigger_event == "Deal Stage Change":
         if current_state:
-            filters["deal_stage"] = current_state
+            filters["current_deal_stage"] = current_state
         if previous_state:
             filters["previous_deal_stage"] = previous_state
 

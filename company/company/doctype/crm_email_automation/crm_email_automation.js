@@ -55,12 +55,12 @@ frappe.ui.form.on('CRM Email Automation', {
                     frm.set_df_property("previous_workflow_state", "options", lead_states);
                     
                     // Set Deal Stages
-                    frm.set_df_property("deal_stage", "options", deal_stages);
+                    frm.set_df_property("current_deal_stage", "options", deal_stages);
                     frm.set_df_property("previous_deal_stage", "options", deal_stages);
 
                     frm.refresh_field("workflow_state");
                     frm.refresh_field("previous_workflow_state");
-                    frm.refresh_field("deal_stage");
+                    frm.refresh_field("current_deal_stage");
                     frm.refresh_field("previous_deal_stage");
                 }
             }
