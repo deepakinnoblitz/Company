@@ -52,7 +52,11 @@ def test_connection():
 
             settings.connection_status = "Connected"
             settings.last_connected_on = frappe.utils.now()
+
             settings.save(ignore_permissions=True)
+
+            frappe.logger().info(settings.last_connected_on)
+            frappe.db.commit()
 
             return {
                 "success": True,
