@@ -349,17 +349,19 @@
    "label": "Confirmation Dialog"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "show_confirmation_dialog",
    "fieldtype": "Check",
    "label": "Show Confirmation Dialog"
   },
   {
+   "default": "Send WhatsApp Message?",
    "fieldname": "dialog_title",
    "fieldtype": "Data",
    "label": "Dialog Title"
   },
   {
+   "default": "Do you want to send the WhatsApp message?",
    "fieldname": "dialog_message",
    "fieldtype": "Small Text",
    "label": "Dialog Message"
@@ -374,7 +376,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-30 17:38:40.087659",
+ "modified": "2026-07-01 14:40:31.418660",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Email Automation",

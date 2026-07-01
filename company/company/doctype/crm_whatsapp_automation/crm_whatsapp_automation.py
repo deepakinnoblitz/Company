@@ -266,13 +266,18 @@ def _execute_automation(automation, doc, proposal_name=None):
     
     template = frappe.get_doc("CRM WhatsApp Template", automation.whatsapp_template)
     
-    attachment = None
-    if template.allow_attachment and template.default_attachment and len(template.default_attachment):
-        # Pass the string file URL, not the list of Child Table objects
-        attachment = template.default_attachment[0].file
+    attachments = []
+    if template.allow_attachment and template.default_attachment:
+        attachments = [att.file for att in template.default_attachment if att.file]
+        
+    attachment = attachments[0] if attachments else None
     
     try:
         response = send_whatsapp(phone=phone_number, message=message_body, attachment=attachment)
+        
+        if response.get("success") and len(attachments) > 1:
+            for extra_attachment in attachments[1:]:
+                send_whatsapp(phone=phone_number, message=None, attachment=extra_attachment)
         
         msg_doc = frappe.new_doc("CRM WhatsApp Message")
         msg_doc.mobile_number = phone_number
