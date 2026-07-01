@@ -574,11 +574,29 @@ def process_campaign(campaign_name):
 				queue_doc.retry_count = (queue_doc.retry_count or 0) + 1
 				queue_doc.save(ignore_permissions=True)
 
+				template = None
+				if queue_doc.whatsapp_template:
+					try:
+						template = frappe.get_doc("CRM WhatsApp Template", queue_doc.whatsapp_template)
+					except Exception:
+						pass
+
 				response = send_whatsapp(
 					phone=queue_doc.recipient_phone,
 					message=queue_doc.message_content,
 					attachment=queue_doc.attachment or None
 				)
+
+				if response.get("success") and template and template.allow_attachment and template.default_attachment and len(template.default_attachment) > 1:
+					for idx, att in enumerate(template.default_attachment):
+						if idx == 0:
+							continue
+						if att.file:
+							send_whatsapp(
+								phone=queue_doc.recipient_phone,
+								message=None,
+								attachment=att.file
+							)
 
 				if response.get("success"):
 					queue_doc.status = "Sent"
