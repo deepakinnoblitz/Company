@@ -119,7 +119,7 @@
    "fieldname": "target_type",
    "fieldtype": "Select",
    "label": "Target Type",
-   "mandatory_depends_on": "eval:doc.for_campaigns==1",
+   "mandatory_depends_on": "eval:doc.for_campaigns==1 || doc.for_status_change==1",
    "options": "Lead\nContact\nAccount\nDeals\nProposals"
   },
   {
@@ -316,31 +316,36 @@
    "fieldname": "trigger_event",
    "fieldtype": "Select",
    "label": "Trigger Event",
+   "mandatory_depends_on": "eval:doc.for_status_change==1",
    "options": "Lead Workflow State Change\nDeal Stage Change"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change' && doc.for_status_change==1",
    "fieldname": "workflow_state",
    "fieldtype": "Select",
-   "label": "Workflow State"
+   "label": "Workflow State",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Lead Workflow State Change' && doc.for_status_change==1"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Lead Workflow State Change' && doc.for_status_change==1",
    "fieldname": "previous_workflow_state",
    "fieldtype": "Select",
-   "label": "Previous Workflow State"
+   "label": "Previous Workflow State",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Lead Workflow State Change' && doc.for_status_change==1"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change' && doc.for_status_change==1",
    "fieldname": "current_deal_stage",
    "fieldtype": "Select",
-   "label": "Current Deal Stage"
+   "label": "Current Deal Stage",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Deal Stage Change' && doc.for_status_change==1"
   },
   {
    "depends_on": "eval:doc.trigger_event=='Deal Stage Change' && doc.for_status_change==1",
    "fieldname": "previous_deal_stage",
    "fieldtype": "Select",
-   "label": "Previous Deal Stage"
+   "label": "Previous Deal Stage",
+   "mandatory_depends_on": "eval:doc.trigger_event=='Deal Stage Change' && doc.for_status_change==1"
   },
   {
    "depends_on": "eval:doc.for_status_change==1",
@@ -358,13 +363,15 @@
    "default": "Send WhatsApp Message?",
    "fieldname": "dialog_title",
    "fieldtype": "Data",
-   "label": "Dialog Title"
+   "label": "Dialog Title",
+   "mandatory_depends_on": "eval:doc.show_confirmation_dialog==1 && doc.for_status_change==1"
   },
   {
    "default": "Do you want to send the WhatsApp message?",
    "fieldname": "dialog_message",
    "fieldtype": "Small Text",
-   "label": "Dialog Message"
+   "label": "Dialog Message",
+   "mandatory_depends_on": "eval:doc.show_confirmation_dialog==1 && doc.for_status_change==1"
   },
   {
    "default": "0",
