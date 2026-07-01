@@ -171,3 +171,404 @@ def process_email_automations():
 				auto_doc.is_active = 0
 				auto_doc.next_run_on = None
 				auto_doc.save(ignore_permissions=True)
+
+
+#-----------------------------------------------------------------------
+# Status Changes
+#-----------------------------------------------------------------------
+
+@frappe.whitelist()
+def get_matching_automation(
+    target_type,
+    trigger_event,
+    current_state=None,
+    previous_state=None,
+):
+    """
+    Return the first enabled automation matching the trigger.
+    """
+
+    filters = {
+        "is_active": 1,
+        "target_type": target_type,
+        "trigger_event": trigger_event,
+    }
+
+    # Lead
+    if trigger_event == "Lead Workflow State Change":
+        if current_state:
+            filters["workflow_state"] = current_state
+        if previous_state:
+            filters["previous_workflow_state"] = previous_state
+
+    # Deal
+    elif trigger_event == "Deal Stage Change":
+        if current_state:
+            filters["deal_stage"] = current_state
+        if previous_state:
+            filters["previous_deal_stage"] = previous_state
+
+    automation = frappe.get_all(
+        "CRM Email Automation",
+        filters=filters,
+        fields=["name"],
+        limit=1,
+    )
+
+    if not automation:
+        return None
+
+    return frappe.get_doc("CRM Email Automation", automation[0].name)
+
+
+def replace_template_variables(message, doc, proposal_name=None):
+    """
+    Render template message using Frappe's Jinja environment.
+    Provides {{ doc.fieldname }} and standard Frappe utilities.
+    """
+    if not message:
+        return ""
+
+    try:
+        import re
+        # Provide both direct fields {{ lead_name }} and {{ doc.name }}
+        context = doc.as_dict().copy()
+        context["doc"] = doc
+        
+        # Supply proposal context if applicable
+        if doc.doctype == "Lead":
+            if not proposal_name:
+                # For preview, try to grab the latest proposal
+                latest = frappe.db.get_value("Proposal", {"lead": doc.name}, "name", order_by="creation desc")
+                if latest:
+                    proposal_name = latest
+            
+            if proposal_name:
+                context["proposal"] = frappe.get_doc("Proposal", proposal_name).as_dict()
+            else:
+                # Provide an empty dict so jinja doesn't fail with UndefinedError
+                context["proposal"] = frappe._dict()
+
+        rendered = frappe.render_template(message, context)
+        
+        # Convert paragraph and break tags to newlines to preserve spacing
+        rendered = re.sub(r'(?i)<br\s*/?>', '\n', rendered)
+        rendered = re.sub(r'(?i)</p>', '\n', rendered)
+        rendered = re.sub(r'(?i)</div>', '\n', rendered)
+        
+        # Strip remaining HTML tags
+        rendered = frappe.utils.strip_html(rendered)
+        
+        # Collapse 3+ consecutive newlines down to max 2 (one blank line)
+        rendered = re.sub(r'\n{3,}', '\n\n', rendered)
+        
+        return rendered.strip()
+        
+    except Exception as e:
+        frappe.log_error(f"Template Render Error: {str(e)}", "Email Automation Error")
+        return message
+
+def build_email_message(automation, doc, proposal_name=None):
+    """
+    Render the email body from the selected template.
+    Returns only the email body (without subject).
+    """
+
+    template = frappe.get_doc(
+        "CRM Email Template",
+        automation.email_template
+    )
+
+    body = replace_template_variables(
+        template.email_content or "",
+        doc,
+        proposal_name,
+    )
+
+    footer = replace_template_variables(
+        template.footer_content or "",
+        doc,
+        proposal_name,
+    )
+
+    return "\n\n".join(
+        part for part in [body, footer] if part
+    )
+
+
+def evaluate_automations(doc, method=None):
+    """
+    Evaluates global document updates to trigger Email Automations.
+    Called via hooks.py on_update doc_event.
+    """
+    if doc.is_new():
+        return
+
+    # Check if workflow_state changed
+    doc_before_save = doc.get_doc_before_save()
+    if not doc_before_save:
+        return
+
+    if doc.doctype == "Lead":
+        trigger_event = "Lead Workflow State Change"
+        current_state = doc.workflow_state
+        previous_state = doc_before_save.workflow_state
+
+    elif doc.doctype == "Deal":
+        trigger_event = "Deal Stage Change"
+        current_state = doc.stage
+        previous_state = doc_before_save.stage
+
+    else:
+        return
+
+    if current_state == previous_state:
+        return
+
+    automation = get_matching_automation(
+        target_type=doc.doctype,
+        trigger_event=trigger_event,
+        current_state=current_state,
+        previous_state=previous_state,
+    )
+
+    if not automation:
+        return
+        
+    if automation.auto_send:
+        _execute_automation(automation, doc)
+
+@frappe.whitelist()
+def get_automation_preview(
+    doctype,
+    docname,
+    current_state=None,
+    previous_state=None,
+):
+    """
+    Return Email automation preview.
+    """
+
+    doc = frappe.get_doc(doctype, docname)
+
+    # Use current workflow state if not passed
+    if doctype == "Lead":
+        trigger_event = "Lead Workflow State Change"
+        current_state = current_state or doc.workflow_state
+
+    elif doctype == "Deal":
+        trigger_event = "Deal Stage Change"
+        current_state = current_state or doc.stage
+
+    else:
+        return None
+
+    automation = get_matching_automation(
+        target_type=doctype,
+        trigger_event=trigger_event,
+        current_state=current_state,
+        previous_state=previous_state,
+    )
+
+    if not automation:
+        return None
+
+    return {
+        "automation_name": automation.name,
+        "title": automation.dialog_title,
+        "message": automation.dialog_message,
+        "preview": build_email_message(automation, doc),
+        "show_confirmation": automation.show_confirmation_dialog,
+    }
+
+@frappe.whitelist()
+def send_automation_message(automation_name, doctype, docname, proposal_name=None):
+    """
+    Triggered manually via Frappe msgprint dialog confirmation.
+    """
+    automation = frappe.get_doc("CRM Email Automation", automation_name)
+    doc = frappe.get_doc(doctype, docname)
+    _execute_automation(automation, doc, proposal_name)
+
+
+def _execute_automation(automation, doc, proposal_name=None):
+    """
+    Execute CRM Email Automation.
+    """
+
+    # ------------------------------------------------------------------
+    # Evaluate Conditions
+    # ------------------------------------------------------------------
+    if automation.get("conditions"):
+        for condition in automation.conditions:
+            doc_value = doc.get(condition.field_name)
+            expected_value = condition.value
+
+            if (
+                condition.operator == "Equals"
+                and str(doc_value) != str(expected_value)
+            ):
+                return
+
+            if (
+                condition.operator == "Not Equals"
+                and str(doc_value) == str(expected_value)
+            ):
+                return
+
+    # ------------------------------------------------------------------
+    # Build Email
+    # ------------------------------------------------------------------
+    template = frappe.get_doc(
+        "CRM Email Template",
+        automation.email_template
+    )
+
+    subject = replace_template_variables(
+        automation.subject_override or template.subject or "",
+        doc,
+        proposal_name,
+    )
+
+    message = build_email_message(
+        automation,
+        doc,
+        proposal_name,
+    )
+
+    # ------------------------------------------------------------------
+    # Get Recipient Email
+    # ------------------------------------------------------------------
+    recipient = get_email_address(doc)
+
+    if not recipient:
+        frappe.log_error(
+            f"Email Automation failed for {doc.doctype} {doc.name}: No email address found.",
+            "CRM Email Automation",
+        )
+        return
+
+    # ------------------------------------------------------------------
+    # Send Email
+    # ------------------------------------------------------------------
+    try:
+        reply_to = template.reply_to_email if template.reply_to_email else None
+
+        frappe.sendmail(
+            recipients=[recipient],
+            subject=subject,
+            message=message,
+            reply_to=reply_to,
+            delayed=False,
+        )
+
+        frappe.logger().info(
+            f"Email Automation sent successfully to {recipient}"
+        )
+
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "CRM Email Automation Error",
+        )
+        return
+
+    # ------------------------------------------------------------------
+    # Update Automation Statistics
+    # ------------------------------------------------------------------
+    automation.last_run_on = frappe.utils.now_datetime()
+    automation.total_runs = (automation.total_runs or 0) + 1
+    automation.total_recipients = (
+        automation.total_recipients or 0
+    ) + 1
+
+    automation.save(ignore_permissions=True)
+
+def get_email_address(doc):
+    """
+    Return the best email address for the given document.
+    """
+
+    # ------------------------------------------------------------------
+    # Lead
+    # ------------------------------------------------------------------
+    if doc.doctype == "Lead":
+
+        if doc.email:
+            return doc.email
+
+        if getattr(doc, "emails", None):
+            for row in doc.emails:
+                if row.email:
+                    return row.email
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Contacts
+    # ------------------------------------------------------------------
+    elif doc.doctype == "Contacts":
+
+        if doc.email:
+            return doc.email
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Accounts
+    # ------------------------------------------------------------------
+    elif doc.doctype == "Accounts":
+
+        contact = frappe.db.sql(
+            """
+            SELECT c.email
+            FROM `tabContacts` c
+            INNER JOIN `tabContact Company` cc
+                ON cc.parent = c.name
+            WHERE cc.company_name = %s
+            AND IFNULL(c.email, '') != ''
+            ORDER BY c.creation ASC
+            LIMIT 1
+            """,
+            (doc.account_name,),
+            as_dict=True,
+        )
+
+        if contact:
+            return contact[0].email
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Deal
+    # ------------------------------------------------------------------
+    elif doc.doctype == "Deal":
+
+        # Contact
+        if getattr(doc, "contact", None):
+            email = frappe.db.get_value(
+                "Contacts",
+                doc.contact,
+                "email",
+            )
+            if email:
+                return email
+
+        # Lead
+        if getattr(doc, "lead", None):
+            email = frappe.db.get_value(
+                "Lead",
+                doc.lead,
+                "email",
+            )
+            if email:
+                return email
+
+        # Account
+        if getattr(doc, "account", None):
+            account = frappe.get_doc("Accounts", doc.account)
+            return get_email_address(account)
+
+        return None
+
+    return None
