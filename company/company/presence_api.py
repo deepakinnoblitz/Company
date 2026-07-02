@@ -688,8 +688,28 @@ def get_detailed_sessions(employee=None, limit_start=0, limit_page_length=20, da
         values["to_date"] = to_date
 
     if employee and employee != "all":
-        query_filters.append("s.employee = %(employee)s")
-        values["employee"] = employee
+        import json
+        selected_employees = []
+        if isinstance(employee, list):
+            selected_employees = employee
+        elif isinstance(employee, str):
+            if employee.startswith("[") and employee.endswith("]"):
+                try:
+                    selected_employees = json.loads(employee)
+                except Exception:
+                    selected_employees = [employee]
+            elif "," in employee:
+                selected_employees = [x.strip() for x in employee.split(",") if x.strip()]
+            else:
+                selected_employees = [employee]
+        
+        if selected_employees:
+            placeholders = []
+            for idx, emp_id in enumerate(selected_employees):
+                key = f"emp_filter_{idx}"
+                placeholders.append(f"%({key})s")
+                values[key] = emp_id
+            query_filters.append(f"s.employee IN ({', '.join(placeholders)})")
 
     where_clause = f"WHERE {' AND '.join(query_filters)}" if query_filters else ""
     
