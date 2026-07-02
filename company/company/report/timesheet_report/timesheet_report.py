@@ -70,8 +70,31 @@ def get_columns():
 def get_conditions(filters):
     conditions = ""
 
-    if filters.get("employee"):
-        conditions += " AND ts.employee = %(employee)s"
+    employee = filters.get("employee")
+    if employee:
+        import json
+        selected_employees = []
+        if isinstance(employee, list):
+            selected_employees = employee
+        elif isinstance(employee, str):
+            if employee.startswith("[") and employee.endswith("]"):
+                try:
+                    selected_employees = json.loads(employee)
+                except Exception:
+                    selected_employees = [employee]
+            elif "," in employee:
+                selected_employees = [x.strip() for x in employee.split(",") if x.strip()]
+            else:
+                selected_employees = [employee]
+        
+        selected_employees = [e for e in selected_employees if e and e != "all"]
+        if selected_employees:
+            placeholders = []
+            for idx, emp_id in enumerate(selected_employees):
+                key = f"emp_filter_{idx}"
+                placeholders.append(f"%({key})s")
+                filters[key] = emp_id
+            conditions += f" AND ts.employee IN ({', '.join(placeholders)})"
 
     if filters.get("project"):
         conditions += " AND tse.project = %(project)s"
