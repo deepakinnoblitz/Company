@@ -49,7 +49,7 @@ def get_data(filters: dict | None) -> list[dict]:
 		
 		# Ensure we handle 'all' or empty filters consistently
 		selected_employee = filters.get("employee")
-		if selected_employee in ["all", "", None]:
+		if not selected_employee or selected_employee == "all" or selected_employee == "":
 			selected_employee = None
 			
 		status_filter = filters.get("status")
@@ -58,8 +58,11 @@ def get_data(filters: dict | None) -> list[dict]:
 
 		# 1. Fetch Employees
 		emp_filters = {"status": "Active"} 
-		if selected_employee and selected_employee != "all":
-			emp_filters["name"] = selected_employee
+		if selected_employee:
+			if isinstance(selected_employee, list):
+				emp_filters["name"] = ["in", selected_employee]
+			else:
+				emp_filters["name"] = selected_employee
 
 		employees = frappe.get_all(
 			"Employee",

@@ -135,10 +135,12 @@ doc_events = {
         "on_trash": "company.company.crm_api.delete_event_for_todo"
     },
     "Lead": {
-        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations",
+        "on_update": "company.company.doctype.crm_email_automation.crm_email_automation.evaluate_automations"
     },
     "Deal": {
-        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations"
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations",
+        "on_update": "company.company.doctype.crm_email_automation.crm_email_automation.evaluate_automations"
     }
 }
 
