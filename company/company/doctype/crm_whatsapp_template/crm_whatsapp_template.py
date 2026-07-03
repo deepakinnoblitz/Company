@@ -12,25 +12,24 @@ class CRMWhatsAppTemplate(Document):
 @frappe.whitelist()
 def get_whatsapp_template_variables(used_for):
     """
-    Returns template variables.
-    Shows normal fields.
-    Expands only selected linked doctypes.
+    Returns template variables for selected document types.
+    Supports comma-separated multi-select values like "Lead,Deal,Proposal".
     """
 
+    # Map frontend values to (actual_doctype, variable_prefix)
     doctype_map = {
-        "Lead": "Lead",
-        "Contacts": "Contacts",
-        "Accounts": "Accounts",
-        "Deal": "Deal",
-        "Proposal": "Proposal",
-        "Invoice": "Invoice",
-        "Estimation": "Estimation",
+        "Lead": ("Lead", None),
+        "Contact": ("Contacts", None),
+        "Contacts": ("Contacts", None),
+        "Account": ("Accounts", None),
+        "Accounts": ("Accounts", None),
+        "Deal": ("Deal", None),
+        "Deals": ("Deal", None),
+        "Proposal": ("Proposal", "proposal"),  # rendered as {{ proposal.fieldname }}
+        "Proposals": ("Proposal", "proposal"),
+        "Invoice": ("Invoice", None),
+        "Estimation": ("Estimation", None),
     }
-
-    doctype = doctype_map.get(used_for)
-
-    if not doctype:
-        return []
 
     exclude = {
         "name",
@@ -74,7 +73,7 @@ def get_whatsapp_template_variables(used_for):
         "Heading",
     }
 
-    # Only expand these doctypes
+    # Only expand these doctypes when following Link fields
     allowed_link_doctypes = {
         "Lead",
         "Contacts",
@@ -85,72 +84,91 @@ def get_whatsapp_template_variables(used_for):
         "Estimation",
     }
 
-    variables = []
+    # Split comma-separated values and process each
+    selected_types = [t.strip() for t in used_for.split(",") if t.strip()]
+
+    all_variables = []
     visited = set()
 
-    meta = frappe.get_meta(doctype)
-
-    for df in meta.fields:
-
-        if (
-            not df.fieldname
-            or df.fieldname in exclude
-            or df.fieldtype in ignore_fieldtypes
-			or df.hidden
-        ):
+    for selected in selected_types:
+        mapping = doctype_map.get(selected)
+        if not mapping:
             continue
 
-        # Normal field
-        if df.fieldname not in visited:
+        doctype, prefix = mapping
 
-            visited.add(df.fieldname)
+        try:
+            meta = frappe.get_meta(doctype)
+        except Exception:
+            continue
 
-            variables.append({
-                "label": df.label,
-                "fieldname": df.fieldname,
-                "variable": f"{{{{{df.fieldname}}}}}",
-                "fieldtype": df.fieldtype,
-            })
+        for df in meta.fields:
 
-        # Expand only business link doctypes
-        if (
-            df.fieldtype == "Link"
-            and df.options
-            and df.options in allowed_link_doctypes
-        ):
+            if (
+                not df.fieldname
+                or df.fieldname in exclude
+                or df.fieldtype in ignore_fieldtypes
+                or df.hidden
+            ):
+                continue
 
-            try:
+            # Build variable name with optional prefix
+            if prefix:
+                var_name = f"{prefix}.{df.fieldname}"
+                variable = f"{{{{{var_name}}}}}"
+                display_label = f"{df.label} (Proposal)"
+            else:
+                var_name = df.fieldname
+                variable = f"{{{{{df.fieldname}}}}}"
+                display_label = df.label
 
-                link_meta = frappe.get_meta(df.options)
+            if var_name not in visited:
+                visited.add(var_name)
+                all_variables.append({
+                    "label": display_label,
+                    "fieldname": var_name,
+                    "variable": variable,
+                    "fieldtype": df.fieldtype,
+                })
 
-                for link_df in link_meta.fields:
+            # Expand only business link doctypes (only when no prefix to avoid nested prefixes)
+            if (
+                not prefix
+                and df.fieldtype == "Link"
+                and df.options
+                and df.options in allowed_link_doctypes
+            ):
+                try:
+                    link_meta = frappe.get_meta(df.options)
 
-                    if (
-                        not link_df.fieldname
-                        or link_df.fieldname in exclude
-                        or link_df.fieldtype in ignore_fieldtypes
-						or link_df.hidden
-                    ):
-                        continue
+                    for link_df in link_meta.fields:
 
-                    variable = f"{df.fieldname}.{link_df.fieldname}"
+                        if (
+                            not link_df.fieldname
+                            or link_df.fieldname in exclude
+                            or link_df.fieldtype in ignore_fieldtypes
+                            or link_df.hidden
+                        ):
+                            continue
 
-                    if variable in visited:
-                        continue
+                        linked_var = f"{df.fieldname}.{link_df.fieldname}"
 
-                    visited.add(variable)
+                        if linked_var in visited:
+                            continue
 
-                    variables.append({
-                        "label": f"{df.label} → {link_df.label}",
-                        "fieldname": variable,
-                        "variable": f"{{{{{variable}}}}}",
-                        "fieldtype": link_df.fieldtype,
-                    })
+                        visited.add(linked_var)
 
-            except Exception:
-                pass
+                        all_variables.append({
+                            "label": f"{df.label} → {link_df.label}",
+                            "fieldname": linked_var,
+                            "variable": f"{{{{{linked_var}}}}}",
+                            "fieldtype": link_df.fieldtype,
+                        })
+
+                except Exception:
+                    pass
 
     return sorted(
-        variables,
+        all_variables,
         key=lambda x: x["label"].lower()
     )
