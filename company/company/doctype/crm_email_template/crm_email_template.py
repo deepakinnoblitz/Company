@@ -12,20 +12,21 @@ class CRMEmailTemplate(Document):
 def get_email_template_variables(template_for):
     """
     Returns available variables for the selected Template For.
+    Supports comma-separated multi-select values like "Lead,Contact,Proposal".
     """
 
+    # Map frontend values to actual Frappe doctypes
     doctype_map = {
-        "Lead": "Lead",
-        "Contact": "Contacts",
-        "Account": "Accounts",
+        "Lead": ("Lead", None),           # (doctype, variable_prefix)
+        "Contact": ("Contacts", None),
+        "Contacts": ("Contacts", None),
+        "Account": ("Accounts", None),
+        "Accounts": ("Accounts", None),
+        "Deal": ("Deal", None),
+        "Deals": ("Deal", None),
+        "Proposal": ("Proposal", "proposal"),  # rendered as {{ proposal.fieldname }}
+        "Proposals": ("Proposal", "proposal"),
     }
-
-    doctype = doctype_map.get(template_for)
-
-    if not doctype:
-        return []
-
-    meta = frappe.get_meta(doctype)
 
     exclude = {
         "name",
@@ -69,19 +70,46 @@ def get_email_template_variables(template_for):
         "Heading",
     }
 
-    variables = []
+    # Split comma-separated values and process each
+    selected_types = [t.strip() for t in template_for.split(",") if t.strip()]
 
-    for df in meta.fields:
-        if (
-            df.fieldname
-            and df.fieldname not in exclude
-            and df.fieldtype not in ignore_fieldtypes
-        ):
-            variables.append({
-                "label": df.label,
-                "fieldname": df.fieldname,
-                "variable": f"{{{{{df.fieldname}}}}}",
-                "fieldtype": df.fieldtype,
-            })
+    all_variables = []
+    seen_variables = set()
 
-    return sorted(variables, key=lambda x: x["label"])
+    for selected in selected_types:
+        mapping = doctype_map.get(selected)
+        if not mapping:
+            continue
+
+        doctype, prefix = mapping
+
+        try:
+            meta = frappe.get_meta(doctype)
+        except Exception:
+            continue
+
+        for df in meta.fields:
+            if (
+                df.fieldname
+                and df.fieldname not in exclude
+                and df.fieldtype not in ignore_fieldtypes
+            ):
+                if prefix:
+                    var_name = f"{prefix}.{df.fieldname}"
+                    variable = f"{{{{{var_name}}}}}"
+                    display_label = f"{df.label} (Proposal)"
+                else:
+                    var_name = df.fieldname
+                    variable = f"{{{{{df.fieldname}}}}}"
+                    display_label = df.label
+
+                if var_name not in seen_variables:
+                    seen_variables.add(var_name)
+                    all_variables.append({
+                        "label": display_label,
+                        "fieldname": var_name,
+                        "variable": variable,
+                        "fieldtype": df.fieldtype,
+                    })
+
+    return sorted(all_variables, key=lambda x: x["label"])

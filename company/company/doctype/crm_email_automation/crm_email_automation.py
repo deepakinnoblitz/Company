@@ -188,9 +188,20 @@ def get_matching_automation(
     Return the first enabled automation matching the trigger.
     """
 
+    # Normalize target_type to match DB options (Lead, Contact, Account, Deals, Proposals)
+    db_target_type = target_type
+    if target_type == "Deal":
+        db_target_type = "Deals"
+    elif target_type == "Proposal":
+        db_target_type = "Proposals"
+    elif target_type == "Contacts":
+        db_target_type = "Contact"
+    elif target_type == "Accounts":
+        db_target_type = "Account"
+
     filters = {
         "is_active": 1,
-        "target_type": target_type,
+        "target_type": db_target_type,
         "trigger_event": trigger_event,
     }
 
