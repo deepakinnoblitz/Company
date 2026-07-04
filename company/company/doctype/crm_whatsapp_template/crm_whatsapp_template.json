@@ -5,9 +5,9 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "status",
   "template_name",
   "category",
-  "status",
   "section_usage",
   "used_for",
   "section_template_content",
@@ -36,10 +36,10 @@
   },
   {
    "fieldname": "category",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Category",
-   "options": "General\nWelcome\nLead\nFollow Up\nProposal\nEstimation\nInvoice\nPayment Reminder\nSupport\nMarketing",
+   "options": "CRM WhatsApp Template Category",
    "reqd": 1
   },
   {
@@ -56,9 +56,8 @@
   },
   {
    "fieldname": "used_for",
-   "fieldtype": "Select",
-   "label": "Used For",
-   "options": "Lead\nContacts\nAccounts\nDeal\nProposal\nEstimation\nInvoice"
+   "fieldtype": "Data",
+   "label": "Used For"
   },
   {
    "fieldname": "section_template_content",
@@ -150,7 +149,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-23 16:34:36.689057",
+ "modified": "2026-07-04 11:44:58.937744",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Template",

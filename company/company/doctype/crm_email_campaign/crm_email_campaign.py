@@ -167,39 +167,87 @@ def unsubscribe(email):
 
 @frappe.whitelist()
 def get_filter_fields(target_type):
-	doctype_map = {
-		"Lead": "Lead",
-		"Contact": "Contacts",
-		"Account": "Accounts"
-	}
-	doctype = doctype_map.get(target_type)
-	if not doctype:
-		return []
+    doctype_map = {
+        "Lead": "Lead",
+        "Contact": "Contacts",
+        "Account": "Accounts",
+    }
 
-	meta = frappe.get_meta(doctype)
-	fields = []
+    doctype = doctype_map.get(target_type)
+    if not doctype:
+        return []
 
-	# Add workflow status if active/exists
-	if meta.has_field("workflow_status"):
-		fields.append({"value": "workflow_status", "label": "Workflow State"})
+    meta = frappe.get_meta(doctype)
+    fields = []
 
-	# List of common/standard fields to always include
-	fields.extend([
-		{"value": "owner", "label": "Owner"},
-		{"value": "creation", "label": "Created Date"},
-		{"value": "modified", "label": "Modified Date"}
-	])
+    # Add common/system fields
+    if meta.has_field("workflow_status"):
+        fields.append({
+            "value": "workflow_status",
+            "label": "Workflow State"
+        })
 
-	for field in meta.fields:
-		if field.fieldtype in ["Select", "Link", "Data", "Int", "Float", "Currency", "Date", "Check", "Autocomplete"]:
-			# Ensure we do not add duplicate workflow_status or standard fields
-			if field.fieldname not in ["workflow_status", "owner", "creation", "modified"]:
-				fields.append({
-					"value": field.fieldname,
-					"label": field.label or field.fieldname
-				})
+    fields.extend([
+        {
+            "value": "owner",
+            "label": "Owner"
+        },
+        {
+            "value": "creation",
+            "label": "Created Date"
+        },
+        {
+            "value": "modified",
+            "label": "Modified Date"
+        },
+    ])
 
-	return fields
+    allowed_fieldtypes = [
+        "Data",
+        "Select",
+        "Link",
+        "Autocomplete",
+        "Check",
+        "Date",
+        "Datetime",
+        "Time",
+        "Int",
+        "Float",
+        "Currency",
+    ]
+
+    ignored_fields = {
+        "workflow_status",
+        "owner",
+        "creation",
+        "modified",
+    }
+
+    for field in meta.fields:
+        # Ignore hidden fields
+        if field.hidden:
+            continue
+        if field.read_only:
+            continue
+
+        # Ignore unwanted field types
+        if field.fieldtype not in allowed_fieldtypes:
+            continue
+
+        # Ignore duplicate/system fields
+        if field.fieldname in ignored_fields:
+            continue
+
+        fields.append({
+            "value": field.fieldname,
+            "label": field.label or field.fieldname,
+        })
+
+    # Sort alphabetically (keep system fields on top)
+    system_fields = fields[:4]
+    other_fields = sorted(fields[4:], key=lambda x: x["label"].lower())
+
+    return system_fields + other_fields
 
 @frappe.whitelist()
 def get_filter_value_options(target_type, field_name):

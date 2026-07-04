@@ -21,9 +21,20 @@ def get_matching_automation(
     Return the first enabled automation matching the trigger.
     """
 
+    # Normalize document_type to match DB options (Lead, Contacts, Accounts, Deal, Proposal)
+    db_document_type = document_type
+    if document_type == "Deals" or document_type == "Deal":
+        db_document_type = "Deal"
+    elif document_type == "Proposals" or document_type == "Proposal":
+        db_document_type = "Proposal"
+    elif document_type == "Contact" or document_type == "Contacts":
+        db_document_type = "Contacts"
+    elif document_type == "Account" or document_type == "Accounts":
+        db_document_type = "Accounts"
+
     filters = {
         "is_active": 1,
-        "document_type": document_type,
+        "document_type": db_document_type,
         "trigger_event": trigger_event,
     }
 
