@@ -57,7 +57,7 @@
    "fieldname": "document_type",
    "fieldtype": "Select",
    "label": "Document Type",
-   "options": "Lead\nContacts\nAccounts\nDeal\nProposal",
+   "options": "Lead\nDeal",
    "reqd": 1
   },
   {
@@ -140,7 +140,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-24 14:08:46.469053",
+ "modified": "2026-07-03 18:37:13.872573",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM WhatsApp Automation",

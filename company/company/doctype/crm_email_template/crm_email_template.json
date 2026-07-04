@@ -6,11 +6,10 @@
  "engine": "InnoDB",
  "field_order": [
   "basic_information_section",
+  "is_active",
   "template_name",
   "category",
   "template_for",
-  "is_active",
-  "is_default",
   "basic_info_cb",
   "description",
   "email_settings_section",
@@ -45,10 +44,10 @@
   },
   {
    "fieldname": "category",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Category",
-   "options": "Marketing\nNewsletter\nPromotion\nWelcome\nFollow Up\nProposal\nInvoice\nReminder\nCustom",
+   "options": "CRM Email Template Category",
    "reqd": 1
   },
   {
@@ -56,12 +55,6 @@
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Is Active"
-  },
-  {
-   "default": "0",
-   "fieldname": "is_default",
-   "fieldtype": "Check",
-   "label": "Is Default"
   },
   {
    "fieldname": "description",
@@ -136,17 +129,16 @@
   },
   {
    "fieldname": "template_for",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Template For",
-   "options": "Lead\nContact\nAccount",
    "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-23 16:32:43.416597",
+ "modified": "2026-07-04 11:43:55.629750",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Email Template",
