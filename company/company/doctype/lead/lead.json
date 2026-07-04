@@ -164,7 +164,8 @@
    "fieldname": "interest_level",
    "fieldtype": "Select",
    "label": "Interest Level",
-   "options": "\nHigh\nMedium\nLow"
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
   },
   {
    "fieldname": "activity_score",
@@ -244,7 +245,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-08 12:04:32.586276",
+ "modified": "2026-07-04 15:24:06.436543",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",
@@ -265,17 +266,16 @@
   },
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
-   "delete": 1,
    "report": 1,
    "role": "CRM And Sales",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "import": 1,
-   "select": 1
+   "write": 1
   }
  ],
  "row_format": "Dynamic",
