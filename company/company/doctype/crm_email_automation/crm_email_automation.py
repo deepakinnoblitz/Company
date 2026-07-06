@@ -1,17 +1,30 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from datetime import datetime, timedelta
 import calendar
 
 class CRMEmailAutomation(Document):
 	def validate(self):
-		# Sync is_active check with status
-		if self.is_active:
-			if self.status in ["Draft", "Paused"]:
-				self.status = "Active"
-		else:
-			if self.status == "Active":
-				self.status = "Paused"
+		# Sync is_active check with status — only for scheduled automations.
+		# Status-change automations (Deal/Lead trigger) are always "Active" once enabled;
+		# they do NOT use the scheduler so is_active is not the right gate.
+		if not self.for_status_change:
+			if self.is_active:
+				if self.status in ["Draft", "Paused"]:
+					self.status = "Active"
+			else:
+				if self.status == "Active":
+					self.status = "Paused"
+
+		# Validate transitions
+		if self.for_status_change:
+			if self.trigger_event == "Lead Workflow State Change" and self.previous_workflow_state and self.workflow_state:
+				if self.previous_workflow_state == self.workflow_state:
+					frappe.throw(_("Previous Workflow State and Target Workflow State cannot be the same."))
+			elif self.trigger_event == "Deal Stage Change" and self.previous_deal_stage and self.current_deal_stage:
+				if self.previous_deal_stage == self.current_deal_stage:
+					frappe.throw(_("Previous Deal Stage and Current Deal Stage cannot be the same."))
 
 		# If active, calculate next run on
 		if self.status == "Active" and self.start_date and self.run_time:
@@ -236,12 +249,12 @@ def replace_template_variables(message, doc, proposal_name=None):
     """
     Render template message using Frappe's Jinja environment.
     Provides {{ doc.fieldname }} and standard Frappe utilities.
+    Returns HTML-formatted content (HTML tags are preserved).
     """
     if not message:
         return ""
 
     try:
-        import re
         # Provide both direct fields {{ lead_name }} and {{ doc.name }}
         context = doc.as_dict().copy()
         context["doc"] = doc
@@ -262,18 +275,7 @@ def replace_template_variables(message, doc, proposal_name=None):
 
         rendered = frappe.render_template(message, context)
         
-        # Convert paragraph and break tags to newlines to preserve spacing
-        rendered = re.sub(r'(?i)<br\s*/?>', '\n', rendered)
-        rendered = re.sub(r'(?i)</p>', '\n', rendered)
-        rendered = re.sub(r'(?i)</div>', '\n', rendered)
-        
-        # Strip remaining HTML tags
-        rendered = frappe.utils.strip_html(rendered)
-        
-        # Collapse 3+ consecutive newlines down to max 2 (one blank line)
-        rendered = re.sub(r'\n{3,}', '\n\n', rendered)
-        
-        return rendered.strip()
+        return rendered
         
     except Exception as e:
         frappe.log_error(f"Template Render Error: {str(e)}", "Email Automation Error")
@@ -355,9 +357,11 @@ def get_automation_preview(
     docname,
     current_state=None,
     previous_state=None,
+    proposal_name=None,
 ):
     """
     Return Email automation preview.
+    Accepts an optional proposal_name to render the preview for a specific proposal.
     """
 
     doc = frappe.get_doc(doctype, docname)
@@ -388,21 +392,37 @@ def get_automation_preview(
         "automation_name": automation.name,
         "title": automation.dialog_title,
         "message": automation.dialog_message,
-        "preview": build_email_message(automation, doc),
+        "preview": build_email_message(automation, doc, proposal_name),
         "show_confirmation": automation.show_confirmation_dialog,
     }
 
 @frappe.whitelist()
-def send_automation_message(automation_name, doctype, docname, proposal_name=None):
+def get_proposal_attachments(proposal_name):
+    """
+    Get all attachments/files uploaded for the given Proposal.
+    """
+    if not proposal_name:
+        return []
+    attachments = frappe.get_all(
+        "Proposal Attachment",
+        filters={"parent": proposal_name},
+        fields=["name", "file_name", "attachment", "file_size"]
+    )
+    for att in attachments:
+        att["file_url"] = att.get("attachment")
+    return attachments
+
+@frappe.whitelist()
+def send_automation_message(automation_name, doctype, docname, proposal_name=None, attachments=None):
     """
     Triggered manually via Frappe msgprint dialog confirmation.
     """
     automation = frappe.get_doc("CRM Email Automation", automation_name)
     doc = frappe.get_doc(doctype, docname)
-    _execute_automation(automation, doc, proposal_name)
+    _execute_automation(automation, doc, proposal_name, attachments)
 
 
-def _execute_automation(automation, doc, proposal_name=None):
+def _execute_automation(automation, doc, proposal_name=None, attachments=None):
     """
     Execute CRM Email Automation.
     """
@@ -465,13 +485,30 @@ def _execute_automation(automation, doc, proposal_name=None):
     try:
         reply_to = template.reply_to_email if template.reply_to_email else None
 
-        frappe.sendmail(
-            recipients=[recipient],
-            subject=subject,
-            message=message,
-            reply_to=reply_to,
-            delayed=False,
-        )
+        mail_args = {
+            "recipients": [recipient],
+            "subject": subject,
+            "message": message,
+            "reply_to": reply_to,
+            "delayed": False,
+        }
+
+        if attachments:
+            if isinstance(attachments, str):
+                import json
+                try:
+                    parsed_attachments = json.loads(attachments)
+                except Exception:
+                    parsed_attachments = None
+            else:
+                parsed_attachments = attachments
+
+            if parsed_attachments:
+                # Frappe sendmail expects attachments list to contain dicts like {"file_url": "..."}
+                # or similar format.
+                mail_args["attachments"] = [{"file_url": att.get("file_url")} for att in parsed_attachments if att.get("file_url")]
+
+        frappe.sendmail(**mail_args)
 
         frappe.logger().info(
             f"Email Automation sent successfully to {recipient}"
