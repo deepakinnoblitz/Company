@@ -539,30 +539,41 @@ def send_campaign_email(queue_doc):
 		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)
 		for att in template.attachments:
 			if att.file:
-				attachments.append(att.file)
+				attachments.append({"file_url": att.file})
 
 	sender = None
 	reply_to = None
 
-	if queue_doc.email_template:
-		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)
-		if template.sender_name:
-			if template.reply_to_email:
-				sender = f"{template.sender_name} <{template.reply_to_email}>"
-			else:
-				sender = template.sender_name
-		if template.reply_to_email:
-			reply_to = template.reply_to_email
-
-	# Override default email settings from CRM Email Settings if defined
+	default_email_id = None
+	default_name = None
 	try:
 		settings = frappe.get_single("CRM Email Settings")
-		if settings.default_email_account and not sender:
+		if settings.default_email_account:
 			email_account = frappe.get_cached_doc("Email Account", settings.default_email_account)
 			if email_account.email_id:
-				sender = f"{email_account.name or email_account.email_id} <{email_account.email_id}>"
+				default_email_id = email_account.email_id
+				default_name = email_account.email_account_name or email_account.name or email_account.email_id
 	except Exception:
 		pass
+
+	if queue_doc.email_template:
+		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)
+		
+		# Sender display name from template, or default to email account name
+		sender_display_name = template.sender_name or default_name
+		
+		if sender_display_name and default_email_id:
+			sender = f"{sender_display_name} <{default_email_id}>"
+		elif sender_display_name:
+			sender = sender_display_name
+		elif default_email_id:
+			sender = f"{default_name} <{default_email_id}>"
+
+		if template.reply_to_email:
+			reply_to = template.reply_to_email
+	else:
+		if default_email_id:
+			sender = f"{default_name} <{default_email_id}>"
 
 	content = queue_doc.email_content
 
