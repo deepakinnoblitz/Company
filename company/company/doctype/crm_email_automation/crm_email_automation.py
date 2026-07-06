@@ -397,16 +397,32 @@ def get_automation_preview(
     }
 
 @frappe.whitelist()
-def send_automation_message(automation_name, doctype, docname, proposal_name=None):
+def get_proposal_attachments(proposal_name):
+    """
+    Get all attachments/files uploaded for the given Proposal.
+    """
+    if not proposal_name:
+        return []
+    attachments = frappe.get_all(
+        "Proposal Attachment",
+        filters={"parent": proposal_name},
+        fields=["name", "file_name", "attachment", "file_size"]
+    )
+    for att in attachments:
+        att["file_url"] = att.get("attachment")
+    return attachments
+
+@frappe.whitelist()
+def send_automation_message(automation_name, doctype, docname, proposal_name=None, attachments=None):
     """
     Triggered manually via Frappe msgprint dialog confirmation.
     """
     automation = frappe.get_doc("CRM Email Automation", automation_name)
     doc = frappe.get_doc(doctype, docname)
-    _execute_automation(automation, doc, proposal_name)
+    _execute_automation(automation, doc, proposal_name, attachments)
 
 
-def _execute_automation(automation, doc, proposal_name=None):
+def _execute_automation(automation, doc, proposal_name=None, attachments=None):
     """
     Execute CRM Email Automation.
     """
@@ -469,13 +485,30 @@ def _execute_automation(automation, doc, proposal_name=None):
     try:
         reply_to = template.reply_to_email if template.reply_to_email else None
 
-        frappe.sendmail(
-            recipients=[recipient],
-            subject=subject,
-            message=message,
-            reply_to=reply_to,
-            delayed=False,
-        )
+        mail_args = {
+            "recipients": [recipient],
+            "subject": subject,
+            "message": message,
+            "reply_to": reply_to,
+            "delayed": False,
+        }
+
+        if attachments:
+            if isinstance(attachments, str):
+                import json
+                try:
+                    parsed_attachments = json.loads(attachments)
+                except Exception:
+                    parsed_attachments = None
+            else:
+                parsed_attachments = attachments
+
+            if parsed_attachments:
+                # Frappe sendmail expects attachments list to contain dicts like {"file_url": "..."}
+                # or similar format.
+                mail_args["attachments"] = [{"file_url": att.get("file_url")} for att in parsed_attachments if att.get("file_url")]
+
+        frappe.sendmail(**mail_args)
 
         frappe.logger().info(
             f"Email Automation sent successfully to {recipient}"

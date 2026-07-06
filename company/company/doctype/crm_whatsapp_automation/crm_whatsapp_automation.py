@@ -192,6 +192,7 @@ def get_automation_preview(
     docname,
     current_state=None,
     previous_state=None,
+    proposal_name=None,
 ):
     """
     Return WhatsApp automation preview.
@@ -225,21 +226,21 @@ def get_automation_preview(
         "automation_name": automation.name,
         "title": automation.dialog_title,
         "message": automation.dialog_message,
-        "preview": build_whatsapp_message(automation, doc),
+        "preview": build_whatsapp_message(automation, doc, proposal_name),
         "show_confirmation": automation.show_confirmation_dialog,
     }
 
 @frappe.whitelist()
-def send_automation_message(automation_name, doctype, docname, proposal_name=None):
+def send_automation_message(automation_name, doctype, docname, proposal_name=None, attachments=None):
     """
     Triggered manually via Frappe msgprint dialog confirmation.
     """
     automation = frappe.get_doc("CRM WhatsApp Automation", automation_name)
     doc = frappe.get_doc(doctype, docname)
-    _execute_automation(automation, doc, proposal_name)
+    _execute_automation(automation, doc, proposal_name, attachments)
 
 
-def _execute_automation(automation, doc, proposal_name=None):
+def _execute_automation(automation, doc, proposal_name=None, attachments=None):
     """
     Core logic to build message and call API.
     """
@@ -277,17 +278,31 @@ def _execute_automation(automation, doc, proposal_name=None):
     
     template = frappe.get_doc("CRM WhatsApp Template", automation.whatsapp_template)
     
-    attachments = []
-    if template.allow_attachment and template.default_attachment:
-        attachments = [att.file for att in template.default_attachment if att.file]
+    selected_attachments = []
+    if template.allow_attachment:
+        if attachments:
+            if isinstance(attachments, str):
+                import json
+                try:
+                    parsed_attachments = json.loads(attachments)
+                except Exception:
+                    parsed_attachments = None
+            else:
+                parsed_attachments = attachments
+
+            if parsed_attachments:
+                selected_attachments = [att.get("file_url") for att in parsed_attachments if att.get("file_url")]
+        else:
+            if template.default_attachment:
+                selected_attachments = [att.file for att in template.default_attachment if att.file]
         
-    attachment = attachments[0] if attachments else None
+    attachment = selected_attachments[0] if selected_attachments else None
     
     try:
         response = send_whatsapp(phone=phone_number, message=message_body, attachment=attachment)
         
-        if response.get("success") and len(attachments) > 1:
-            for extra_attachment in attachments[1:]:
+        if response.get("success") and len(selected_attachments) > 1:
+            for extra_attachment in selected_attachments[1:]:
                 send_whatsapp(phone=phone_number, message=None, attachment=extra_attachment)
         
         msg_doc = frappe.new_doc("CRM WhatsApp Message")
