@@ -1,17 +1,30 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from datetime import datetime, timedelta
 import calendar
 
 class CRMEmailAutomation(Document):
 	def validate(self):
-		# Sync is_active check with status
-		if self.is_active:
-			if self.status in ["Draft", "Paused"]:
-				self.status = "Active"
-		else:
-			if self.status == "Active":
-				self.status = "Paused"
+		# Sync is_active check with status — only for scheduled automations.
+		# Status-change automations (Deal/Lead trigger) are always "Active" once enabled;
+		# they do NOT use the scheduler so is_active is not the right gate.
+		if not self.for_status_change:
+			if self.is_active:
+				if self.status in ["Draft", "Paused"]:
+					self.status = "Active"
+			else:
+				if self.status == "Active":
+					self.status = "Paused"
+
+		# Validate transitions
+		if self.for_status_change:
+			if self.trigger_event == "Lead Workflow State Change" and self.previous_workflow_state and self.workflow_state:
+				if self.previous_workflow_state == self.workflow_state:
+					frappe.throw(_("Previous Workflow State and Target Workflow State cannot be the same."))
+			elif self.trigger_event == "Deal Stage Change" and self.previous_deal_stage and self.current_deal_stage:
+				if self.previous_deal_stage == self.current_deal_stage:
+					frappe.throw(_("Previous Deal Stage and Current Deal Stage cannot be the same."))
 
 		# If active, calculate next run on
 		if self.status == "Active" and self.start_date and self.run_time:
@@ -236,12 +249,12 @@ def replace_template_variables(message, doc, proposal_name=None):
     """
     Render template message using Frappe's Jinja environment.
     Provides {{ doc.fieldname }} and standard Frappe utilities.
+    Returns HTML-formatted content (HTML tags are preserved).
     """
     if not message:
         return ""
 
     try:
-        import re
         # Provide both direct fields {{ lead_name }} and {{ doc.name }}
         context = doc.as_dict().copy()
         context["doc"] = doc
@@ -262,18 +275,7 @@ def replace_template_variables(message, doc, proposal_name=None):
 
         rendered = frappe.render_template(message, context)
         
-        # Convert paragraph and break tags to newlines to preserve spacing
-        rendered = re.sub(r'(?i)<br\s*/?>', '\n', rendered)
-        rendered = re.sub(r'(?i)</p>', '\n', rendered)
-        rendered = re.sub(r'(?i)</div>', '\n', rendered)
-        
-        # Strip remaining HTML tags
-        rendered = frappe.utils.strip_html(rendered)
-        
-        # Collapse 3+ consecutive newlines down to max 2 (one blank line)
-        rendered = re.sub(r'\n{3,}', '\n\n', rendered)
-        
-        return rendered.strip()
+        return rendered
         
     except Exception as e:
         frappe.log_error(f"Template Render Error: {str(e)}", "Email Automation Error")
@@ -355,9 +357,11 @@ def get_automation_preview(
     docname,
     current_state=None,
     previous_state=None,
+    proposal_name=None,
 ):
     """
     Return Email automation preview.
+    Accepts an optional proposal_name to render the preview for a specific proposal.
     """
 
     doc = frappe.get_doc(doctype, docname)
@@ -388,7 +392,7 @@ def get_automation_preview(
         "automation_name": automation.name,
         "title": automation.dialog_title,
         "message": automation.dialog_message,
-        "preview": build_email_message(automation, doc),
+        "preview": build_email_message(automation, doc, proposal_name),
         "show_confirmation": automation.show_confirmation_dialog,
     }
 

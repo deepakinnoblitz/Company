@@ -14,16 +14,7 @@
   "maximum_retry_count",
   "auto_retry_failed_emails",
   "automation_section",
-  "enable_email_automation",
-  "scheduler_interval",
-  "automation_cb",
-  "create_campaign_history",
-  "queue_section",
-  "queue_size",
-  "auto_delete_old_queue_records",
-  "queue_cb",
-  "queue_retention_days",
-  "enable_debug_logs"
+  "enable_email_automation"
  ],
  "fields": [
   {
@@ -84,58 +75,6 @@
    "fieldname": "enable_email_automation",
    "fieldtype": "Check",
    "label": "Enable Email Automation"
-  },
-  {
-   "default": "Hourly",
-   "fieldname": "scheduler_interval",
-   "fieldtype": "Select",
-   "label": "Scheduler Interval",
-   "options": "Every 15 Minutes\nEvery 30 Minutes\nHourly\nDaily"
-  },
-  {
-   "fieldname": "automation_cb",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "create_campaign_history",
-   "fieldtype": "Check",
-   "label": "Create Campaign History"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "queue_section",
-   "fieldtype": "Section Break",
-   "label": "Queue Configuration"
-  },
-  {
-   "default": "1000",
-   "fieldname": "queue_size",
-   "fieldtype": "Int",
-   "label": "Queue Size"
-  },
-  {
-   "default": "0",
-   "fieldname": "auto_delete_old_queue_records",
-   "fieldtype": "Check",
-   "label": "Auto Delete Old Queue Records"
-  },
-  {
-   "fieldname": "queue_cb",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "30",
-   "depends_on": "eval:doc.auto_delete_old_queue_records",
-   "fieldname": "queue_retention_days",
-   "fieldtype": "Int",
-   "label": "Queue Retention Days"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_debug_logs",
-   "fieldtype": "Check",
-   "label": "Enable Debug Logs"
   }
  ],
  "grid_page_length": 50,
