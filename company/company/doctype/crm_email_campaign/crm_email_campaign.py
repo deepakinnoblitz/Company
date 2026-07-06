@@ -539,7 +539,7 @@ def send_campaign_email(queue_doc):
 		template = frappe.get_cached_doc("CRM Email Template", queue_doc.email_template)
 		for att in template.attachments:
 			if att.file:
-				attachments.append(att.file)
+				attachments.append({"file_url": att.file})
 
 	sender = None
 	reply_to = None
