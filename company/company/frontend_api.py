@@ -1417,7 +1417,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
 
         trends = frappe.db.sql(f"""
             SELECT
-                DATE_FORMAT(invoice_date, '%%Y-%%m') as month,
+                LEFT(invoice_date, 7) as month,
                 SUM(grand_total) as total_sales,
                 SUM(overall_discount) as total_discount
             FROM `tabInvoice`
