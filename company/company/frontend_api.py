@@ -1313,7 +1313,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             SELECT
                 i.client_name,
                 i.billing_name,
-                COALESCE(NULLIF(CONCAT_WS(' ', c.first_name, c.last_name), ''), c.name) as contact_name,
+                COALESCE(NULLIF(c.first_name, ''), c.name) as contact_name,
                 a.account_name as account_name,
                 SUM(i.grand_total) as revenue,
                 COUNT(i.name) as order_count
@@ -1321,7 +1321,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             LEFT JOIN `tabContacts` c ON c.name = i.client_name
             LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
             {cond}
-            GROUP BY i.client_name, i.billing_name, c.first_name, c.last_name, a.account_name
+            GROUP BY i.client_name, i.billing_name, c.first_name, a.account_name
             ORDER BY revenue DESC
             LIMIT 5
         """, sql_params, as_dict=True)
@@ -1330,7 +1330,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             SELECT
                 i.client_name,
                 i.billing_name,
-                COALESCE(NULLIF(CONCAT_WS(' ', c.first_name, c.last_name), ''), c.name) as contact_name,
+                COALESCE(NULLIF(c.first_name, ''), c.name) as contact_name,
                 a.account_name as account_name,
                 COUNT(i.name) as order_count,
                 SUM(i.grand_total) as total_spent
@@ -1338,7 +1338,7 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             LEFT JOIN `tabContacts` c ON c.name = i.client_name
             LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
             {cond}
-            GROUP BY i.client_name, i.billing_name, c.first_name, c.last_name, a.account_name
+            GROUP BY i.client_name, i.billing_name, c.first_name, a.account_name
             ORDER BY order_count DESC
             LIMIT 5
         """, sql_params, as_dict=True)
@@ -1432,17 +1432,18 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
         }
 
         # 6. Conversion Rate (Estimations to Invoices)
+        # Count estimations created in period vs how many became invoices in same period
         est_filters = {}
         inv_filters = {"converted_from_estimation": 1}
         if start_date and end_date:
-            est_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
-            inv_filters["creation"] = ["between", [start_date, f"{end_date} 23:59:59"]]
+            est_filters["estimate_date"] = ["between", [start_date, end_date]]
+            inv_filters["invoice_date"] = ["between", [start_date, end_date]]
         elif start_date:
-            est_filters["creation"] = [">=", start_date]
-            inv_filters["creation"] = [">=", start_date]
+            est_filters["estimate_date"] = [">=", start_date]
+            inv_filters["invoice_date"] = [">=", start_date]
         elif end_date:
-            est_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
-            inv_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+            est_filters["estimate_date"] = ["<=", end_date]
+            inv_filters["invoice_date"] = ["<=", end_date]
 
         if owner_name:
             est_filters["owner_name"] = owner_name
@@ -1450,7 +1451,8 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
 
         total_estimations = frappe.db.count("Estimation", est_filters)
         converted_estimations = frappe.db.count("Invoice", inv_filters)
-        data["conversion_rate"] = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
+        raw_rate = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
+        data["conversion_rate"] = min(round(raw_rate, 1), 100)
 
     except Exception as e:
         frappe.log_error(f"Sales Dashboard Error: {str(e)}")
