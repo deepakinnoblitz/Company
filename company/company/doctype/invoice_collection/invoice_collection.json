@@ -14,7 +14,6 @@
   "column_break_wmma",
   "customer",
   "customer_name",
-  "company_name",
   "mode_of_payment",
   "section_break_ybiw",
   "remarks",
@@ -91,13 +90,6 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Customer Name"
-  },
-  {
-   "fetch_from": "customer.company_name",
-   "fieldname": "company_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Company Name"
   },
   {
    "fieldname": "section_break_fgch",
