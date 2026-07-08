@@ -18,14 +18,12 @@ def execute(filters=None):
 def get_columns():
     return [
         {"label": _("Ref No"), "fieldname": "name", "fieldtype": "Link", "options": "Invoice", "width": 120},
-        {"label": _("Customer Name"), "fieldname": "customer_name", "fieldtype": "Data", "width": 150},
+        {"label": _("Client"), "fieldname": "customer_name", "fieldtype": "Data", "width": 150},
+        {"label": _("Company"), "fieldname": "company_name", "fieldtype": "Data", "width": 150},
         {"label": _("Invoice Date"), "fieldname": "invoice_date", "fieldtype": "Date", "width": 110},
-        {"label": _("Item"), "fieldname": "service", "fieldtype": "Data", "width": 150},
         {"label": _("Qty"), "fieldname": "quantity", "fieldtype": "Float", "width": 80},
         {"label": _("Price"), "fieldname": "price", "fieldtype": "Currency", "width": 100},
-        {"label": _("Tax Type"), "fieldname": "tax_type", "fieldtype": "Data", "width": 120},
-        {"label": _("Tax Amount"), "fieldname": "tax_amount", "fieldtype": "Currency", "width": 100},
-        {"label": _("Subtotal"), "fieldname": "sub_total", "fieldtype": "Currency", "width": 120},
+        {"label": _("Total Tax"), "fieldname": "tax_amount", "fieldtype": "Currency", "width": 110},
         {"label": _("Grand Total"), "fieldname": "grand_total", "fieldtype": "Currency", "width": 120},
     ]
 
@@ -36,6 +34,9 @@ def get_data(filters):
     if filters.get("client_name"):
         conditions.append("i.client_name = %(client_name)s")
         params["client_name"] = filters["client_name"]
+    if filters.get("billing_name"):
+        conditions.append("i.billing_name = %(billing_name)s")
+        params["billing_name"] = filters["billing_name"]
     if filters.get("from_date"):
         conditions.append("i.invoice_date >= %(from_date)s")
         params["from_date"] = filters["from_date"]
@@ -60,27 +61,35 @@ def get_data(filters):
         SELECT
             i.name,
             i.customer_name,
+            i.client_name,
+            i.billing_name,
             i.invoice_date,
             i.grand_total,
-            it.service,
-            it.quantity,
-            it.price,
-            it.tax_type,
-            it.tax_amount,
-            it.sub_total
+            i.total_amount as price,
+            i.total_qty as quantity,
+            a.account_name as company_name,
+            SUM(it.tax_amount) as tax_amount
         FROM `tabInvoice` i
+        LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
         LEFT JOIN `tabInvoice Items` it ON it.parent = i.name
         {where}
+        GROUP BY 
+            i.name,
+            i.customer_name,
+            i.client_name,
+            i.billing_name,
+            i.invoice_date,
+            i.grand_total,
+            i.total_amount,
+            i.total_qty,
+            a.account_name
         ORDER BY i.invoice_date DESC
     """
     return frappe.db.sql(query, params, as_dict=True)
 
 def get_summary(filters):
-    # Build raw SQL WHERE clause and parameters
     conditions = []
     params = {}
-
-    # Build Frappe-standard filters for frappe.db.count
     count_filters = []
 
     if filters.get("client_name"):
@@ -88,6 +97,11 @@ def get_summary(filters):
         params["client_name"] = filters["client_name"]
         count_filters.append(["client_name", "=", filters["client_name"]])
         
+    if filters.get("billing_name"):
+        conditions.append("billing_name = %(billing_name)s")
+        params["billing_name"] = filters["billing_name"]
+        count_filters.append(["billing_name", "=", filters["billing_name"]])
+
     if filters.get("from_date"):
         conditions.append("invoice_date >= %(from_date)s")
         params["from_date"] = filters["from_date"]
@@ -114,13 +128,15 @@ def get_summary(filters):
     if where:
         where = "WHERE " + where
 
-    totals = frappe.db.sql(f"""
+    totals_res = frappe.db.sql(f"""
         SELECT
             SUM(grand_total) AS total_amount,
             SUM(total_qty) AS total_qty
         FROM `tabInvoice`
         {where}
-    """, params, as_dict=True)[0]
+    """, params, as_dict=True)
+    
+    totals = totals_res[0] if totals_res else frappe._dict(total_amount=0, total_qty=0)
 
     invoice_count = frappe.db.count("Invoice", filters=count_filters)
 
