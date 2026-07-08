@@ -16,14 +16,12 @@ def execute(filters=None):
 def get_columns():
     return [
         {"label": _("Ref No"), "fieldname": "name", "fieldtype": "Link", "options": "Estimation", "width": 120},
-        {"label": _("Customer Name"), "fieldname": "customer_name", "fieldtype": "Data", "width": 150},
+        {"label": _("Client"), "fieldname": "customer_name", "fieldtype": "Data", "width": 150},
+        {"label": _("Company"), "fieldname": "company_name", "fieldtype": "Data", "width": 150},
         {"label": _("Estimate Date"), "fieldname": "estimate_date", "fieldtype": "Date", "width": 110},
-        {"label": _("Item"), "fieldname": "service", "fieldtype": "Link", "options": "Item", "width": 150},
         {"label": _("Qty"), "fieldname": "quantity", "fieldtype": "Float", "width": 80},
         {"label": _("Price"), "fieldname": "price", "fieldtype": "Currency", "width": 100},
-        {"label": _("Tax Type"), "fieldname": "tax_type", "fieldtype": "Data", "width": 120},
-        {"label": _("Tax Amount"), "fieldname": "tax_amount", "fieldtype": "Currency", "width": 110},
-        {"label": _("Subtotal"), "fieldname": "sub_total", "fieldtype": "Currency", "width": 120},
+        {"label": _("Total Tax"), "fieldname": "tax_amount", "fieldtype": "Currency", "width": 110},
         {"label": _("Grand Total"), "fieldname": "grand_total", "fieldtype": "Currency", "width": 130},
     ]
 
@@ -34,6 +32,9 @@ def get_data(filters):
     if filters.get("client_name"):
         conditions.append("e.client_name = %(client_name)s")
         query_filters["client_name"] = filters["client_name"]
+    if filters.get("billing_name"):
+        conditions.append("e.billing_name = %(billing_name)s")
+        query_filters["billing_name"] = filters["billing_name"]
     if filters.get("from_date"):
         conditions.append("e.estimate_date >= %(from_date)s")
         query_filters["from_date"] = filters["from_date"]
@@ -58,17 +59,28 @@ def get_data(filters):
         SELECT
             e.name,
             e.customer_name,
+            e.client_name,
+            e.billing_name,
             e.estimate_date,
             e.grand_total,
-            i.service,
-            i.quantity,
-            i.price,
-            i.tax_type,
-            i.tax_amount,
-            i.sub_total
+            e.total_amount as price,
+            e.total_qty as quantity,
+            a.account_name as company_name,
+            SUM(i.tax_amount) as tax_amount
         FROM `tabEstimation` e
+        LEFT JOIN `tabAccounts` a ON a.name = e.billing_name
         LEFT JOIN `tabEstimation Items` i ON i.parent = e.name
         {where}
+        GROUP BY 
+            e.name,
+            e.customer_name,
+            e.client_name,
+            e.billing_name,
+            e.estimate_date,
+            e.grand_total,
+            e.total_amount,
+            e.total_qty,
+            a.account_name
         ORDER BY e.estimate_date DESC
     """
     return frappe.db.sql(query, query_filters, as_dict=True)
@@ -80,6 +92,9 @@ def get_summary(filters):
     if filters.get("client_name"):
         conditions.append("client_name = %(client_name)s")
         query_filters["client_name"] = filters["client_name"]
+    if filters.get("billing_name"):
+        conditions.append("billing_name = %(billing_name)s")
+        query_filters["billing_name"] = filters["billing_name"]
     if filters.get("from_date"):
         conditions.append("estimate_date >= %(from_date)s")
         query_filters["from_date"] = filters["from_date"]
@@ -111,6 +126,8 @@ def get_summary(filters):
     count_filters = []
     if filters.get("client_name"):
         count_filters.append(["client_name", "=", filters["client_name"]])
+    if filters.get("billing_name"):
+        count_filters.append(["billing_name", "=", filters["billing_name"]])
     if filters.get("from_date"):
         count_filters.append(["estimate_date", ">=", filters["from_date"]])
     if filters.get("to_date"):
