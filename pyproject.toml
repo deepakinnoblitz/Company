@@ -57,3 +57,28 @@ typing-modules = ["frappe.types.DF"]
 quote-style = "double"
 indent-style = "tab"
 docstring-code-format = true
+
+[tool.pyrefly]
+search-path = [
+    "../clefincode_chat",
+    "../frappe",
+    ".."
+]
+
+[tool.pyrefly.errors]
+missing-attribute = "ignore"
+not-callable = "ignore"
+bad-argument-type = "ignore"
+untyped-import = "ignore"
+unnecessary-type-conversion = "ignore"
+unbound-name = "ignore"
+unreachable = "ignore"
+unsupported-operation = "ignore"
+no-matching-overload = "ignore"
+bad-assignment = "ignore"
+bad-specialization = "ignore"
+implicit-import = "ignore"
+missing-import = "ignore"
+bad-index = "ignore"
+missing-module-attribute = "ignore"
+redundant-condition = "ignore"

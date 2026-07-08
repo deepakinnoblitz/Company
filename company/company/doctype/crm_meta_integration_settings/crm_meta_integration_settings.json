@@ -1,0 +1,106 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2026-07-08 06:53:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "integration_section",
+        "enable_meta_integration",
+        "verify_token",
+        "access_token",
+        "app_id",
+        "app_secret",
+        "page_id",
+        "form_ids",
+        "webhook_enabled"
+    ],
+    "fields": [
+        {
+            "fieldname": "integration_section",
+            "fieldtype": "Section Break",
+            "label": "Meta Lead Ads Integration"
+        },
+        {
+            "fieldname": "enable_meta_integration",
+            "fieldtype": "Check",
+            "label": "Enable Meta Integration",
+            "default": 0
+        },
+        {
+            "fieldname": "verify_token",
+            "fieldtype": "Password",
+            "label": "Verify Token"
+        },
+        {
+            "fieldname": "access_token",
+            "fieldtype": "Password",
+            "label": "Access Token"
+        },
+        {
+            "fieldname": "app_id",
+            "fieldtype": "Data",
+            "label": "App ID"
+        },
+        {
+            "fieldname": "app_secret",
+            "fieldtype": "Password",
+            "label": "App Secret"
+        },
+        {
+            "fieldname": "page_id",
+            "fieldtype": "Data",
+            "label": "Page ID"
+        },
+        {
+            "fieldname": "form_ids",
+            "fieldtype": "Small Text",
+            "label": "Subscribed Form IDs",
+            "description": "Comma-separated list of Form IDs to process. Leave blank to process all."
+        },
+        {
+            "fieldname": "webhook_enabled",
+            "fieldtype": "Check",
+            "label": "Webhook Enabled",
+            "default": 0
+        }
+    ],
+    "grid_page_length": 50,
+    "index_web_pages_for_search": 1,
+    "issingle": 1,
+    "modified": "2026-07-08 06:53:00.000000",
+    "modified_by": "Administrator",
+    "module": "Company",
+    "name": "CRM Meta Integration Settings",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "CRM And Sales",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "row_format": "Dynamic",
+    "rows_threshold_for_grid_search": 20,
+    "sort_field": "creation",
+    "sort_order": "DESC",
+    "states": []
+}
