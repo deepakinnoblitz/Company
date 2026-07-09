@@ -63,7 +63,8 @@
   {
    "fieldname": "phone_number",
    "fieldtype": "Phone",
-   "label": "Phone Number"
+   "label": "Phone Number",
+   "reqd": 1
   },
   {
    "fieldname": "phone_numbers",
@@ -245,7 +246,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-04 15:24:06.436543",
+ "modified": "2026-07-09 12:53:21.152215",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",
