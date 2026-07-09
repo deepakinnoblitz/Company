@@ -85,7 +85,8 @@ def get_data(filters):
             city,
             source_lead,
             owner_name,
-            creation
+            creation,
+            modified
         FROM `tabContacts`
         {where_clause}
         ORDER BY creation DESC

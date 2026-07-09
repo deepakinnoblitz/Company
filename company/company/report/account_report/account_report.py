@@ -124,7 +124,9 @@ def get_data(filters):
             country,
             state,
             city,
-            owner_name
+            owner_name,
+            creation,
+            modified
         FROM `tabAccounts`
         {where_clause}
         ORDER BY creation DESC

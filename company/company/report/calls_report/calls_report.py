@@ -143,7 +143,9 @@ def get_data(filters):
             call_start_time,
             call_end_time,
             owner_name,
-            enable_reminder
+            enable_reminder,
+            creation,
+            modified
         FROM `tabCalls`
         {where_clause}
         ORDER BY call_start_time DESC
