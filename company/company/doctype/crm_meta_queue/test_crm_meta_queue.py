@@ -13,9 +13,9 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestCRMMetaIntegrationSettings(IntegrationTestCase):
+class IntegrationTestCRMMetaQueue(IntegrationTestCase):
 	"""
-	Integration tests for CRMMetaIntegrationSettings.
+	Integration tests for CRMMetaQueue.
 	Use this class for testing interactions between multiple components.
 	"""
 

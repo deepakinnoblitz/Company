@@ -5,5 +5,5 @@
 import frappe
 from frappe.model.document import Document
 
-class MetaFieldMapping(Document):
+class CRMMetaFieldMapping(Document):
     pass
