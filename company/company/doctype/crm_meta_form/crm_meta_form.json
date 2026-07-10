@@ -8,8 +8,6 @@
  "field_order": [
   "integration_section",
   "is_active",
-  "allow_duplicates",
-  "duplicate_limit_by",
   "form_name",
   "form_id",
   "meta_page",
@@ -21,6 +19,8 @@
   "ad_name",
   "mapping_section",
   "mandatory_fields_alert",
+  "allow_duplicates",
+  "duplicate_limit_by",
   "field_mappings"
  ],
  "fields": [
@@ -120,7 +120,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-09 19:19:48.602046",
+ "modified": "2026-07-10 11:42:24.914696",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Meta Form",
