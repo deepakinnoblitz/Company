@@ -725,3 +725,35 @@ def delete_event_for_todo(doc, method=None):
         frappe.delete_doc("Event", event_name, ignore_permissions=True, force=True)
         frappe.flags.ignore_todo_sync = False
         frappe.db.commit()
+
+
+@frappe.whitelist()
+def get_lead_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Lead DocType for export."""
+    lead_meta = frappe.get_meta("Lead")
+    valid_fields = []
+
+    # Always include Lead ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Lead ID"
+    })
+
+    for field in lead_meta.fields:
+        is_allowed = field.fieldname in ("status", "owner_name")
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            if field.fieldname != "sales_pipeline":
+                label = field.label
+                if field.fieldname == "status":
+                    label = "Status"
+                elif field.fieldname == "owner_name":
+                    label = "Owner Name"
+                elif field.fieldname == "workflow_state":
+                    label = "Stage"
+                
+                valid_fields.append({
+                    "fieldname": field.fieldname,
+                    "label": label
+                })
+
+    return valid_fields

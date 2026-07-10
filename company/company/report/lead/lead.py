@@ -79,7 +79,8 @@ def get_data(filters):
             leads_type,
             leads_from,
             owner_name,
-            creation
+            creation,
+            modified
         FROM `tabLead`
         {where_clause}
         ORDER BY creation DESC

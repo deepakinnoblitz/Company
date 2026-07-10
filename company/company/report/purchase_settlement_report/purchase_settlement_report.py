@@ -82,7 +82,9 @@ def get_data(filters):
             pc.amount_collected,
             pc.amount_pending,
             pc.vendor,
-            pc.vendor_name
+            pc.vendor_name,
+            pc.creation,
+            pc.modified
         FROM `tabPurchase Collection` pc
         WHERE {where_clause}
         ORDER BY pc.collection_date DESC, pc.creation DESC

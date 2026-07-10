@@ -66,7 +66,9 @@ def get_data(filters):
             e.total_amount as price,
             e.total_qty as quantity,
             a.account_name as company_name,
-            SUM(i.tax_amount) as tax_amount
+            SUM(i.tax_amount) as tax_amount,
+            e.creation,
+            e.modified
         FROM `tabEstimation` e
         LEFT JOIN `tabAccounts` a ON a.name = e.billing_name
         LEFT JOIN `tabEstimation Items` i ON i.parent = e.name
@@ -80,7 +82,9 @@ def get_data(filters):
             e.grand_total,
             e.total_amount,
             e.total_qty,
-            a.account_name
+            a.account_name,
+            e.creation,
+            e.modified
         ORDER BY e.estimate_date DESC
     """
     return frappe.db.sql(query, query_filters, as_dict=True)
