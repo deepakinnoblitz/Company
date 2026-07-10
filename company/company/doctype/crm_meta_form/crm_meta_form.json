@@ -17,10 +17,10 @@
   "ad_set_name",
   "ad_id",
   "ad_name",
-  "lead_source",
-  "lead_type",
   "mapping_section",
   "mandatory_fields_alert",
+  "allow_duplicates",
+  "duplicate_limit_by",
   "field_mappings"
  ],
  "fields": [
@@ -83,24 +83,23 @@
    "label": "Ad Name"
   },
   {
-   "default": "Meta Lead Ads",
-   "fieldname": "lead_source",
-   "fieldtype": "Link",
-   "label": "Lead Source",
-   "options": "Lead From"
-  },
-  {
-   "default": "Incoming",
-   "fieldname": "lead_type",
-   "fieldtype": "Select",
-   "label": "Lead Type",
-   "options": "Incoming\nOutgoing"
-  },
-  {
    "default": "1",
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_duplicates",
+   "fieldtype": "Check",
+   "label": "Allow Duplicates"
+  },
+  {
+   "default": "Email or Phone",
+   "fieldname": "duplicate_limit_by",
+   "fieldtype": "Select",
+   "label": "Duplicate Limit By",
+   "options": "Email or Phone\nEmail Only\nPhone Only"
   },
   {
    "fieldname": "mapping_section",
@@ -121,7 +120,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-09 19:19:48.602046",
+ "modified": "2026-07-10 11:42:24.914696",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Meta Form",

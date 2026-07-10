@@ -359,42 +359,45 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         
         # DUPLICATE RULES ENGINE CHECK
         duplicate_lead = None
+        allow_duplicates = form_doc.allow_duplicates if hasattr(form_doc, 'allow_duplicates') else 0
+        limit_by = form_doc.duplicate_limit_by if hasattr(form_doc, 'duplicate_limit_by') else "Email or Phone"
         
-        # Rule 1: Check by meta_lead_id audit logs
+        # Rule 1: Check by meta_lead_id audit logs (Always checks to prevent double processing of identical lead ID)
         existing_imported = frappe.db.get_value("CRM Meta Lead", {"meta_lead_id": lead_audit.meta_lead_id, "processing_status": "Success"}, "created_lead")
         if existing_imported:
             duplicate_lead = existing_imported
             
-        # Rule 2: Check by case-insensitive Email
-        if not duplicate_lead and email:
-            clean_email = email.lower().strip()
-            duplicate_lead = frappe.db.get_value("Lead", {"email": clean_email}, "name")
-            
-        # Rule 3: Check by Phone Number (matching last 10 digits)
-        if not duplicate_lead and phone:
-            clean_phone = "".join(filter(str.isdigit, phone))
-            if len(clean_phone) >= 10:
-                last_10_digits = clean_phone[-10:]
+        if not allow_duplicates:
+            # Rule 2: Check by case-insensitive Email
+            if not duplicate_lead and email and limit_by in ("Email or Phone", "Email Only"):
+                clean_email = email.lower().strip()
+                duplicate_lead = frappe.db.get_value("Lead", {"email": clean_email}, "name")
                 
-                # Check parent field
-                duplicate_lead = frappe.db.sql("""
-                    SELECT name FROM `tabLead`
-                    WHERE RIGHT(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '+', ''), 10) = %s
-                    LIMIT 1
-                """, (last_10_digits,), as_dict=False)
-                
-                if duplicate_lead:
-                    duplicate_lead = duplicate_lead[0][0]
-                else:
-                    # Check child table
+            # Rule 3: Check by Phone Number (matching last 10 digits)
+            if not duplicate_lead and phone and limit_by in ("Email or Phone", "Phone Only"):
+                clean_phone = "".join(filter(str.isdigit, phone))
+                if len(clean_phone) >= 10:
+                    last_10_digits = clean_phone[-10:]
+                    
+                    # Check parent field
                     duplicate_lead = frappe.db.sql("""
-                        SELECT lp.parent FROM `tabLead Phone` lp
-                        WHERE RIGHT(REPLACE(REPLACE(REPLACE(lp.phone, ' ', ''), '-', ''), '+', ''), 10) = %s
+                        SELECT name FROM `tabLead`
+                        WHERE RIGHT(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '+', ''), 10) = %s
                         LIMIT 1
                     """, (last_10_digits,), as_dict=False)
+                    
                     if duplicate_lead:
                         duplicate_lead = duplicate_lead[0][0]
-                        
+                    else:
+                        # Check child table
+                        duplicate_lead = frappe.db.sql("""
+                            SELECT lp.parent FROM `tabLead Phone` lp
+                            WHERE RIGHT(REPLACE(REPLACE(REPLACE(lp.phone, ' ', ''), '-', ''), '+', ''), 10) = %s
+                            LIMIT 1
+                        """, (last_10_digits,), as_dict=False)
+                        if duplicate_lead:
+                            duplicate_lead = duplicate_lead[0][0]
+                            
         if duplicate_lead:
             # Raise exception to fail processing and log duplicate
             lead_audit.processing_status = "Duplicate"
@@ -421,8 +424,8 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         # Create Lead DocType
         lead_fields = {
             "doctype": "Lead",
-            "leads_from": form_doc.lead_source or "Meta Lead Ads",
-            "leads_type": form_doc.lead_type or "Incoming",
+            "leads_from": extracted_data.get("leads_from") or "Meta Lead Ads",
+            "leads_type": extracted_data.get("leads_type") or "Incoming",
             "status": "Not Converted",
             "remarks": f"Source: Meta Lead Ads (Form ID: {form_doc.form_id})\n{remarks_str}".strip()
         }
