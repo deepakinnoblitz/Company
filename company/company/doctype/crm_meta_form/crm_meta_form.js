@@ -5,7 +5,7 @@ frappe.ui.form.on("CRM Meta Form", {
     onload(frm) {
         // Fetch and override child metadata options before rendering
         frappe.call({
-            method: "company.company.doctype.crm_meta_app.crm_meta_app.get_lead_fields",
+            method: "company.company.doctype.crm_meta_form.crm_meta_form.get_lead_fields",
             callback: function (r) {
                 if (r.message && r.message.length > 0) {
                     let options = r.message.map(f => f.fieldname).sort();
@@ -33,7 +33,7 @@ frappe.ui.form.on("CRM Meta Form", {
 
     setup_lead_field_options(frm) {
         frappe.call({
-            method: "company.company.doctype.crm_meta_app.crm_meta_app.get_lead_fields",
+            method: "company.company.doctype.crm_meta_form.crm_meta_form.get_lead_fields",
             callback: function (r) {
                 if (r.message && r.message.length > 0) {
                     let options = r.message.map(f => f.fieldname).sort();
@@ -62,7 +62,7 @@ frappe.ui.form.on("CRM Meta Form", {
 
     auto_populate_mandatory_fields(frm) {
         frappe.call({
-            method: "company.company.doctype.crm_meta_app.crm_meta_app.get_mandatory_lead_fields",
+            method: "company.company.doctype.crm_meta_form.crm_meta_form.get_mandatory_lead_fields",
             callback: function (r) {
                 if (r.message && r.message.length > 0) {
                     const default_meta_keys = {
@@ -86,7 +86,7 @@ frappe.ui.form.on("CRM Meta Form", {
 
     show_mandatory_fields_alert(frm) {
         frappe.call({
-            method: "company.company.doctype.crm_meta_app.crm_meta_app.get_mandatory_lead_fields",
+            method: "company.company.doctype.crm_meta_form.crm_meta_form.get_mandatory_lead_fields",
             callback: function (r) {
                 if (r.message && r.message.length > 0) {
                     // Get list of currently mapped fields (either with a Meta Field key or a Default Value)

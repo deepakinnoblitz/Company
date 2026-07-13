@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:page_name",
+ "autoname": "hash",
  "creation": "2026-07-09 11:30:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -77,11 +77,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-09 19:16:35.636506",
+ "modified": "2026-07-13 14:12:16.362168",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Meta Page",
- "naming_rule": "By fieldname",
+ "naming_rule": "Random",
  "owner": "Administrator",
  "permissions": [
   {
