@@ -35,37 +35,37 @@ def get_data(filters):
     values = {}
 
     if filters.get("country"):
-        conditions.append("country = %(country)s")
+        conditions.append("c.country = %(country)s")
         values["country"] = filters["country"]
 
     if filters.get("state"):
-        conditions.append("state = %(state)s")
+        conditions.append("c.state = %(state)s")
         values["state"] = filters["state"]
 
     if filters.get("city"):
-        conditions.append("city = %(city)s")
+        conditions.append("c.city = %(city)s")
         values["city"] = filters["city"]
 
     if filters.get("source_lead"):
-        conditions.append("source_lead = %(source_lead)s")
+        conditions.append("c.source_lead = %(source_lead)s")
         values["source_lead"] = filters["source_lead"]
 
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner")
     if has_permission:
         owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("c.owner_name = %(owner)s")
         values["owner"] = owner_filter
     elif owner_val and owner_val != "all":
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("c.owner_name = %(owner)s")
         values["owner"] = owner_val
     
     if filters.get("from_date"):
-        conditions.append("DATE(creation) >= %(from_date)s")
+        conditions.append("DATE(c.creation) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
     
     if filters.get("to_date"):
-        conditions.append("DATE(creation) <= %(to_date)s")
+        conditions.append("DATE(c.creation) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     where_clause = " AND ".join(conditions)
@@ -75,20 +75,26 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
-            name,
-            first_name,
-            company_name,
-            email,
-            phone,
-            country,
-            state,
-            city,
-            source_lead,
-            owner_name,
-            creation
-        FROM `tabContacts`
+            c.name,
+            c.first_name,
+            (
+                SELECT GROUP_CONCAT(COALESCE(a.account_name, cc.company_name) SEPARATOR ', ')
+                FROM `tabContact Company` cc
+                LEFT JOIN `tabAccounts` a ON cc.company_name = a.name
+                WHERE cc.parent = c.name AND cc.parenttype = 'Contacts' AND cc.parentfield = 'company_name'
+            ) AS company_name,
+            c.email,
+            c.phone,
+            c.country,
+            c.state,
+            c.city,
+            c.source_lead,
+            c.owner_name,
+            c.creation,
+            c.modified
+        FROM `tabContacts` c
         {where_clause}
-        ORDER BY creation DESC
+        ORDER BY c.creation DESC
         """,
         values,
         as_dict=True

@@ -80,7 +80,9 @@ def get_data(filters):
             ic.amount_collected,
             ic.amount_pending,
             ic.customer,
-            ic.customer_name
+            ic.customer_name,
+            ic.creation,
+            ic.modified
         FROM `tabInvoice Collection` ic
         WHERE {where_clause}
         ORDER BY ic.collection_date DESC, ic.creation DESC
