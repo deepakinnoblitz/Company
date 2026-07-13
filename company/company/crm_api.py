@@ -1118,3 +1118,80 @@ def get_purchase_settlement_export_fields():
             })
 
     return valid_fields
+
+
+import hashlib
+
+def _make_file_token(file_id):
+    secret = frappe.local.conf.get("encryption_key") or frappe.local.site
+    return hashlib.sha256(f"{file_id}-{secret}".encode()).hexdigest()[:32]
+
+
+@frappe.whitelist()
+def get_proposal_attachments(proposal_ids):
+    """Fetches attachments for the given proposal IDs and generates signed download tokens."""
+    import json
+    if isinstance(proposal_ids, str):
+        proposal_ids = json.loads(proposal_ids)
+    
+    if not proposal_ids:
+        return []
+
+    attachments = frappe.get_all(
+        "Proposal Attachment",
+        fields=["name", "file_name", "attachment", "parent"],
+        filters={"parent": ["in", proposal_ids]}
+    )
+
+    for att in attachments:
+        att["token"] = _make_file_token(att["name"])
+
+    return attachments
+
+
+@frappe.whitelist(allow_guest=True)
+def download_proposal_attachment(file_id, token):
+    """Downloads a proposal attachment file using a valid signed token, bypassing permission checks."""
+    if not file_id or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file ID or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_id)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    # Fetch file details without calling get_doc
+    file_details = frappe.db.get_value("Proposal Attachment", {"name": file_id}, ["file_name", "attachment"], as_dict=True)
+    if not file_details or not file_details.attachment:
+        frappe.respond_as_web_page("Not Found", "The requested file could not be found.", http_status_code=404)
+        return
+
+    file_url = file_details.attachment
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_url.startswith("/private/"):
+        relative_path = file_url.lstrip("/")
+    elif file_url.startswith("/files/"):
+        relative_path = os.path.join("public", file_url.lstrip("/"))
+    else:
+        relative_path = file_url.lstrip("/")
+
+    file_path = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = file_details.file_name or os.path.basename(file_path)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
