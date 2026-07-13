@@ -725,3 +725,396 @@ def delete_event_for_todo(doc, method=None):
         frappe.delete_doc("Event", event_name, ignore_permissions=True, force=True)
         frappe.flags.ignore_todo_sync = False
         frappe.db.commit()
+
+
+@frappe.whitelist()
+def get_lead_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Lead DocType for export."""
+    lead_meta = frappe.get_meta("Lead")
+    valid_fields = []
+
+    # Always include Lead ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Lead ID"
+    })
+
+    for field in lead_meta.fields:
+        is_allowed = field.fieldname in ("status", "owner_name")
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            if field.fieldname != "sales_pipeline":
+                label = field.label
+                if field.fieldname == "status":
+                    label = "Status"
+                elif field.fieldname == "owner_name":
+                    label = "Owner Name"
+                elif field.fieldname == "workflow_state":
+                    label = "Stage"
+                
+                valid_fields.append({
+                    "fieldname": field.fieldname,
+                    "label": label
+                })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_client_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Contacts DocType for export."""
+    contacts_meta = frappe.get_meta("Contacts")
+    valid_fields = []
+
+    # Always include Contacts ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Client ID"
+    })
+
+    for field in contacts_meta.fields:
+        is_allowed = field.fieldname in ("company_name", "owner_name", "source_lead")
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "first_name":
+                label = "Name"
+            elif field.fieldname == "company_name":
+                label = "Company"
+            elif field.fieldname == "phone":
+                label = "Phone"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            elif field.fieldname == "source_lead":
+                label = "Source Lead"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_client_export_data(names=None):
+    """Returns contacts data with company_name populated from the child table for export."""
+    import json
+    if isinstance(names, str):
+        names = json.loads(names)
+        
+    conditions = []
+    values = {}
+    if names:
+        conditions.append("c.name IN %(names)s")
+        values["names"] = tuple(names)
+        
+    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    
+    return frappe.db.sql(
+        f"""
+        SELECT
+            c.name,
+            c.first_name,
+            (
+                SELECT GROUP_CONCAT(COALESCE(a.account_name, cc.company_name) SEPARATOR ', ')
+                FROM `tabContact Company` cc
+                LEFT JOIN `tabAccounts` a ON cc.company_name = a.name
+                WHERE cc.parent = c.name AND cc.parenttype = 'Contacts' AND cc.parentfield = 'company_name'
+            ) AS company_name,
+            c.email,
+            c.phone,
+            c.country,
+            c.state,
+            c.city,
+            c.source_lead,
+            c.owner_name,
+            c.creation,
+            c.modified
+        FROM `tabContacts` c
+        {where_clause}
+        ORDER BY c.creation DESC
+        """,
+        values,
+        as_dict=True
+    )
+
+
+@frappe.whitelist()
+def get_company_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Accounts DocType for export."""
+    accounts_meta = frappe.get_meta("Accounts")
+    valid_fields = []
+
+    # Always include Accounts ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Company ID"
+    })
+
+    for field in accounts_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "account_name":
+                label = "Account Name"
+            elif field.fieldname == "phone_number":
+                label = "Phone"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_call_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Calls DocType for export."""
+    calls_meta = frappe.get_meta("Calls")
+    valid_fields = []
+
+    # Always include Calls ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Call ID"
+    })
+
+    for field in calls_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "title":
+                label = "Title"
+            elif field.fieldname == "call_for":
+                label = "Call For"
+            elif field.fieldname == "outgoing_call_status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_meeting_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Meeting DocType for export."""
+    meeting_meta = frappe.get_meta("Meeting")
+    valid_fields = []
+
+    # Always include Meeting ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Meeting ID"
+    })
+
+    for field in meeting_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "title":
+                label = "Title"
+            elif field.fieldname == "meet_for":
+                label = "Meet For"
+            elif field.fieldname == "outgoing_call_status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_proposal_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Proposal DocType for export."""
+    proposal_meta = frappe.get_meta("Proposal")
+    valid_fields = []
+
+    # Always include Proposal ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Proposal ID"
+    })
+
+    for field in proposal_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "proposal_title":
+                label = "Proposal Title"
+            elif field.fieldname == "reference_no":
+                label = "Proposal No"
+            elif field.fieldname == "status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_prospect_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Deal DocType for export."""
+    deal_meta = frappe.get_meta("Deal")
+    valid_fields = []
+
+    # Always include Deal ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Deal ID"
+    })
+
+    for field in deal_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "deal_title":
+                label = "Title"
+            elif field.fieldname == "stage":
+                label = "Stage"
+            elif field.fieldname == "account":
+                label = "Company ID"
+            elif field.fieldname == "contact":
+                label = "Client ID"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+            # Inject virtual fields next to account/contact
+            if field.fieldname == "account":
+                valid_fields.append({
+                    "fieldname": "company_name",
+                    "label": "Company"
+                })
+            elif field.fieldname == "contact":
+                valid_fields.append({
+                    "fieldname": "contact_name",
+                    "label": "Client Name"
+                })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Purchase DocType for export."""
+    purchase_meta = frappe.get_meta("Purchase")
+    valid_fields = []
+
+    # Always include Purchase ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Purchase ID"
+    })
+
+    for field in purchase_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "vendor_name":
+                label = "Vendor"
+            elif field.fieldname == "quantity":
+                label = "Qty"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_invoice_collection_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Invoice Collection DocType for export."""
+    ic_meta = frappe.get_meta("Invoice Collection")
+    valid_fields = []
+
+    # Always include Invoice Collection ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "ID"
+    })
+
+    for field in ic_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "invoice":
+                label = "Invoice No"
+            elif field.fieldname == "collection_date":
+                label = "Date"
+            elif field.fieldname == "mode_of_payment":
+                label = "Mode"
+            elif field.fieldname == "amount_to_pay":
+                label = "Amount to Pay"
+            elif field.fieldname == "amount_collected":
+                label = "Amount"
+            elif field.fieldname == "amount_pending":
+                label = "Pending"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_settlement_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Purchase Collection DocType for export."""
+    pc_meta = frappe.get_meta("Purchase Collection")
+    valid_fields = []
+
+    # Always include Purchase Collection ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "ID"
+    })
+
+    for field in pc_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "purchase":
+                label = "Purchase No"
+            elif field.fieldname == "collection_date":
+                label = "Date"
+            elif field.fieldname == "vendor_name":
+                label = "Vendor Name"
+            elif field.fieldname == "vendor":
+                label = "Vendor"
+            elif field.fieldname == "mode_of_payment":
+                label = "Mode"
+            elif field.fieldname == "amount_to_pay":
+                label = "Amount to Pay"
+            elif field.fieldname == "amount_collected":
+                label = "Paid"
+            elif field.fieldname == "amount_pending":
+                label = "Pending"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
