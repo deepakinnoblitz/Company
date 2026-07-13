@@ -192,17 +192,61 @@ def enqueue_webhook_lead_processing(payload_data, webhook_log_name):
                     continue
                 
                 # Find associated Page and App using Form ID (filter by form_id field, not document name)
-                form_name = frappe.db.get_value("CRM Meta Form", {"form_id": form_id}, "name")
-                page_name = frappe.db.get_value("CRM Meta Form", {"form_id": form_id}, "meta_page") if form_name else None
-                app_name = frappe.db.get_value("CRM Meta Page", page_name, "meta_app") if page_name else None
+                form_info = frappe.db.get_value("CRM Meta Form", {"form_id": form_id}, ["name", "meta_page", "is_active"], as_dict=True)
+                if not form_info:
+                    msg = f"Skipping lead {lead_id}: No matching CRM Meta Form configured for form_id {form_id}."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
+                if not form_info.is_active:
+                    msg = f"The linked Meta Form '{form_info.name}' is inactive. Please activate it first."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
+
+                page_info = frappe.db.get_value("CRM Meta Page", form_info.meta_page, ["name", "meta_app", "is_active"], as_dict=True)
+                if not page_info:
+                    msg = f"Skipping lead {lead_id}: No matching CRM Meta Page configured."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
+                if not page_info.is_active:
+                    msg = f"The linked Meta Page '{page_info.name}' is inactive. Please activate it first."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
+
+                app_info = frappe.db.get_value("CRM Meta App", page_info.meta_app, ["name", "is_active"], as_dict=True)
+                if not app_info:
+                    msg = f"Skipping lead {lead_id}: No matching CRM Meta App configured."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
+                if not app_info.is_active:
+                    msg = f"The linked Meta App '{app_info.name}' is inactive. Please activate it first."
+                    logger.info(msg)
+                    if webhook_log_name:
+                        frappe.db.set_value("CRM Meta Webhook Log", webhook_log_name, {"status": "Failed", "response": msg})
+                        frappe.db.commit()
+                    continue
                 
                 # Initialize Raw Lead audit record
                 lead_audit = frappe.get_doc({
                     "doctype": "CRM Meta Lead",
                     "meta_lead_id": lead_id,
-                    "meta_app": app_name,
-                    "meta_page": page_name,
-                    "meta_form": form_name,  # Link field needs document name, not numeric form_id
+                    "meta_app": app_info.name,
+                    "meta_page": page_info.name,
+                    "meta_form": form_info.name,  # Link field needs document name, not numeric form_id
                     "webhook_payload": json.dumps(payload_data, indent=2),
                     "received_time": datetime.now(),
                     "processing_status": "Pending"

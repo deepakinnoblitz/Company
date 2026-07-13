@@ -7,6 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "integration_section",
+  "is_active",
+  "is_default",
   "app_name",
   "app_id",
   "app_secret",
@@ -16,9 +18,7 @@
   "business_manager_id",
   "app_status",
   "webhook_secret",
-  "signature_validation",
-  "is_default",
-  "is_active"
+  "signature_validation"
  ],
  "fields": [
   {
@@ -108,7 +108,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-13 12:30:47.096524",
+ "modified": "2026-07-13 17:00:42.476474",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Meta App",
