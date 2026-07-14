@@ -1195,3 +1195,79 @@ def download_proposal_attachment(file_id, token):
     frappe.local.response.filename = file_details.file_name or os.path.basename(file_path)
     frappe.local.response.filecontent = file_content
     frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def get_estimation_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Estimation DocType for export."""
+    est_meta = frappe.get_meta("Estimation")
+    valid_fields = []
+
+    # Always include Estimation ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Estimation ID"
+    })
+
+    for field in est_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "customer_name":
+                label = "Customer ID"
+            elif field.fieldname == "billing_name":
+                label = "Bank Account"
+            elif field.fieldname == "estimate_date":
+                label = "Estimate Date"
+            elif field.fieldname == "total_qty":
+                label = "Qty"
+            elif field.fieldname == "grand_total":
+                label = "Grand Total"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_invoice_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Invoice DocType for export."""
+    inv_meta = frappe.get_meta("Invoice")
+    valid_fields = []
+
+    # Always include Invoice ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Invoice ID"
+    })
+
+    for field in inv_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "customer_name":
+                label = "Customer ID"
+            elif field.fieldname == "invoice_date":
+                label = "Invoice Date"
+            elif field.fieldname == "payment_terms":
+                label = "Payment Terms"
+            elif field.fieldname == "due_date":
+                label = "Due Date"
+            elif field.fieldname == "po_no":
+                label = "PO No"
+            elif field.fieldname == "po_date":
+                label = "PO Date"
+            elif field.fieldname == "bank_account":
+                label = "Bank Account"
+            elif field.fieldname == "terms_and_conditions":
+                label = "Terms and Conditions"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
