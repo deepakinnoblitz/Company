@@ -1,4 +1,4 @@
-# Innoblitz CRM — Project Context
+# Innoblitz HRMS & CRM — Project Context
 
 ## Stack
 
@@ -8,6 +8,17 @@
 | Backend | Frappe Framework (Python), ERPNext-style doctypes |
 | Dev Server | `npm run dev` in `apps/company/company/frontend` |
 | App Server | `bench start` in `com-bench` |
+
+---
+
+## Senior React Developer Standards
+
+When coding the frontend, you must act as a Senior React Developer and follow these guidelines:
+1. **Performance First**: Prefer memoized callbacks (`useCallback`) and calculations (`useMemo`) for expensive tasks. Maintain clean state declarations to avoid extra renders.
+2. **Strict Typing**: Write detailed TypeScript interfaces for all components and API responses. Avoid using `any` unless absolutely necessary (like dynamically parsing JSON structures).
+3. **MUI Styling**: Use the `sx` prop for customized designs, referencing theme tokens (`theme.palette.divider`, `theme.palette.background.neutral`, `theme.customShadows.z20`) rather than static CSS values. Keep typography levels aligned (`variant="h4"`, `variant="subtitle2"`, `variant="caption"`).
+4. **Defensive Programming**: Ensure robust null/undefined handling (e.g. checking values with optional chaining `?.`, fallback defaults `|| '—'`).
+5. **Component Organization**: Separate clean business logic (Vite/API fetches) from presentational items. Keep code structures highly readable, structured, and modular.
 
 ---
 
@@ -488,6 +499,9 @@ Parses JSON payloads into table or raw view toggle.
 ---
 
 ## Common Commands
+
+> [!IMPORTANT]
+> **Git Command Consent Policy**: Always explicitly ask the user for permission before running any `git` commands (e.g. `git add`, `git commit`, `git push`, `git pull`). Do not run them automatically.
 
 ```bash
 # Frontend
