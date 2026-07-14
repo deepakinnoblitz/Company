@@ -1505,3 +1505,119 @@ def get_invoice_export_fields():
             })
 
     return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_export_data(filters=None):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    filters = filters or {}
+
+    conditions = []
+    query_filters = {}
+
+    if filters.get("vendor_name"):
+        conditions.append("p.vendor_name = %(vendor_name)s")
+        query_filters["vendor_name"] = filters["vendor_name"]
+    if filters.get("payment_type"):
+        conditions.append("p.payment_type = %(payment_type)s")
+        query_filters["payment_type"] = filters["payment_type"]
+    if filters.get("from_date"):
+        conditions.append("p.bill_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
+    if filters.get("to_date"):
+        conditions.append("p.bill_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
+    
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
+    where = " AND ".join(conditions)
+    if where:
+        where = "WHERE " + where
+
+    query = f"""
+        SELECT
+            p.name as purchase_id,
+            p.vendor_name,
+            c.first_name as vendor_real_name,
+            p.bill_no,
+            p.bill_date,
+            p.grand_total,
+            p.total_amount,
+            p.total_qty,
+            p.overall_discount_type,
+            p.overall_discount,
+            p.payment_type,
+            p.owner,
+            p.attach as attachments,
+            pi.service,
+            pi.hsn_code,
+            pi.description,
+            pi.quantity as qty,
+            pi.price,
+            pi.discount,
+            pi.tax_type,
+            pi.tax_amount,
+            pi.sub_total as total
+        FROM `tabPurchase` p
+        LEFT JOIN `tabContacts` c ON c.name = p.vendor_name
+        LEFT JOIN `tabPurchase Items` pi ON pi.parent = p.name
+        {where}
+        ORDER BY p.bill_date DESC, p.name DESC, pi.idx ASC
+    """
+    
+    res = frappe.db.sql(query, query_filters, as_dict=True)
+    for row in res:
+        if row.get("attachments") and row["attachments"] != "-":
+            row["attachment_token"] = _make_file_token(row["attachments"])
+    return res
+
+
+@frappe.whitelist(allow_guest=True)
+def download_purchase_attachment(file_path, token):
+    """Downloads a purchase attachment file using a valid signed token, bypassing permission checks."""
+    if not file_path or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file path or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_path)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_path.startswith("/private/"):
+        relative_path = file_path.lstrip("/")
+    elif file_path.startswith("/files/"):
+        relative_path = os.path.join("public", file_path.lstrip("/"))
+    else:
+        relative_path = file_path.lstrip("/")
+
+    file_path_on_disk = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path_on_disk.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path_on_disk):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path_on_disk, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = os.path.basename(file_path_on_disk)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+
