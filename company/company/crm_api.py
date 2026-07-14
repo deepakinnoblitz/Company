@@ -1056,7 +1056,7 @@ def get_invoice_collection_export_fields():
 
     for field in ic_meta.fields:
         is_allowed = field.fieldname in ("owner",)
-        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+        if is_allowed or (not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
             label = field.label
             if field.fieldname == "invoice":
                 label = "Invoice No"
@@ -1067,9 +1067,9 @@ def get_invoice_collection_export_fields():
             elif field.fieldname == "amount_to_pay":
                 label = "Amount to Pay"
             elif field.fieldname == "amount_collected":
-                label = "Amount"
+                label = "Amount Collected"
             elif field.fieldname == "amount_pending":
-                label = "Pending"
+                label = "Amount Pending"
             
             valid_fields.append({
                 "fieldname": field.fieldname,
@@ -1093,7 +1093,7 @@ def get_purchase_settlement_export_fields():
 
     for field in pc_meta.fields:
         is_allowed = field.fieldname in ("owner",)
-        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+        if is_allowed or (not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
             label = field.label
             if field.fieldname == "purchase":
                 label = "Purchase No"
@@ -1108,9 +1108,9 @@ def get_purchase_settlement_export_fields():
             elif field.fieldname == "amount_to_pay":
                 label = "Amount to Pay"
             elif field.fieldname == "amount_collected":
-                label = "Paid"
+                label = "Amount Collected"
             elif field.fieldname == "amount_pending":
-                label = "Pending"
+                label = "Amount Pending"
             
             valid_fields.append({
                 "fieldname": field.fieldname,
