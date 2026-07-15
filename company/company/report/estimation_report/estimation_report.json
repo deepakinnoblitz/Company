@@ -21,19 +21,10 @@
  "report_type": "Script Report",
  "roles": [
   {
-   "role": "Sales"
-  },
-  {
    "role": "IT"
   },
   {
    "role": "System Manager"
-  },
-  {
-   "role": "Sales Employee"
-  },
-  {
-   "role": "Sales Employee Junior"
   },
   {
    "role": "CRM And Sales"

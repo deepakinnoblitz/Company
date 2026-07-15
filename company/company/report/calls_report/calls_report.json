@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "CRM And Sales"
   }
  ],
  "timeout": 0
