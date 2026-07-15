@@ -1,28 +1,13 @@
 // Redirection script for Employees from Desk to React Frontend
-$(document).ready(function () {
-    // Ensure frappe is defined and roles are available
-    if (typeof frappe !== 'undefined' && frappe.user_roles) {
+frappe.after_ajax(function () {
+    // frappe.after_ajax ensures bootinfo (roles) is fully loaded before we run
+    if (typeof frappe === 'undefined' || !frappe.user_roles) return;
 
-        // Check if the user has the 'Employee' role and is NOT an 'Administrator' or 'System Manager'
-        if (frappe.user_roles.includes('Employee') &&
-            frappe.user_roles.includes('HR') &&
-            !frappe.user_roles.includes('Administrator')) {
+    const isEmployee = frappe.user_roles.includes('Employee') || frappe.user_roles.includes('HR');
+    const isAdmin = frappe.user_roles.includes('Administrator');
 
-            // Function to check and perform redirect
-            const checkRedirect = () => {
-                // Redirect employees from ANY desk route to the new frontend
-                window.location.href = '/';
-            };
-
-            // Check on initial load
-            checkRedirect();
-
-            // Check when route changes within the desk
-            if (frappe.ui.toolbar) {
-                frappe.ui.toolbar.on('route_change', function () {
-                    checkRedirect();
-                });
-            }
-        }
+    if (isEmployee && !isAdmin) {
+        // Redirect to the React SPA home page
+        window.location.href = '/';
     }
 });
