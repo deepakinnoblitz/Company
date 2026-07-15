@@ -24,13 +24,7 @@
    "role": "System Manager"
   },
   {
-   "role": "Employee"
-  },
-  {
    "role": "HR"
-  },
-  {
-   "role": "All"
   }
  ],
  "timeout": 0
