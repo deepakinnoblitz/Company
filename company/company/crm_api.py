@@ -785,6 +785,8 @@ def get_client_export_fields():
                 label = "Owner"
             elif field.fieldname == "source_lead":
                 label = "Source Lead"
+            elif field.fieldname == "customer_type":
+                label = "Client Type"
             
             valid_fields.append({
                 "fieldname": field.fieldname,
@@ -822,6 +824,9 @@ def get_client_export_data(names=None):
             ) AS company_name,
             c.email,
             c.phone,
+            c.notes,
+            c.address,
+            c.customer_type,
             c.country,
             c.state,
             c.city,
