@@ -93,7 +93,9 @@ def get_data(filters):
             c.discount,
             c.tax_type,
             c.tax_amount,
-            c.sub_total
+            c.sub_total,
+            p.creation,
+            p.modified
         FROM `tabPurchase` p
         LEFT JOIN `tabContacts` v ON v.name = p.vendor_name
         LEFT JOIN `tabPurchase Items` c ON c.parent = p.name

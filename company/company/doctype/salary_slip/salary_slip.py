@@ -325,20 +325,27 @@ def preview_salary_slip(employee, start_date, end_date):
         "days_breakdown": days_breakdown
     }
 
+    res.update({
+        "bank_account_name": "",
+        "account_number": "",
+        "bank_name": "",
+        "branch": "",
+        "ifsc_code": "",
+    })
+
     if emp.bank_account:
         try:
             ba = frappe.get_doc("Bank Account", emp.bank_account)
+
             res.update({
-                "bank_account_name": ba.bank_account_name,
-                "account_number": ba.account_number,
-                "bank_name": ba.bank_name or emp.bank_name,
-                "branch": ba.branch,
-                "ifsc_code": ba.ifsc_code,
+                "bank_account_name": ba.bank_account_name or "",
+                "account_number": ba.account_number or "",
+                "bank_name": ba.bank_name or "",
+                "branch": ba.branch or "",
+                "ifsc_code": ba.ifsc_code or "",
             })
-        except Exception:
-            res["bank_name"] = emp.bank_name
-    else:
-        res["bank_name"] = emp.bank_name
+        except frappe.DoesNotExistError:
+            pass
 
     return res
 
@@ -355,25 +362,34 @@ def get_salary_slip_with_details(name):
     # Enrich with Employee Details (Bank Account, etc.)
     if doc.employee:
         emp = frappe.get_doc("Employee", doc.employee)
+
         res.update({
             "personal_email": emp.personal_email,
             "phone_number": emp.phone,
             "date_of_joining": emp.date_of_joining,
-            "bank_name": emp.bank_name
+            "bank_account_name": "",
+            "account_number": "",
+            "bank_name": "",
+            "branch": "",
+            "ifsc_code": "",
         })
 
         if emp.bank_account:
             try:
                 ba = frappe.get_doc("Bank Account", emp.bank_account)
+
                 res.update({
-                    "bank_account_name": ba.bank_account_name,
-                    "account_number": ba.account_number,
-                    "bank_name": ba.bank_name or emp.bank_name,
-                    "branch": ba.branch,
-                    "ifsc_code": ba.ifsc_code,
+                    "bank_account_name": ba.bank_account_name or "",
+                    "account_number": ba.account_number or "",
+                    "bank_name": ba.bank_name or "",
+                    "branch": ba.branch or "",
+                    "ifsc_code": ba.ifsc_code or "",
                 })
-            except Exception:
-                pass
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    frappe.get_traceback(),
+                    "Salary Slip - Invalid Bank Account"
+                )
 
     # ── Days Breakdown (mirrors preview_salary_slip) ──────────────────────────
     start_date = getdate(doc.pay_period_start)

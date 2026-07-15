@@ -243,28 +243,26 @@ class Request(Document):
         hr_email = hr_settings.get("hr_email")
         cc_emails = hr_settings.get("hr_cc_emails")
 
-        if not hr_email:
-            return
-
         emp_emails, primary_email = self.get_employee_emails()
         sender = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
 
-        cc_list = []
-        if cc_emails:
-            cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
+        if hr_email:
+            cc_list = []
+            if cc_emails:
+                cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
 
-        self.send_email(
-            recipients=[hr_email],
-            cc=cc_list,
-            subject=f"📩 New Request - {self.employee_name}",
-            header="New Request Submitted",
-            icon="📩",
-            intro=f"{self.employee_name} has submitted a new request for review.",
-            greeting="Dear HR,",
-            color="#0062cc",
-            sender=sender,
-            reply_to=primary_email or hr_email
-        )
+            self.send_email(
+                recipients=[hr_email],
+                cc=cc_list,
+                subject=f"📩 New Request - {self.employee_name}",
+                header="New Request Submitted",
+                icon="📩",
+                intro=f"{self.employee_name} has submitted a new request for review.",
+                greeting="Dear HR,",
+                color="#0062cc",
+                sender=sender,
+                reply_to=primary_email or hr_email
+            )
 
         # InnoChat Notification to HR
         hr_users = self.get_hr_users()
@@ -294,7 +292,6 @@ class Request(Document):
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
         emp_emails, primary_email = self.get_employee_emails()
-        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -304,18 +301,19 @@ class Request(Document):
         </p>
         """
 
-        self.send_email(
-            recipients=emp_emails,
-            subject=f"✅ Request Approved - {self.subject or ''}",
-            header="Request Approved",
-            icon="✅",
-            intro="Your request has been approved by HR.",
-            greeting=f"Hello {self.employee_name},",
-            extra_message=extra,
-            color="#28a745",
-            sender=sender,
-            reply_to=hr_email
-        )
+        if emp_emails: 
+            self.send_email(
+                recipients=emp_emails,
+                subject=f"✅ Request Approved - {self.subject or ''}",
+                header="Request Approved",
+                icon="✅",
+                intro="Your request has been approved by HR.",
+                greeting=f"Hello {self.employee_name},",
+                extra_message=extra,
+                color="#28a745",
+                sender=sender,
+                reply_to=hr_email
+            )
 
         # InnoChat Notification to Employee
         receiver = self.get_employee_user()
@@ -338,7 +336,6 @@ class Request(Document):
         hr_name = hr_settings.get("hr_name") or "HR Team"
         
         emp_emails, primary_email = self.get_employee_emails()
-        if not emp_emails: return
 
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
@@ -348,18 +345,19 @@ class Request(Document):
         </p>
         """
 
-        self.send_email(
-            recipients=emp_emails,
-            subject=f"❌ Request Rejected - {self.subject or ''}",
-            header="Request Rejected",
-            icon="❌",
-            intro="Your request has been rejected by HR.",
-            greeting=f"Hello {self.employee_name},",
-            extra_message=extra,
-            color="#dc3545",
-            sender=sender,
-            reply_to=hr_email
-        )
+        if emp_emails:
+            self.send_email(
+                recipients=emp_emails,
+                subject=f"❌ Request Rejected - {self.subject or ''}",
+                header="Request Rejected",
+                icon="❌",
+                intro="Your request has been rejected by HR.",
+                greeting=f"Hello {self.employee_name},",
+                extra_message=extra,
+                color="#dc3545",
+                sender=sender,
+                reply_to=hr_email
+            )
 
         # InnoChat Notification to Employee
         receiver = self.get_employee_user()
@@ -402,18 +400,19 @@ class Request(Document):
         if current_state == "Clarification Requested":
             hr_msg = self.get_latest_hr_query()
 
-            self.send_email(
-                recipients=emp_emails,
-                subject="📩 Reply from HR - Request",
-                header="Reply from HR",
-                icon="📩",
-                intro="HR has replied to your request.",
-                greeting=f"Hello {self.employee_name},",
-                extra_message=self.hr_message_block(hr_msg),
-                color="#ffc107",
-                sender=hr_sender,
-                reply_to=hr_email
-            )
+            if emp_emails:
+                self.send_email(
+                    recipients=emp_emails,
+                    subject="📩 Reply from HR - Request",
+                    header="Reply from HR",
+                    icon="📩",
+                    intro="HR has replied to your request.",
+                    greeting=f"Hello {self.employee_name},",
+                    extra_message=self.hr_message_block(hr_msg),
+                    color="#ffc107",
+                    sender=hr_sender,
+                    reply_to=hr_email
+                )
 
             # InnoChat Notification to Employee
             receiver = self.get_employee_user()
@@ -438,19 +437,20 @@ class Request(Document):
             if cc_emails:
                 cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
 
-            self.send_email(
-                recipients=[hr_email],
-                cc=cc_list,
-                subject=f"📩 Reply from Employee - {self.employee_name}",
-                header="Reply Received",
-                icon="📩",
-                intro=f"{self.employee_name} has replied to your clarification request.",
-                greeting="Dear HR,",
-                extra_message=self.employee_reply_block(emp_reply),
-                color="#0062cc",
-                sender=employee_sender,
-                reply_to=primary_email or hr_email
-            )
+            if hr_email:
+                self.send_email(
+                    recipients=[hr_email],
+                    cc=cc_list,
+                    subject=f"📩 Reply from Employee - {self.employee_name}",
+                    header="Reply Received",
+                    icon="📩",
+                    intro=f"{self.employee_name} has replied to your clarification request.",
+                    greeting="Dear HR,",
+                    extra_message=self.employee_reply_block(emp_reply),
+                    color="#0062cc",
+                    sender=employee_sender,
+                    reply_to=primary_email or hr_email
+                )
 
             # InnoChat Notification to HR
             hr_users = self.get_hr_users()
@@ -607,7 +607,7 @@ class Request(Document):
                     
                     <!-- Action Button -->
                     <div style="text-align: center; margin-top: 30px;">
-                        <a href="{get_url('/app/request/' + self.name)}" 
+                        <a href="{get_url('requests')}" 
                            style="background-color: {color}; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                             View Request
                         </a>

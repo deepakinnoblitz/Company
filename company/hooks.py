@@ -27,7 +27,7 @@ app_include_js = [
     "/assets/company/js/custom_back_button.js",
     "/assets/company/js/birthday_animation.js",
     "/assets/company/js/custom_sidebar_menu.js",
-    "/assets/company/js/default_phone_no.js",
+    # "/assets/company/js/default_phone_no.js",
     "/assets/company/js/logo.js",
     "/assets/company/js/clear_cache.js?v=2",
     # "/assets/company/js/profile_picture.js",
@@ -97,6 +97,10 @@ doc_events = {
     "Request": {
         "after_insert": "company.company.api.create_unread_entry_for_hr"
     },
+    "Asset Request": {
+        "after_insert": "company.company.api.create_unread_entry_for_hr",
+        "on_update": "company.company.api.create_unread_entry_for_employee"
+    },
     # "Salary Slip": {
     #     "on_submit": "company.company.api.salary_slip_after_submit"
     # },
@@ -124,23 +128,35 @@ doc_events = {
         ],
         "validate": "company.company.crm_api.validate_event",
         "on_trash": "company.company.crm_api.delete_linked_record_on_event_trash"
+    },
+    "ToDo": {
+        "after_insert": "company.company.crm_api.create_event_for_todo",
+        "on_update": "company.company.crm_api.update_event_for_todo",
+        "on_trash": "company.company.crm_api.delete_event_for_todo"
+    },
+    "Lead": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations",
+        "on_update": "company.company.doctype.crm_email_automation.crm_email_automation.evaluate_automations"
+    },
+    "Deal": {
+        "on_update": "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.evaluate_automations",
+        "on_update": "company.company.doctype.crm_email_automation.crm_email_automation.evaluate_automations"
     }
 }
 
 
 scheduler_events = {
-    "cron": {
-        "* * * * *": [
-            "company.company.employee_remainder_api.check_and_enqueue_reminders",
-            "company.company.employee_remainder_api.process_remainder_queue",
-            "company.company.presence_api.process_auto_breaks"
-        ]
-    },
+    "all": [
+        "company.company.employee_remainder_api.check_and_enqueue_reminders",
+        "company.company.employee_remainder_api.process_remainder_queue",
+        "company.company.presence_api.process_auto_breaks",
+        "company.company.reminders.run_email_reminders",
+        "company.company.doctype.crm_email_automation.crm_email_automation.process_email_automations"
+    ],
     "daily": [
         "company.company.api.update_expired_renewals",
         "company.company.presence_api.daily_reset",
-        "company.company.presence_api.force_offline_all",
-        "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards"
+        "company.company.doctype.employee_monthly_award.employee_monthly_award.calculate_monthly_awards",
     ]
 }
 
@@ -157,7 +173,7 @@ spa_routes = [
     "contacts", "accounts", "deals", "events", "calls", "meetings", "todo",
     "products", "invoices", "estimations", "blog", "employee", "attendance",
     "leaves", "leave-allocations", "payroll", "requests", "announcements",
-    "assets", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
+    "asset", "asset-assignments", "timesheets", "wfh-attendance", "import-attendance",
     "timesheet-reports", "expenses", "crm-expense-tracker", "expense-tracker",
     "holidays", "reimbursement-claims", "renewals-tracker", "salary-slips",
     "job-openings", "job-applicants", "interviews", "purchase",
@@ -166,7 +182,9 @@ spa_routes = [
     "employee-monthly-award" , "employee-evaluation", "reminders", "employee-referrals", 
     "employee-overall-report", "department", "project", "activity-type", "claim-type", 
     "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
-    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals"
+    "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals",
+    "email-templates", "email-campaigns", "email-automations", "email-settings", "whatsapp-templates",
+    "whatsapp-automation", "whatsapp-settings", "whatsapp-campaigns", "lead-integration"
 ]
 
 website_route_rules = []
@@ -294,10 +312,12 @@ role_home_page = {
 # Permissions
 # -----------
 # Permissions evaluated in scripted ways
-
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
+permission_query_conditions = {
+	"Leave Application": "company.company.api.get_leave_application_permission_query_conditions",
+	"Request": "company.company.api.get_request_permission_query_conditions",
+	"WFH Attendance": "company.company.api.get_wfh_attendance_permission_query_conditions",
+	"Reimbursement Claim": "company.company.api.get_reimbursement_claim_permission_query_conditions",
+}
 #
 # has_permission = {
 # 	"Event": "frappe.desk.doctype.event.event.has_permission",

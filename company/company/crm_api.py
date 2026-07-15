@@ -652,3 +652,977 @@ def force_delete_doc(doctype, name):
     except Exception as e:
         frappe.db.rollback()
         frappe.throw(f"Failed to delete {doctype}: {str(e)}")
+
+
+def create_event_for_todo(doc, method=None):
+    """Create Event when ToDo is created."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    # Check if event already exists
+    if frappe.db.exists("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}):
+        return
+
+    event = frappe.new_doc("Event")
+    event.subject = doc.description or "Todo Tasks"
+    event.event_category = "Todo"
+    event.event_type = "Private"
+    
+    date_str = doc.date or doc.creation
+    if date_str:
+        event.starts_on = f"{date_str} 00:00:00" if len(str(date_str)) <= 10 else str(date_str)
+        event.ends_on = event.starts_on
+    else:
+        event.starts_on = frappe.utils.now_datetime()
+        event.ends_on = event.starts_on
+
+    event.status = "Closed" if doc.status == "Closed" else "Open"
+    event.all_day = 1
+    event.reference_doctype = "ToDo"
+    event.reference_docname = doc.name
+
+    frappe.flags.ignore_todo_sync = True
+    event.insert(ignore_permissions=True)
+    frappe.flags.ignore_todo_sync = False
+    frappe.db.commit()
+
+
+def update_event_for_todo(doc, method=None):
+    """Update Event when ToDo is updated."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    event_name = frappe.db.get_value("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}, "name")
+    
+    if not event_name:
+        create_event_for_todo(doc)
+        return
+
+    event = frappe.get_doc("Event", event_name)
+    event.subject = doc.description or "Todo Tasks"
+    
+    date_str = doc.date or doc.creation
+    if date_str:
+        event.starts_on = f"{date_str} 00:00:00" if len(str(date_str)) <= 10 else str(date_str)
+        event.ends_on = event.starts_on
+
+    event.status = "Closed" if doc.status == "Closed" else "Open"
+    
+    frappe.flags.ignore_todo_sync = True
+    event.save(ignore_permissions=True)
+    frappe.flags.ignore_todo_sync = False
+    frappe.db.commit()
+
+
+def delete_event_for_todo(doc, method=None):
+    """Delete Event when ToDo is deleted."""
+    if frappe.flags.get("ignore_todo_sync"):
+        return
+
+    event_name = frappe.db.get_value("Event", {"reference_doctype": "ToDo", "reference_docname": doc.name}, "name")
+    if event_name:
+        frappe.flags.ignore_todo_sync = True
+        frappe.delete_doc("Event", event_name, ignore_permissions=True, force=True)
+        frappe.flags.ignore_todo_sync = False
+        frappe.db.commit()
+
+
+@frappe.whitelist()
+def get_lead_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Lead DocType for export."""
+    lead_meta = frappe.get_meta("Lead")
+    valid_fields = []
+
+    # Always include Lead ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Lead ID"
+    })
+
+    for field in lead_meta.fields:
+        is_allowed = field.fieldname in ("status", "owner_name")
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            if field.fieldname != "sales_pipeline":
+                label = field.label
+                if field.fieldname == "status":
+                    label = "Status"
+                elif field.fieldname == "owner_name":
+                    label = "Owner Name"
+                elif field.fieldname == "workflow_state":
+                    label = "Stage"
+                
+                valid_fields.append({
+                    "fieldname": field.fieldname,
+                    "label": label
+                })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_client_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Contacts DocType for export."""
+    contacts_meta = frappe.get_meta("Contacts")
+    valid_fields = []
+
+    # Always include Contacts ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Client ID"
+    })
+
+    for field in contacts_meta.fields:
+        is_allowed = field.fieldname in ("company_name", "owner_name", "source_lead")
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "first_name":
+                label = "Name"
+            elif field.fieldname == "company_name":
+                label = "Company"
+            elif field.fieldname == "phone":
+                label = "Phone"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            elif field.fieldname == "source_lead":
+                label = "Source Lead"
+            elif field.fieldname == "customer_type":
+                label = "Client Type"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_client_export_data(names=None):
+    """Returns contacts data with company_name populated from the child table for export."""
+    import json
+    if isinstance(names, str):
+        names = json.loads(names)
+        
+    conditions = []
+    values = {}
+    if names:
+        conditions.append("c.name IN %(names)s")
+        values["names"] = tuple(names)
+        
+    where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+    
+    return frappe.db.sql(
+        f"""
+        SELECT
+            c.name,
+            c.first_name,
+            (
+                SELECT GROUP_CONCAT(COALESCE(a.account_name, cc.company_name) SEPARATOR ', ')
+                FROM `tabContact Company` cc
+                LEFT JOIN `tabAccounts` a ON cc.company_name = a.name
+                WHERE cc.parent = c.name AND cc.parenttype = 'Contacts' AND cc.parentfield = 'company_name'
+            ) AS company_name,
+            c.email,
+            c.phone,
+            c.notes,
+            c.address,
+            c.customer_type,
+            c.country,
+            c.state,
+            c.city,
+            c.source_lead,
+            c.owner_name,
+            c.creation,
+            c.modified
+        FROM `tabContacts` c
+        {where_clause}
+        ORDER BY c.creation DESC
+        """,
+        values,
+        as_dict=True
+    )
+
+
+@frappe.whitelist()
+def get_company_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Accounts DocType for export."""
+    accounts_meta = frappe.get_meta("Accounts")
+    valid_fields = []
+
+    # Always include Accounts ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Company ID"
+    })
+
+    for field in accounts_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "account_name":
+                label = "Account Name"
+            elif field.fieldname == "phone_number":
+                label = "Phone"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_call_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Calls DocType for export."""
+    calls_meta = frappe.get_meta("Calls")
+    valid_fields = []
+
+    # Always include Calls ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Call ID"
+    })
+
+    for field in calls_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "title":
+                label = "Title"
+            elif field.fieldname == "call_for":
+                label = "Call For"
+            elif field.fieldname == "outgoing_call_status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_meeting_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Meeting DocType for export."""
+    meeting_meta = frappe.get_meta("Meeting")
+    valid_fields = []
+
+    # Always include Meeting ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Meeting ID"
+    })
+
+    for field in meeting_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "title":
+                label = "Title"
+            elif field.fieldname == "meet_for":
+                label = "Meet For"
+            elif field.fieldname == "outgoing_call_status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_proposal_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Proposal DocType for export."""
+    proposal_meta = frappe.get_meta("Proposal")
+    valid_fields = []
+
+    # Always include Proposal ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Proposal ID"
+    })
+
+    for field in proposal_meta.fields:
+        is_allowed = field.fieldname in ("owner_name",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "proposal_title":
+                label = "Proposal Title"
+            elif field.fieldname == "reference_no":
+                label = "Proposal No"
+            elif field.fieldname == "status":
+                label = "Status"
+            elif field.fieldname == "owner_name":
+                label = "Owner"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_prospect_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Deal DocType for export."""
+    deal_meta = frappe.get_meta("Deal")
+    valid_fields = []
+
+    # Always include Deal ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Deal ID"
+    })
+
+    for field in deal_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "deal_title":
+                label = "Title"
+            elif field.fieldname == "stage":
+                label = "Stage"
+            elif field.fieldname == "account":
+                label = "Company ID"
+            elif field.fieldname == "contact":
+                label = "Client ID"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+            # Inject virtual fields next to account/contact
+            if field.fieldname == "account":
+                valid_fields.append({
+                    "fieldname": "company_name",
+                    "label": "Company"
+                })
+            elif field.fieldname == "contact":
+                valid_fields.append({
+                    "fieldname": "contact_name",
+                    "label": "Client Name"
+                })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Purchase DocType for export."""
+    purchase_meta = frappe.get_meta("Purchase")
+    valid_fields = []
+
+    # Always include Purchase ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Purchase ID"
+    })
+
+    for field in purchase_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "vendor_name":
+                label = "Vendor"
+            elif field.fieldname == "quantity":
+                label = "Qty"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_invoice_collection_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Invoice Collection DocType for export."""
+    ic_meta = frappe.get_meta("Invoice Collection")
+    valid_fields = []
+
+    # Always include Invoice Collection ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "ID"
+    })
+
+    for field in ic_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "invoice":
+                label = "Invoice No"
+            elif field.fieldname == "collection_date":
+                label = "Date"
+            elif field.fieldname == "mode_of_payment":
+                label = "Mode"
+            elif field.fieldname == "amount_to_pay":
+                label = "Amount to Pay"
+            elif field.fieldname == "amount_collected":
+                label = "Amount Collected"
+            elif field.fieldname == "amount_pending":
+                label = "Amount Pending"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_settlement_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Purchase Collection DocType for export."""
+    pc_meta = frappe.get_meta("Purchase Collection")
+    valid_fields = []
+
+    # Always include Purchase Collection ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "ID"
+    })
+
+    for field in pc_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "purchase":
+                label = "Purchase No"
+            elif field.fieldname == "collection_date":
+                label = "Date"
+            elif field.fieldname == "vendor_name":
+                label = "Vendor Name"
+            elif field.fieldname == "vendor":
+                label = "Vendor"
+            elif field.fieldname == "mode_of_payment":
+                label = "Mode"
+            elif field.fieldname == "amount_to_pay":
+                label = "Amount to Pay"
+            elif field.fieldname == "amount_collected":
+                label = "Amount Collected"
+            elif field.fieldname == "amount_pending":
+                label = "Amount Pending"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+import hashlib
+
+def _make_file_token(file_id):
+    secret = frappe.local.conf.get("encryption_key") or frappe.local.site
+    return hashlib.sha256(f"{file_id}-{secret}".encode()).hexdigest()[:32]
+
+
+@frappe.whitelist()
+def get_proposal_attachments(proposal_ids):
+    """Fetches attachments for the given proposal IDs and generates signed download tokens."""
+    import json
+    if isinstance(proposal_ids, str):
+        proposal_ids = json.loads(proposal_ids)
+    
+    if not proposal_ids:
+        return []
+
+    attachments = frappe.get_all(
+        "Proposal Attachment",
+        fields=["name", "file_name", "attachment", "parent"],
+        filters={"parent": ["in", proposal_ids]}
+    )
+
+    for att in attachments:
+        att["token"] = _make_file_token(att["name"])
+
+    return attachments
+
+
+@frappe.whitelist(allow_guest=True)
+def download_proposal_attachment(file_id, token):
+    """Downloads a proposal attachment file using a valid signed token, bypassing permission checks."""
+    if not file_id or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file ID or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_id)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    # Fetch file details without calling get_doc
+    file_details = frappe.db.get_value("Proposal Attachment", {"name": file_id}, ["file_name", "attachment"], as_dict=True)
+    if not file_details or not file_details.attachment:
+        frappe.respond_as_web_page("Not Found", "The requested file could not be found.", http_status_code=404)
+        return
+
+    file_url = file_details.attachment
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_url.startswith("/private/"):
+        relative_path = file_url.lstrip("/")
+    elif file_url.startswith("/files/"):
+        relative_path = os.path.join("public", file_url.lstrip("/"))
+    else:
+        relative_path = file_url.lstrip("/")
+
+    file_path = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = file_details.file_name or os.path.basename(file_path)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def get_estimation_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Estimation DocType for export."""
+    est_meta = frappe.get_meta("Estimation")
+    valid_fields = []
+
+    # Always include Estimation ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Estimation ID"
+    })
+
+    for field in est_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "customer_name":
+                label = "Customer ID"
+            elif field.fieldname == "billing_name":
+                label = "Bank Account"
+            elif field.fieldname == "estimate_date":
+                label = "Estimate Date"
+            elif field.fieldname == "total_qty":
+                label = "Qty"
+            elif field.fieldname == "grand_total":
+                label = "Grand Total"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_estimation_export_data(filters=None):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    filters = filters or {}
+
+    conditions = []
+    query_filters = {}
+
+    if filters.get("client_name"):
+        conditions.append("e.client_name = %(client_name)s")
+        query_filters["client_name"] = filters["client_name"]
+    if filters.get("billing_name"):
+        conditions.append("e.billing_name = %(billing_name)s")
+        query_filters["billing_name"] = filters["billing_name"]
+    if filters.get("from_date"):
+        conditions.append("e.estimate_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
+    if filters.get("to_date"):
+        conditions.append("e.estimate_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
+    
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("e.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("e.owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
+    where = " AND ".join(conditions)
+    if where:
+        where = "WHERE " + where
+
+    query = f"""
+        SELECT
+            e.name as estimation_id,
+            e.deal,
+            e.client_name as customer_id,
+            e.estimate_date,
+            e.grand_total,
+            e.total_amount,
+            e.total_qty,
+            e.overall_discount_type,
+            e.overall_discount,
+            e.bank_account,
+            e.owner,
+            e.attachments,
+            a.account_name as company_name,
+            i.service,
+            i.hsn_code,
+            i.description,
+            i.quantity as qty,
+            i.price,
+            i.discount,
+            i.tax_type,
+            i.tax_amount,
+            i.sub_total as total
+        FROM `tabEstimation` e
+        LEFT JOIN `tabAccounts` a ON a.name = e.billing_name
+        LEFT JOIN `tabEstimation Items` i ON i.parent = e.name
+        {where}
+        ORDER BY e.estimate_date DESC, e.name DESC, i.idx ASC
+    """
+    
+    res = frappe.db.sql(query, query_filters, as_dict=True)
+    for row in res:
+        if row.get("attachments") and row["attachments"] != "-":
+            row["attachment_token"] = _make_file_token(row["attachments"])
+    return res
+
+
+@frappe.whitelist(allow_guest=True)
+def download_estimation_attachment(file_path, token):
+    """Downloads an estimation attachment file using a valid signed token, bypassing permission checks."""
+    if not file_path or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file path or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_path)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_path.startswith("/private/"):
+        relative_path = file_path.lstrip("/")
+    elif file_path.startswith("/files/"):
+        relative_path = os.path.join("public", file_path.lstrip("/"))
+    else:
+        relative_path = file_path.lstrip("/")
+
+    file_path_on_disk = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path_on_disk.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path_on_disk):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path_on_disk, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = os.path.basename(file_path_on_disk)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def get_invoice_export_data(filters=None):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    filters = filters or {}
+
+    conditions = []
+    query_filters = {}
+
+    if filters.get("client_name"):
+        conditions.append("i.client_name = %(client_name)s")
+        query_filters["client_name"] = filters["client_name"]
+    if filters.get("billing_name"):
+        conditions.append("i.billing_name = %(billing_name)s")
+        query_filters["billing_name"] = filters["billing_name"]
+    if filters.get("from_date"):
+        conditions.append("i.invoice_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
+    if filters.get("to_date"):
+        conditions.append("i.invoice_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
+    
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("i.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("i.owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
+    where = " AND ".join(conditions)
+    if where:
+        where = "WHERE " + where
+
+    query = f"""
+        SELECT
+            i.name as invoice_id,
+            i.deal,
+            i.client_name as customer_id,
+            i.invoice_date,
+            i.grand_total,
+            i.total_amount,
+            i.total_qty,
+            i.overall_discount_type,
+            i.overall_discount,
+            i.bank_account,
+            i.owner,
+            i.attachments,
+            a.account_name as company_name,
+            it.service,
+            it.hsn_code,
+            it.description,
+            it.quantity as qty,
+            it.price,
+            it.discount,
+            it.tax_type,
+            it.tax_amount,
+            it.sub_total as total
+        FROM `tabInvoice` i
+        LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
+        LEFT JOIN `tabInvoice Items` it ON it.parent = i.name
+        {where}
+        ORDER BY i.invoice_date DESC, i.name DESC, it.idx ASC
+    """
+    
+    res = frappe.db.sql(query, query_filters, as_dict=True)
+    for row in res:
+        if row.get("attachments") and row["attachments"] != "-":
+            row["attachment_token"] = _make_file_token(row["attachments"])
+    return res
+
+
+@frappe.whitelist(allow_guest=True)
+def download_invoice_attachment(file_path, token):
+    """Downloads an invoice attachment file using a valid signed token, bypassing permission checks."""
+    if not file_path or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file path or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_path)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_path.startswith("/private/"):
+        relative_path = file_path.lstrip("/")
+    elif file_path.startswith("/files/"):
+        relative_path = os.path.join("public", file_path.lstrip("/"))
+    else:
+        relative_path = file_path.lstrip("/")
+
+    file_path_on_disk = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path_on_disk.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path_on_disk):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path_on_disk, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = os.path.basename(file_path_on_disk)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+
+
+
+
+
+
+@frappe.whitelist()
+def get_invoice_export_fields():
+    """Returns a list of writable, non-hidden, non-child-table fields from the Invoice DocType for export."""
+    inv_meta = frappe.get_meta("Invoice")
+    valid_fields = []
+
+    # Always include Invoice ID (name) first
+    valid_fields.append({
+        "fieldname": "name",
+        "label": "Invoice ID"
+    })
+
+    for field in inv_meta.fields:
+        is_allowed = field.fieldname in ("owner",)
+        if is_allowed or (not field.read_only and not field.hidden and field.fieldtype not in ("Table", "HTML", "Section Break", "Column Break", "Button", "Tab Break")):
+            label = field.label
+            if field.fieldname == "customer_name":
+                label = "Customer ID"
+            elif field.fieldname == "invoice_date":
+                label = "Invoice Date"
+            elif field.fieldname == "payment_terms":
+                label = "Payment Terms"
+            elif field.fieldname == "due_date":
+                label = "Due Date"
+            elif field.fieldname == "po_no":
+                label = "PO No"
+            elif field.fieldname == "po_date":
+                label = "PO Date"
+            elif field.fieldname == "bank_account":
+                label = "Bank Account"
+            elif field.fieldname == "terms_and_conditions":
+                label = "Terms and Conditions"
+            
+            valid_fields.append({
+                "fieldname": field.fieldname,
+                "label": label
+            })
+
+    return valid_fields
+
+
+@frappe.whitelist()
+def get_purchase_export_data(filters=None):
+    import json
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    filters = filters or {}
+
+    conditions = []
+    query_filters = {}
+
+    if filters.get("vendor_name"):
+        conditions.append("p.vendor_name = %(vendor_name)s")
+        query_filters["vendor_name"] = filters["vendor_name"]
+    if filters.get("payment_type"):
+        conditions.append("p.payment_type = %(payment_type)s")
+        query_filters["payment_type"] = filters["payment_type"]
+    if filters.get("from_date"):
+        conditions.append("p.bill_date >= %(from_date)s")
+        query_filters["from_date"] = filters["from_date"]
+    if filters.get("to_date"):
+        conditions.append("p.bill_date <= %(to_date)s")
+        query_filters["to_date"] = filters["to_date"]
+    
+    has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
+    owner_val = filters.get("owner")
+    if has_permission:
+        owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_filter
+    elif owner_val and owner_val != "all":
+        conditions.append("p.owner = %(owner)s")
+        query_filters["owner"] = owner_val
+
+    where = " AND ".join(conditions)
+    if where:
+        where = "WHERE " + where
+
+    query = f"""
+        SELECT
+            p.name as purchase_id,
+            p.vendor_name,
+            c.first_name as vendor_real_name,
+            p.bill_no,
+            p.bill_date,
+            p.grand_total,
+            p.total_amount,
+            p.total_qty,
+            p.overall_discount_type,
+            p.overall_discount,
+            p.payment_type,
+            p.owner,
+            p.attach as attachments,
+            pi.service,
+            pi.hsn_code,
+            pi.description,
+            pi.quantity as qty,
+            pi.price,
+            pi.discount,
+            pi.tax_type,
+            pi.tax_amount,
+            pi.sub_total as total
+        FROM `tabPurchase` p
+        LEFT JOIN `tabContacts` c ON c.name = p.vendor_name
+        LEFT JOIN `tabPurchase Items` pi ON pi.parent = p.name
+        {where}
+        ORDER BY p.bill_date DESC, p.name DESC, pi.idx ASC
+    """
+    
+    res = frappe.db.sql(query, query_filters, as_dict=True)
+    for row in res:
+        if row.get("attachments") and row["attachments"] != "-":
+            row["attachment_token"] = _make_file_token(row["attachments"])
+    return res
+
+
+@frappe.whitelist(allow_guest=True)
+def download_purchase_attachment(file_path, token):
+    """Downloads a purchase attachment file using a valid signed token, bypassing permission checks."""
+    if not file_path or not token:
+        frappe.respond_as_web_page("Invalid request", "Missing file path or token.", http_status_code=400)
+        return
+
+    expected_token = _make_file_token(file_path)
+    if token != expected_token:
+        frappe.throw("Invalid or expired link", frappe.PermissionError)
+
+    import os
+    site_path = frappe.get_site_path()
+    
+    if file_path.startswith("/private/"):
+        relative_path = file_path.lstrip("/")
+    elif file_path.startswith("/files/"):
+        relative_path = os.path.join("public", file_path.lstrip("/"))
+    else:
+        relative_path = file_path.lstrip("/")
+
+    file_path_on_disk = os.path.abspath(os.path.join(site_path, relative_path))
+
+    # Security check: Ensure file path is within site path to prevent path traversal
+    if not file_path_on_disk.startswith(os.path.abspath(site_path)):
+        frappe.throw("Access denied", frappe.PermissionError)
+
+    if not os.path.exists(file_path_on_disk):
+        frappe.respond_as_web_page("File Not Found", "The file could not be found on disk.", http_status_code=404)
+        return
+
+    # Read and return the file
+    with open(file_path_on_disk, "rb") as f:
+        file_content = f.read()
+
+    frappe.local.response.filename = os.path.basename(file_path_on_disk)
+    frappe.local.response.filecontent = file_content
+    frappe.local.response.type = "download"
+

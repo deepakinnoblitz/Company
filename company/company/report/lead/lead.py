@@ -49,6 +49,10 @@ def get_data(filters):
         conditions.append("leads_from = %(leads_from)s")
         values["leads_from"] = filters["leads_from"]
 
+    if filters.get("service"):
+        conditions.append("service = %(service)s")
+        values["service"] = filters["service"]
+
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner")
     if has_permission:
@@ -75,7 +79,8 @@ def get_data(filters):
             leads_type,
             leads_from,
             owner_name,
-            creation
+            creation,
+            modified
         FROM `tabLead`
         {where_clause}
         ORDER BY creation DESC

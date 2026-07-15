@@ -21,7 +21,13 @@
   "event_keydown",
   "event_scroll",
   "event_click",
-  "event_touchstart"
+  "event_touchstart",
+  "enable_location_tracking",
+  "track_on_login",
+  "track_on_logout",
+  "track_on_status_change",
+  "tracking_interval_minutes",
+  "minimum_gps_accuracy"
  ],
  "fields": [
   {
@@ -99,6 +105,47 @@
    "fieldtype": "Check",
    "label": "Touch Start",
    "depends_on": "eval:doc.enable_auto_status == 1"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_location_tracking",
+   "fieldtype": "Check",
+   "label": "Enable Location Tracking"
+  },
+  {
+   "default": "0",
+   "fieldname": "track_on_login",
+   "fieldtype": "Check",
+   "label": "Track On Login",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "default": "0",
+   "fieldname": "track_on_logout",
+   "fieldtype": "Check",
+   "label": "Track On Logout",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "default": "0",
+   "fieldname": "track_on_status_change",
+   "fieldtype": "Check",
+   "label": "Track On Status Change",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "default": "10",
+   "fieldname": "tracking_interval_minutes",
+   "fieldtype": "Int",
+   "label": "Tracking Interval (Minutes)",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "default": "100",
+   "fieldname": "minimum_gps_accuracy",
+   "fieldtype": "Int",
+   "label": "Minimum GPS Accuracy (Meters)",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
   }
  ],
  "index_pages": [],

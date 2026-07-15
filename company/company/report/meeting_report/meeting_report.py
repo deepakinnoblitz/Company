@@ -156,6 +156,8 @@ def get_data(filters):
             `from` AS from_time,
             `to` AS to_time,
             owner_name,
+            creation,
+            modified,
             CASE
                 WHEN enable_reminder = 1 THEN 'Yes'
                 ELSE 'No'

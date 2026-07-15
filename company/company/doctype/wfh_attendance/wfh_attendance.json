@@ -121,11 +121,14 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
-   "write": 1
+   "write": 1,
+   "select": 1,
+   "cancel": 1,
+   "amend": 1,
+   "submit": 1
   },
   {
    "create": 1,
-   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
@@ -134,11 +137,14 @@
    "role": "HR",
    "share": 1,
    "submit": 1,
-   "write": 1
+   "select": 1,
+   "cancel":1,
+   "amend": 1,
+   "write": 1,
+   "delete": 1
   },
   {
    "create": 1,
-   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,

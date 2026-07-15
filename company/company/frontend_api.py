@@ -2,6 +2,8 @@ import frappe
 from frappe.auth import LoginManager
 from frappe import _
 from livekit import api
+from frappe.utils import getdate, add_months, get_first_day, get_last_day, flt, today
+from datetime import datetime
 
 
 @frappe.whitelist(allow_guest=True)
@@ -59,6 +61,14 @@ def get_permitted_count(doctype, filters=None, or_filters=None):
 
     if doctype == "Contacts" and or_filters:
         or_filters = clean_contacts_or_filters(or_filters)
+
+    if doctype in ("Leave Application", "Request", "WFH Attendance", "Reimbursement Claim", "Asset Request") and filters:
+        if isinstance(filters, list):
+            filters = [f for f in filters if not (isinstance(f, list) and len(f) >= 3 and (f[1] if len(f) == 4 else f[0]) in ("unread_only", "unread_messages"))]
+        elif isinstance(filters, dict):
+            filters.pop("unread_only", None)
+            filters.pop("unread_messages", None)
+
 
     # Resolve company_name filter for Contacts (child table field)
     if doctype == "Contacts" and filters:
@@ -290,12 +300,18 @@ def get_dashboard_stats(start_date=None, end_date=None):
     stats = {}
     user = frappe.session.user
 
+    # Check if user has a User Permission restricting their view to their own records
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
+
     # Get counts for each DocType
     doctypes = {
         "leads": "Lead",
         "contacts": "Contacts",
-        "deals": "Deal",
         "accounts": "Accounts",
+        "deals": "Deal",
+        "proposal": "Proposal",
+        "estimation": "Estimation",
+        "invoice": "Invoice"
     }
 
     date_filter = {}
@@ -309,7 +325,9 @@ def get_dashboard_stats(start_date=None, end_date=None):
     for key, doctype in doctypes.items():
         try:
             if frappe.has_permission(doctype, "read"):
-                filters = {'owner': user}
+                filters = {}
+                if has_user_permission:
+                    filters["owner_name"] = user
                 filters.update(date_filter)
                 stats[key] = frappe.db.count(doctype, filters)
             else:
@@ -317,30 +335,26 @@ def get_dashboard_stats(start_date=None, end_date=None):
         except Exception:
             stats[key] = 0
 
-    # Get recent leads (last 7 days)
-    try:
-        if frappe.has_permission("Lead", "read"):
-            stats["recent_leads"] = frappe.db.count("Lead", {
-                "creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -7)],
-                "owner": user
-            })
-        else:
-            stats["recent_leads"] = 0
-    except Exception:
-        stats["recent_leads"] = 0
-
     # Get leads by status (workflow_state)
     try:
         if frappe.has_permission("Lead", "read"):
             cond = ""
             if start_date and end_date:
                 cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
-            stats["leads_by_status"] = frappe.db.sql(f"""
-                SELECT workflow_state as status, COUNT(*) as count
-                FROM `tabLead`
-                WHERE owner = %s {cond}
-                GROUP BY workflow_state
-            """, (user,), as_dict=True)
+            if has_user_permission:
+                stats["leads_by_status"] = frappe.db.sql(f"""
+                    SELECT workflow_state as status, COUNT(*) as count
+                    FROM `tabLead`
+                    WHERE owner_name = %s {cond}
+                    GROUP BY workflow_state
+                """, (user,), as_dict=True)
+            else:
+                stats["leads_by_status"] = frappe.db.sql(f"""
+                    SELECT workflow_state as status, COUNT(*) as count
+                    FROM `tabLead`
+                    WHERE 1=1 {cond}
+                    GROUP BY workflow_state
+                """, as_dict=True)
         else:
             stats["leads_by_status"] = []
     except Exception:
@@ -352,58 +366,67 @@ def get_dashboard_stats(start_date=None, end_date=None):
             cond = ""
             if start_date and end_date:
                 cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
-            stats["deals_by_stage"] = frappe.db.sql(f"""
-                SELECT stage, COUNT(*) as count
-                FROM `tabDeal`
-                WHERE owner = %s {cond}
-                GROUP BY stage
-            """, (user,), as_dict=True)
+            if has_user_permission:
+                stats["deals_by_stage"] = frappe.db.sql(f"""
+                    SELECT stage, COUNT(*) as count
+                    FROM `tabDeal`
+                    WHERE owner_name = %s {cond}
+                    GROUP BY stage
+                """, (user,), as_dict=True)
+            else:
+                stats["deals_by_stage"] = frappe.db.sql(f"""
+                    SELECT stage, COUNT(*) as count
+                    FROM `tabDeal`
+                    WHERE 1=1 {cond}
+                    GROUP BY stage
+                """, as_dict=True)
         else:
             stats["deals_by_stage"] = []
     except Exception:
         stats["deals_by_stage"] = []
-
-    # Get total deal value
-    try:
-        if frappe.has_permission("Deal", "read"):
-            cond = ""
-            if start_date and end_date:
-                cond = f"AND DATE(creation) BETWEEN '{start_date}' AND '{end_date}'"
-            total_value = frappe.db.sql(f"""
-                SELECT SUM(value) as total
-                FROM `tabDeal`
-                WHERE stage NOT IN ('Closed Lost') AND owner = %s {cond}
-            """, (user,), as_dict=True)
-            stats["total_deal_value"] = total_value[0].get("total") or 0 if total_value else 0
-        else:
-            stats["total_deal_value"] = 0
-    except Exception:
-        stats["total_deal_value"] = 0
 
     # Get historical data for the last 7 days
     try:
         days = []
         lead_series = []
         contact_series = []
-        deal_series = []
         account_series = []
+        deal_series = []
+        proposal_series = []
+        estimation_series = []
+        invoice_series = []
 
         for i in range(6, -1, -1):
             date = frappe.utils.add_days(frappe.utils.nowdate(), -i)
             day_name = frappe.utils.get_datetime(date).strftime('%a')
             days.append(day_name)
 
-            lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"], "owner": user}))
-            contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"], "owner": user}))
-            deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"], "owner": user}))
-            account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"], "owner": user}))
+            if has_user_permission:
+                lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                proposal_series.append(frappe.db.count("Proposal", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                estimation_series.append(frappe.db.count("Estimation", {"creation": ["like", f"{date}%"], "owner_name": user}))
+                invoice_series.append(frappe.db.count("Invoice", {"creation": ["like", f"{date}%"], "owner_name": user}))
+            else:
+                lead_series.append(frappe.db.count("Lead", {"creation": ["like", f"{date}%"]}))
+                contact_series.append(frappe.db.count("Contacts", {"creation": ["like", f"{date}%"]}))
+                account_series.append(frappe.db.count("Accounts", {"creation": ["like", f"{date}%"]}))
+                deal_series.append(frappe.db.count("Deal", {"creation": ["like", f"{date}%"]}))
+                proposal_series.append(frappe.db.count("Proposal", {"creation": ["like", f"{date}%"]}))
+                estimation_series.append(frappe.db.count("Estimation", {"creation": ["like", f"{date}%"]}))
+                invoice_series.append(frappe.db.count("Invoice", {"creation": ["like", f"{date}%"]}))
 
         stats["charts"] = {
             "categories": days,
             "leads": lead_series,
             "contacts": contact_series,
+            "accounts": account_series,
             "deals": deal_series,
-            "accounts": account_series
+            "proposals": proposal_series,
+            "estimations": estimation_series,
+            "invoices": invoice_series
         }
     except Exception as e:
         frappe.log_error(f"Error calculating dashboard chart data: {str(e)}")
@@ -540,7 +563,11 @@ def get_today_activities():
     """
     Fetch today's calls and meetings.
     """
+    user = frappe.get_value("User", frappe.session.user, "name")
     from datetime import datetime
+
+    # Only filter by owner if the user has a User Permission record
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
 
     activities = {
         "calls": [],
@@ -553,28 +580,46 @@ def get_today_activities():
     # Fetch and filter calls
     try:
         if frappe.has_permission("Calls", "read"):
-            # Use SQL for calls too for consistency and to avoid field issues
-            activities["calls"] = frappe.db.sql("""
-                SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
-                FROM `tabCalls`
-                WHERE DATE(call_start_time) = %s
-                ORDER BY call_start_time ASC
-                LIMIT 10
-            """, (today_date,), as_dict=True)
+            if has_user_permission:
+                activities["calls"] = frappe.db.sql("""
+                    SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
+                    FROM `tabCalls`
+                    WHERE DATE(call_start_time) = %s
+                    AND owner_name = %s
+                    ORDER BY call_start_time ASC
+                    LIMIT 10
+                """, (today_date, user), as_dict=True)
+            else:
+                activities["calls"] = frappe.db.sql("""
+                    SELECT name, title, call_for, lead_name, call_start_time, call_end_time, outgoing_call_status, call_purpose
+                    FROM `tabCalls`
+                    WHERE DATE(call_start_time) = %s
+                    ORDER BY call_start_time ASC
+                    LIMIT 10
+                """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching calls for dashboard: {str(e)}")
 
     # Fetch and filter meetings (strictly from Meeting DocType)
     try:
         if frappe.has_permission("Meeting", "read"):
-            # Using direct SQL because 'from' is a reserved keyword in SQL
-            activities["meetings"] = frappe.db.sql("""
-                SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
-                FROM `tabMeeting`
-                WHERE DATE(`from`) = %s
-                ORDER BY `from` ASC
-                LIMIT 10
-            """, (today_date,), as_dict=True)
+            if has_user_permission:
+                activities["meetings"] = frappe.db.sql("""
+                    SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
+                    FROM `tabMeeting`
+                    WHERE DATE(`from`) = %s
+                    AND owner_name = %s
+                    ORDER BY `from` ASC
+                    LIMIT 10
+                """, (today_date, user), as_dict=True)
+            else:
+                activities["meetings"] = frappe.db.sql("""
+                    SELECT name, title, meet_for, lead_name, `from`, `to`, outgoing_call_status, meeting_venue, location
+                    FROM `tabMeeting`
+                    WHERE DATE(`from`) = %s
+                    ORDER BY `from` ASC
+                    LIMIT 10
+                """, (today_date,), as_dict=True)
     except Exception as e:
         frappe.log_error(f"Error fetching meetings for dashboard: {str(e)}")
 
@@ -798,6 +843,24 @@ def download_import_template(doctype):
             if f not in fields:
                 fields.append(f)
 
+    # Ensure requested fields are included for Attendance
+    if doctype == "Attendance":
+        existing = [f.fieldname if hasattr(f, 'fieldname') else f for f in fields]
+        target_fields = ["employee", "employee_name", "attendance_date", "status", "in_time", "out_time"]
+        
+        new_fields = []
+        for fn in target_fields:
+            if fn in existing:
+                for orig_f in fields:
+                    if (orig_f.fieldname if hasattr(orig_f, 'fieldname') else orig_f) == fn:
+                        new_fields.append(orig_f)
+                        break
+            else:
+                f_obj = meta.get_field(fn)
+                new_fields.append(f_obj if f_obj else fn)
+                
+        fields = new_fields
+
     # Ensure requested fields are included for Accounts
     if doctype == "Accounts":
         extra_fields = ["gstin", "website"]
@@ -816,7 +879,7 @@ def download_import_template(doctype):
             if f not in fields:
                 fields.append(f)
 
-    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts", "Asset", "Asset Assignment"):
+    if "name" not in fields and doctype not in ("Lead", "Contacts", "Accounts", "Asset", "Asset Assignment", "Attendance"):
         fields.insert(0, "name")
 
     export_fields = {doctype: fields}
@@ -838,50 +901,67 @@ def download_import_template(doctype):
     header = csv_array[0]
     phone_indices = [i for i, label in enumerate(header) if "(+91-)" in label]
 
-    for row_idx, row_data in enumerate(csv_array):
-        # We need to handle list length consistency
-        ws.append(row_data)
-
-        # Format Header
-        if row_idx == 0:
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
+    ws.append(header)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
 
     # Add Sample Data for Attendance
     if doctype == "Attendance":
         try:
-            sample_employee = frappe.db.get_value("Employee", {"status": "Active"}, ["name", "employee_name"], as_dict=True)
-            if sample_employee:
-                from frappe.utils import nowdate
+            # Bypass cache completely by using direct SQL query to fetch the freshest record
+            latest_attendance = frappe.db.sql("""
+                SELECT employee, employee_name, attendance_date, status, in_time, out_time 
+                FROM `tabAttendance` 
+                ORDER BY modified DESC 
+                LIMIT 1
+            """, as_dict=True)
 
-                # Create a map of fieldname to column index
-                col_map = {col: i + 1 for i, col in enumerate(header)}
-
-                # Sample row data
+            if latest_attendance:
+                sample = latest_attendance[0]
                 sample_row = []
                 for col in header:
                     val = ""
-                    # Match against Labels (as seen in Debug Output)
                     if col == "Employee":
-                        val = sample_employee.name
+                        val = sample.get("employee") or ""
                     elif col == "Employee Name":
-                        val = sample_employee.employee_name
+                        val = sample.get("employee_name") or ""
                     elif col == "Date":
-                        val = nowdate()
+                        val = str(sample.get("attendance_date")) if sample.get("attendance_date") else ""
                     elif col == "Status":
-                        val = "Present"
+                        val = sample.get("status") or ""
                     elif col == "In Time":
-                        val = "09:00:00"
+                        val = str(sample.get("in_time")) if sample.get("in_time") is not None else ""
                     elif col == "Out Time":
-                        val = "18:00:00"
-                    elif col == "Working Hours":
-                        val = "09:00"
-                    elif col == "Overtime Hours":
-                        val = "00:00"
+                        val = str(sample.get("out_time")) if sample.get("out_time") is not None else ""
 
                     sample_row.append(val)
 
                 ws.append(sample_row)
+            else:
+                # Fallback if no records exist yet
+                sample_employee = frappe.db.sql("SELECT name, employee_name FROM `tabEmployee` WHERE status='Active' LIMIT 1", as_dict=True)
+                if sample_employee:
+                    from frappe.utils import nowdate
+                    sample = sample_employee[0]
+                    sample_row = []
+                    for col in header:
+                        val = ""
+                        if col == "Employee":
+                            val = sample.get("name") or ""
+                        elif col == "Employee Name":
+                            val = sample.get("employee_name") or ""
+                        elif col == "Date":
+                            val = nowdate()
+                        elif col == "Status":
+                            val = "Present"
+                        elif col == "In Time":
+                            val = "09:00:00"
+                        elif col == "Out Time":
+                            val = "18:00:00"
+
+                        sample_row.append(val)
+
+                    ws.append(sample_row)
         except Exception as e:
             frappe.log_error(f"Error adding sample data for Attendance: {str(e)}")
 
@@ -1090,6 +1170,7 @@ def convert_estimation_to_invoice(estimation):
         "billing_name",
         "billing_address",
         "phone_number",
+        "deal",
         "total_qty",
         "total_amount",
         "overall_discount_type",
@@ -1151,6 +1232,10 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
     """
     Fetch Sales dashboard statistics and data.
     """
+    user = frappe.session.user
+    # Only filter by owner if the user has a User Permission record restricting their view
+    has_user_permission = frappe.db.exists("User Permission", {"user": user, "allow": "User"})
+    owner_name = user if has_user_permission else None
     data = {}
     today = frappe.utils.today()
     first_day_month = frappe.utils.get_first_day(today)
@@ -1165,6 +1250,9 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             invoice_filters["invoice_date"] = [">=", start_date]
         elif end_date:
             invoice_filters["invoice_date"] = ["<=", end_date]
+
+        if owner_name:
+            invoice_filters["owner_name"] = owner_name
 
         invoices = frappe.get_all("Invoice", filters=invoice_filters, fields=[
             "grand_total", "total_amount", "overall_discount",
@@ -1194,71 +1282,177 @@ def get_sales_dashboard_data(start_date=None, end_date=None):
             deal_filters["creation"] = [">=", start_date]
         elif end_date:
             deal_filters["creation"] = ["<=", f"{end_date} 23:59:59"]
+
+        if owner_name:
+            deal_filters["owner_name"] = owner_name
             
         deals = frappe.get_all("Deal", filters=deal_filters, fields=["value", "stage"])
         data["pipeline_value"] = sum(frappe.utils.flt(d.value) for d in deals if d.stage not in ["Closed Won", "Closed Lost"])
 
         # 3. Top Customers
-        cond = ""
+        sql_conds = []
+        sql_params = {}
         if start_date and end_date:
-            cond = f"WHERE DATE(invoice_date) BETWEEN '{start_date}' AND '{end_date}'"
+            sql_conds.append("DATE(i.invoice_date) BETWEEN %(start_date)s AND %(end_date)s")
+            sql_params["start_date"] = start_date
+            sql_params["end_date"] = end_date
+        elif start_date:
+            sql_conds.append("DATE(i.invoice_date) >= %(start_date)s")
+            sql_params["start_date"] = start_date
+        elif end_date:
+            sql_conds.append("DATE(i.invoice_date) <= %(end_date)s")
+            sql_params["end_date"] = end_date
+
+        if owner_name:
+            sql_conds.append("i.owner_name = %(owner_name)s")
+            sql_params["owner_name"] = owner_name
+
+        cond = "WHERE " + " AND ".join(sql_conds) if sql_conds else ""
             
         data["top_customers_by_revenue"] = frappe.db.sql(f"""
-            SELECT client_name, billing_name, SUM(grand_total) as revenue, COUNT(name) as order_count
-            FROM `tabInvoice`
+            SELECT
+                i.client_name,
+                i.billing_name,
+                COALESCE(NULLIF(c.first_name, ''), c.name) as contact_name,
+                a.account_name as account_name,
+                SUM(i.grand_total) as revenue,
+                COUNT(i.name) as order_count
+            FROM `tabInvoice` i
+            LEFT JOIN `tabContacts` c ON c.name = i.client_name
+            LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
             {cond}
-            GROUP BY client_name
+            GROUP BY i.client_name, i.billing_name, c.first_name, a.account_name
             ORDER BY revenue DESC
             LIMIT 5
-        """, as_dict=True)
+        """, sql_params, as_dict=True)
 
         data["most_repeated_customers"] = frappe.db.sql(f"""
-            SELECT client_name, billing_name, COUNT(name) as order_count, SUM(grand_total) as total_spent
-            FROM `tabInvoice`
+            SELECT
+                i.client_name,
+                i.billing_name,
+                COALESCE(NULLIF(c.first_name, ''), c.name) as contact_name,
+                a.account_name as account_name,
+                COUNT(i.name) as order_count,
+                SUM(i.grand_total) as total_spent
+            FROM `tabInvoice` i
+            LEFT JOIN `tabContacts` c ON c.name = i.client_name
+            LEFT JOIN `tabAccounts` a ON a.name = i.billing_name
             {cond}
-            GROUP BY client_name
+            GROUP BY i.client_name, i.billing_name, c.first_name, a.account_name
             ORDER BY order_count DESC
             LIMIT 5
-        """, as_dict=True)
+        """, sql_params, as_dict=True)
 
         # 4. Overdue / Pending Orders
-        data["overdue_orders"] = frappe.get_all("Invoice",
-            filters=[
-                ["balance_amount", ">", 0],
-                ["due_date", "<", today],
-                ["due_date", "is", "set"]
-            ],
+        overdue_filters = [
+            ["balance_amount", ">", 0],
+            ["due_date", "<", today],
+            ["due_date", "is", "set"]
+        ]
+        if start_date and end_date:
+            overdue_filters.append(["invoice_date", "between", [start_date, end_date]])
+        elif start_date:
+            overdue_filters.append(["invoice_date", ">=", start_date])
+        elif end_date:
+            overdue_filters.append(["invoice_date", "<=", end_date])
+
+        if owner_name:
+            overdue_filters.append(["owner_name", "=", owner_name])
+
+        overdue_orders = frappe.get_all("Invoice",
+            filters=overdue_filters,
             fields=["name", "billing_name", "due_date", "balance_amount", "grand_total"],
             order_by="due_date asc",
             limit=5
         )
-        data["pending_orders_count"] = frappe.db.count("Invoice", {"balance_amount": [">", 0]})
 
-        # 5. Trends (Last 12 months)
-        trends = frappe.db.sql("""
+        reordered_overdue = []
+        for order in overdue_orders:
+            acct_name = frappe.db.get_value("Accounts", order.billing_name, "account_name") or order.billing_name
+            # Rebuild dict to ensure account_name appears immediately after billing_name in response
+            new_order = {
+                "name": order.get("name"),
+                "billing_name": order.get("billing_name"),
+                "account_name": acct_name,
+                "due_date": order.get("due_date"),
+                "balance_amount": order.get("balance_amount"),
+                "grand_total": order.get("grand_total"),
+            }
+            reordered_overdue.append(new_order)
+
+        data["overdue_orders"] = reordered_overdue
+        
+        pending_filters = {"balance_amount": [">", 0]}
+        if start_date and end_date:
+            pending_filters["invoice_date"] = ["between", [start_date, end_date]]
+        elif start_date:
+            pending_filters["invoice_date"] = [">=", start_date]
+        elif end_date:
+            pending_filters["invoice_date"] = ["<=", end_date]
+
+        if owner_name:
+            pending_filters["owner_name"] = owner_name
+        data["pending_orders_count"] = frappe.db.count("Invoice", pending_filters)
+
+        # 5. Trends
+        trend_conds = []
+        trend_params = []
+        if start_date and end_date:
+            trend_conds.append("invoice_date BETWEEN %s AND %s")
+            trend_params.extend([start_date, end_date])
+        elif start_date:
+            trend_conds.append("invoice_date >= %s")
+            trend_params.append(start_date)
+        elif end_date:
+            trend_conds.append("invoice_date <= %s")
+            trend_params.append(end_date)
+        else:
+            # Default to last 12 months
+            trend_conds.append("invoice_date >= DATE_SUB(%s, INTERVAL 12 MONTH)")
+            trend_params.append(today)
+
+        if owner_name:
+            trend_conds.append("owner_name = %s")
+            trend_params.append(owner_name)
+
+        trends = frappe.db.sql(f"""
             SELECT
-                DATE_FORMAT(invoice_date, '%%Y-%%m') as month,
+                LEFT(invoice_date, 7) as month,
                 SUM(grand_total) as total_sales,
                 SUM(overall_discount) as total_discount
             FROM `tabInvoice`
-            WHERE invoice_date >= DATE_SUB(%s, INTERVAL 12 MONTH)
+            WHERE {" AND ".join(trend_conds)}
             GROUP BY month
             ORDER BY month ASC
-        """, (today,), as_dict=True)
+        """, tuple(trend_params), as_dict=True)
 
         data["sales_trend"] = {
             "categories": [t.month for t in trends],
             "series": [frappe.utils.flt(t.total_sales) for t in trends]
         }
-        data["discount_trend"] = {
-            "categories": [t.month for t in trends],
-            "series": [frappe.utils.flt(t.total_discount) for t in trends]
-        }
 
         # 6. Conversion Rate (Estimations to Invoices)
-        total_estimations = frappe.db.count("Estimation")
-        converted_estimations = frappe.db.count("Invoice", {"converted_from_estimation": 1})
-        data["conversion_rate"] = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
+        # Count estimations created in period vs how many became invoices in same period
+        est_filters = {}
+        inv_filters = {"converted_from_estimation": 1}
+        if start_date and end_date:
+            est_filters["estimate_date"] = ["between", [start_date, end_date]]
+            inv_filters["invoice_date"] = ["between", [start_date, end_date]]
+        elif start_date:
+            est_filters["estimate_date"] = [">=", start_date]
+            inv_filters["invoice_date"] = [">=", start_date]
+        elif end_date:
+            est_filters["estimate_date"] = ["<=", end_date]
+            inv_filters["invoice_date"] = ["<=", end_date]
+
+        if owner_name:
+            est_filters["owner_name"] = owner_name
+            inv_filters["owner_name"] = owner_name
+
+        total_estimations = frappe.db.count("Estimation", est_filters)
+        converted_estimations = frappe.db.count("Invoice", inv_filters)
+        raw_rate = (converted_estimations / total_estimations * 100) if total_estimations > 0 else 0
+        data["conversion_rate"] = min(round(raw_rate, 1), 100)
 
     except Exception as e:
         frappe.log_error(f"Sales Dashboard Error: {str(e)}")
@@ -1802,7 +1996,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         total_days_in_period = frappe.utils.getdate(end_date).day
     
     # Get probation info
-    from company.company.api import get_employee_probation_info
     probation_info = get_employee_probation_info(employee)
     
     data = {
@@ -1812,7 +2005,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         "start_date": str(start_date),
         "end_date": str(end_date),
         "total_days_in_period": total_days_in_period,
-        "in_probation": probation_info.get("in_probation", False)
+        "in_probation": probation_info.get("is_probation", False)
     }
 
     # 1. Last 7 Days Attendance with Check-in/Out Times
@@ -1952,28 +2145,76 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     # 2. Leave Allocations by Type (for Leave Status cards)
     try:
         leave_allocations = frappe.db.sql("""
-            SELECT 
-                leave_type, 
-                total_leaves_allocated, 
-                total_leaves_taken
-            FROM `tabLeave Allocation`
-            WHERE employee = %s
-            AND from_date <= %s
-            AND to_date >= %s
-            AND docstatus < 2
+            SELECT
+                la.leave_type,
+                la.total_leaves_allocated,
+                la.total_leaves_taken,
+                lt.is_paid
+            FROM `tabLeave Allocation` la
+            INNER JOIN `tabLeave Type` lt
+                ON lt.name = la.leave_type
+            WHERE
+                la.employee = %s
+                AND la.from_date <= %s
+                AND la.to_date >= %s
+                AND la.docstatus < 2
+                AND lt.status = 'Active'
         """, (employee, today, today), as_dict=True)
-        
+
+        paid_allocated = 0
+        paid_taken = 0
+
+        unpaid_allocated = 0
+        unpaid_taken = 0
+
+        permission_allocated = 0
+        permission_taken = 0
+
+        for l in leave_allocations:
+
+            allocated = flt(l.total_leaves_allocated)
+            taken = flt(l.total_leaves_taken)
+
+            # Permission (separate)
+            if l.leave_type == "Permission":
+                permission_allocated += allocated
+                permission_taken += taken
+
+            # Paid Leave (sum all paid leave types)
+            elif l.is_paid:
+                paid_allocated += allocated
+                paid_taken += taken
+
+            # Unpaid Leave (sum every non-paid leave except Permission)
+            else:
+                unpaid_allocated += allocated
+                unpaid_taken += taken
+
         data["leave_allocations"] = [
             {
-                "leave_type": l.get("leave_type"),
-                "total_leaves_allocated": float(l.get("total_leaves_allocated") or 0),
-                "total_leaves_taken": float(l.get("total_leaves_taken") or 0),
-                "unused_leaves": 0.0 # Field doesn't exist in table
-            } for l in leave_allocations
+                "leave_type": "Paid Leave",
+                "total_leaves_allocated": paid_allocated,
+                "total_leaves_taken": paid_taken,
+                "unused_leaves": paid_allocated - paid_taken,
+            },
+            {
+                "leave_type": "Unpaid Leave",
+                "total_leaves_allocated": unpaid_allocated,
+                "total_leaves_taken": unpaid_taken,
+                "unused_leaves": unpaid_allocated - unpaid_taken,
+            },
+            {
+                "leave_type": "Permission",
+                "total_leaves_allocated": permission_allocated,
+                "total_leaves_taken": permission_taken,
+                "unused_leaves": permission_allocated - permission_taken,
+            },
         ]
-    except Exception as e:
-        frappe.log_error(f"Error fetching leave allocations: {str(e)}")
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "Error fetching leave allocations")
         data["leave_allocations"] = []
+
 
     # -------------------- HOLIDAY DEBUG --------------------
     try:
@@ -2328,67 +2569,116 @@ def get_personality_dashboard_data(employee=None):
         return {
             "totalScore": 100,
             "status": "Excellent",
-            "traits": []
+            "traits": [],
+            "performance_breakdown": [],
+            "recent_evaluations": []
         }
 
     employee = employee_doc
 
-    # Fetch last 20 evaluations to provide enough history for tallying trends
-    all_recent_evals = frappe.db.sql("""
-        SELECT trait, score_change, how_to_improve, creation
+    # Fetch all evaluations for calculating dynamic trait scores and recent list
+    all_evals = frappe.db.sql("""
+        SELECT name, trait, score_change, how_to_improve, creation
         FROM `tabEmployee Evaluation`
         WHERE employee = %s AND docstatus = 1
         ORDER BY creation DESC
-        LIMIT 20
     """, (employee.name,), as_dict=True)
 
-    if not all_recent_evals:
+    if not all_evals:
+        # Initialize default breakdown if there are no evaluations
+        db_traits = frappe.db.get_all("Evaluation Trait", fields=["name", "trait_name"])
+        performance_breakdown = [{
+            "trait": t.trait_name or t.name,
+            "score": 100,
+            "impact": 0
+        } for t in db_traits]
         return {
             "totalScore": 100,
             "status": "Excellent",
             "lastUpdated": None,
-            "traits": []
+            "traits": [],
+            "performance_breakdown": performance_breakdown,
+            "recent_evaluations": []
         }
 
-    # 1. Prepare traits list (Last 5 evaluations only, as per original logic)
+    # 1. Prepare traits list (compatibility/fallback)
     trait_scores = []
-    for ev in all_recent_evals[:5]:
+    for ev in all_evals[:5]:
         trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name")
         trait_scores.append({
             "trait": trait_name or ev.trait,
             "score": ev.score_change or 0
         })
 
-    # 2. Calculate tallies for how_to_improve (Based on last 20 evaluations)
+    # 2. Calculate dynamic performance breakdown (cumulative scores for all traits)
+    db_traits = frappe.db.get_all("Evaluation Trait", fields=["name", "trait_name"])
+    trait_data = {}
+    for t in db_traits:
+        trait_data[t.name] = {
+            "trait": t.trait_name or t.name,
+            "score": 100,
+            "impact": 0,
+            "latest_seen": False
+        }
+
+    for ev in all_evals:
+        t_id = ev.trait
+        if t_id in trait_data:
+            # Accumulate score change
+            trait_data[t_id]["score"] += (ev.score_change or 0)
+            
+            # The first evaluation we see in DESC order is the latest, so it sets the current impact
+            if not trait_data[t_id]["latest_seen"]:
+                trait_data[t_id]["impact"] = ev.score_change or 0
+                trait_data[t_id]["latest_seen"] = True
+
+    # Clamp scores between 0 and 100
+    for t_id in trait_data:
+        trait_data[t_id]["score"] = max(0, min(100, trait_data[t_id]["score"]))
+        # Remove helper flag
+        if "latest_seen" in trait_data[t_id]:
+            del trait_data[t_id]["latest_seen"]
+
+    performance_breakdown = list(trait_data.values())
+
+    # 3. Compile Recent Evaluations with detail fields
+    recent_evaluations = []
+    for ev in all_evals[:5]:
+        trait_name = frappe.db.get_value("Evaluation Trait", ev.trait, "trait_name") or ev.trait
+        recent_evaluations.append({
+            "name": ev.name,
+            "trait": trait_name,
+            "score_change": ev.score_change or 0,
+            "creation": str(ev.creation),
+            "remarks": ev.how_to_improve or ""
+        })
+
+    # 4. Calculate tallies for how_to_improve (Based on last 20 evaluations)
     trait_tally = {}
-    for ev in all_recent_evals:
+    for ev in all_evals[:20]:
         t_id = ev.trait
         score = ev.score_change or 0
         if t_id not in trait_tally:
-            # The first entry for each trait is the latest one due to 'ORDER BY creation DESC'
             trait_tally[t_id] = {
                 "score_sum": 0,
                 "latest_advice": None,
-                "date": ev.get("evaluation_date") or ev.creation
+                "date": ev.creation
             }
         
         trait_tally[t_id]["score_sum"] += score
         
-        # Capture the most recent specific advice for this trait from a NEGATIVE evaluation
         if not trait_tally[t_id]["latest_advice"] and score < 0 and ev.how_to_improve:
             trait_tally[t_id]["latest_advice"] = ev.how_to_improve
-            trait_tally[t_id]["date"] = ev.get("evaluation_date") or ev.creation
+            trait_tally[t_id]["date"] = ev.creation
 
     how_to_improve_list = []
     from frappe.utils import formatdate
     for t_id, counts in trait_tally.items():
-        # A trait needs improvement if the net balance is negative
         if counts["score_sum"] < 0:
             advice = counts["latest_advice"]
             trait_name = frappe.db.get_value("Evaluation Trait", t_id, "trait_name") or t_id
             
             if not advice:
-                # Fallback to master trait advice
                 advice = frappe.db.get_value("Evaluation Trait", t_id, "how_to_improve")
             
             if advice:
@@ -2398,8 +2688,7 @@ def get_personality_dashboard_data(employee=None):
                 if formatted_advice not in how_to_improve_list:
                     how_to_improve_list.append(formatted_advice)
 
-    # 3. Final data preparation
-    last_eval_time = all_recent_evals[0].creation
+    last_eval_time = all_evals[0].creation
     
     calculated_total = employee.evaluation_score if employee.evaluation_score is not None else 100
     calculated_total = max(0, min(100, calculated_total))
@@ -2414,9 +2703,11 @@ def get_personality_dashboard_data(employee=None):
     return {
         "totalScore": calculated_total,
         "status": status,
-        "howToImprove": how_to_improve_list[:5], # Return top 5 unique improvements
+        "howToImprove": how_to_improve_list[:5],
         "lastUpdated": str(last_eval_time),
-        "traits": trait_scores
+        "traits": trait_scores,
+        "performance_breakdown": performance_breakdown,
+        "recent_evaluations": recent_evaluations
     }
 
 
@@ -2761,8 +3052,22 @@ def get_my_asset_requests(page=1, limit=10, request_type=None, status=None, sort
     return {"data": requests, "total": total}
 
 @frappe.whitelist()
-def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None):
+def get_pending_asset_requests(page=1, limit=10, request_type=None, status=None, sort_by="modified desc", category=None, asset=None, priority=None, start_date=None, end_date=None, unread_only=None):
     filters = []
+    
+    # Check unread filter if requested
+    if unread_only in ('true', '1', True):
+        hr_roles = ["HR", "HR Manager", "System Manager", "Administrator"]
+        user_roles = frappe.get_roles(frappe.session.user)
+        is_hr = any(role in user_roles for role in hr_roles)
+        if is_hr:
+            unread_names = frappe.get_all(
+                "HR Read Tracker",
+                filters={"reference_doctype": "Asset Request", "read_by": frappe.session.user, "is_read": 0},
+                pluck="reference_name"
+            )
+            filters.append(["Asset Request", "name", "in", unread_names if unread_names else [""]])
+
     if request_type and request_type != 'all':
         filters.append(["Asset Request", "request_type", "=", request_type])
     if status and status != 'all':
@@ -3283,3 +3588,746 @@ def get_account_related_records(account_id, doctype, limit_start=0, limit_page_l
         "records": paged,
         "total": total
     }
+
+@frappe.whitelist()
+def get_followup_history(
+    reference_type,
+    reference_name
+):
+    """
+    reference_type:
+        Lead
+        Contact
+        Account
+
+    reference_name:
+        LEAD-0001
+        CLT-0001
+        CMP-0001
+    """
+
+    filters_calls = {}
+    filters_meetings = {}
+
+    reference_type = (
+        reference_type or ""
+    ).strip()
+
+    reference_name = (
+        reference_name or ""
+    ).strip()
+
+    if reference_type == "Lead":
+
+        filters_calls["lead_name"] = (
+            reference_name
+        )
+
+        filters_meetings["lead_name"] = (
+            reference_name
+        )
+
+    elif reference_type == "Contact":
+
+        filters_calls["contact_name"] = (
+            reference_name
+        )
+
+        filters_meetings["contact_name"] = (
+            reference_name
+        )
+
+    elif reference_type == "Account":
+
+        filters_calls["account_name"] = (
+            reference_name
+        )
+
+        filters_meetings["accounts_name"] = (
+            reference_name
+        )
+
+    else:
+
+        frappe.throw(
+            "Invalid Reference Type"
+        )
+
+    # ----------------------------------------------------
+    # CALLS
+    # ----------------------------------------------------
+
+    calls = frappe.get_all(
+        "Calls",
+        filters=filters_calls,
+        fields=[
+            "name",
+            "title",
+            "call_start_time",
+            "call_end_time",
+            "outgoing_call_status",
+            "completed_call_status",
+            "completed_call_notes",
+            "owner_name",
+            "creation"
+        ]
+    )
+
+    # ----------------------------------------------------
+    # MEETINGS
+    # ----------------------------------------------------
+
+    meetings = frappe.get_all(
+        "Meeting",
+        filters=filters_meetings,
+        fields=[
+            "name",
+            "title",
+            "from",
+            "to",
+            "outgoing_call_status",
+            "completed_meet_status",
+            "completed_meet_notes",
+            "owner_name",
+            "creation"
+        ]
+    )
+
+    timeline = []
+
+    # ----------------------------------------------------
+    # CALL TIMELINE
+    # ----------------------------------------------------
+
+    for row in calls:
+
+        timeline.append({
+
+            "doctype":
+                "Calls",
+
+            "type":
+                "Call",
+
+            "name":
+                row.name,
+
+            "title":
+                row.title,
+
+            "status":
+                row.outgoing_call_status,
+
+            "result":
+                row.completed_call_status,
+
+            "notes":
+                row.completed_call_notes,
+
+            "owner":
+                row.owner_name,
+
+            "start_time":
+                row.call_start_time,
+
+            "end_time":
+                row.call_end_time,
+
+            "creation":
+                row.creation
+
+        })
+
+    # ----------------------------------------------------
+    # MEETING TIMELINE
+    # ----------------------------------------------------
+
+    for row in meetings:
+
+        timeline.append({
+
+            "doctype":
+                "Meeting",
+
+            "type":
+                "Meeting",
+
+            "name":
+                row.name,
+
+            "title":
+                row.title,
+
+            "status":
+                row.outgoing_call_status,
+
+            "result":
+                row.completed_meet_status,
+
+            "notes":
+                row.completed_meet_notes,
+
+            "owner":
+                row.owner_name,
+
+            "start_time":
+                row.get("from"),
+
+            "end_time":
+                row.get("to"),
+
+            "creation":
+                row.creation
+
+        })
+
+    # ----------------------------------------------------
+    # SORT TIMELINE
+    # ----------------------------------------------------
+
+    timeline.sort(
+        key=lambda x:
+            x.get("start_time")
+            or x.get("creation"),
+        reverse=True
+    )
+
+    return timeline
+
+@frappe.whitelist()
+def get_proposal_by_lead_id(lead_id):
+    """
+    Get all proposals linked to a Lead.
+
+    Args:
+        lead_id (str): Lead ID (e.g. LEAD-00342-2026)
+    """
+
+    if not lead_id:
+        frappe.throw("Lead ID is required")
+
+    proposals = frappe.get_all(
+        "Proposal",
+        filters={"lead": lead_id},
+        fields=[
+            "name",
+            "proposal_title",
+            "reference_no",
+            "proposal_date",
+            "valid_until",
+            "status",
+            "lead",
+            "lead_name",
+            "company_name",
+            "creation",
+            "modified"
+        ],
+        order_by="creation desc"
+    )
+
+    return proposals
+
+# --------------------------------------------------------------------------
+# LEAVE ALLOCATION
+# --------------------------------------------------------------------------
+
+def get_active_leave_types():
+    return frappe.get_all(
+        "Leave Type",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "leave_type_name",
+            "is_paid",
+            "max_leaves",
+            "carry_forward",
+            "reset_frequency",
+            "restrict_during_probation",
+            "probation_period_months",
+        ],
+        order_by="creation asc",
+    )
+
+@frappe.whitelist()
+def get_leave_allocation_preview(year: int, month: int):
+    """
+    Returns a preview of leave allocations for all active employees
+    based on the Leave Type master.
+    """
+
+    year = int(year)
+    month = int(month)
+
+    month_start = get_first_day(datetime(year, month, 1))
+    month_end = get_last_day(datetime(year, month, 1))
+
+    prev_month_start = get_first_day(add_months(month_start, -1))
+    prev_month_end = get_last_day(add_months(month_start, -1))
+
+    freq_map = {
+        "Every 3 months": 3,
+        "Every 4 months": 4,
+        "Every 6 months": 6,
+        "Whole year": 12,
+    }
+
+    # Active Employees
+    employees = frappe.get_all(
+        "Employee",
+        filters={"status": "Active"},
+        fields=[
+            "name",
+            "employee_id",
+            "employee_name",
+            "date_of_joining",
+            "skip_probation",
+        ],
+    )
+
+    # Active Leave Types
+    leave_types = get_active_leave_types()
+
+    preview_data = []
+
+    for emp in employees:
+
+        allocations = []
+
+        # ---------------------------------
+        # Employee Probation Status (UI)
+        # ---------------------------------
+        in_probation = False
+
+        if emp.date_of_joining and not emp.skip_probation:
+
+            current_date = getdate(today())
+
+            in_probation = any(
+                add_months(
+                    getdate(emp.date_of_joining),
+                    lt.probation_period_months or 3
+                ) >= current_date
+                for lt in leave_types
+                if lt.restrict_during_probation
+            )
+
+        for leave in leave_types:
+
+            # ---------------------------------
+            # Leave Type Probation Check
+            # ---------------------------------
+            leave_in_probation = False
+
+            if (
+                leave.restrict_during_probation
+                and not emp.skip_probation
+                and emp.date_of_joining
+            ):
+                probation_end = add_months(
+                    getdate(emp.date_of_joining),
+                    leave.probation_period_months or 3,
+                )
+
+                leave_in_probation = probation_end > month_end
+
+            if leave_in_probation:
+                continue
+
+            # Already allocated?
+            exists = frappe.db.exists(
+                "Leave Allocation",
+                {
+                    "employee": emp.name,
+                    "leave_type": leave.name,
+                    "from_date": month_start,
+                    "to_date": month_end,
+                    "status": "Approved",
+                },
+            )
+
+            carry_forward_balance = 0
+            base_count = leave.max_leaves or 0
+
+            # -----------------------------
+            # Carry Forward Calculation
+            # -----------------------------
+            if leave.carry_forward:
+
+                frequency = leave.reset_frequency or "Every 3 months"
+
+                reset_interval = freq_map.get(
+                    frequency,
+                    3,
+                )
+
+                is_reset_month = (
+                    (month - 1) % reset_interval
+                ) == 0
+
+                if not is_reset_month:
+
+                    prev_alloc = frappe.get_value(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave.name,
+                            "from_date": prev_month_start,
+                            "to_date": prev_month_end,
+                            "status": "Approved",
+                        },
+                        [
+                            "total_leaves_allocated",
+                            "total_leaves_taken",
+                        ],
+                        as_dict=True,
+                    )
+
+                    if prev_alloc:
+
+                        balance = (
+                            flt(prev_alloc.total_leaves_allocated)
+                            - flt(prev_alloc.total_leaves_taken)
+                        )
+
+                        if balance > 0:
+                            carry_forward_balance = balance
+
+            allocations.append({
+                "leave_type": leave.name,
+                "leave_type_name": leave.leave_type_name,
+                "base_leaves": base_count,
+                "carry_forward_balance": carry_forward_balance,
+                "total_leaves": base_count + carry_forward_balance,
+                "exists": bool(exists),
+                "is_paid": leave.is_paid,
+                "carry_forward": leave.carry_forward,
+                "reset_frequency": leave.reset_frequency,
+            })
+
+        preview_data.append({
+            "employee": emp.name,
+            "employee_id": emp.employee_id,
+            "employee_name": emp.employee_name,
+            "date_of_joining": emp.date_of_joining,
+            "in_probation": in_probation,
+            "allocations": allocations,
+        })
+
+    return preview_data
+
+@frappe.whitelist()
+def auto_allocate_monthly_leaves(year: int, month: int):
+    """
+    Automatically allocate leaves for all active employees
+    based on the Leave Type master.
+    """
+
+    year = int(year)
+    month = int(month)
+
+    try:
+        month_start = get_first_day(datetime(year, month, 1))
+        month_end = get_last_day(datetime(year, month, 1))
+
+        prev_month_start = get_first_day(add_months(month_start, -1))
+        prev_month_end = get_last_day(add_months(month_start, -1))
+
+        # Active Employees
+        employees = frappe.get_all(
+            "Employee",
+            filters={"status": "Active"},
+            fields=[
+                "name",
+                "employee_id",
+                "employee_name",
+                "date_of_joining",
+                "skip_probation",
+            ],
+        )
+
+        # Active Leave Types
+        leave_types = get_active_leave_types()
+
+        freq_map = {
+            "Every 3 months": 3,
+            "Every 4 months": 4,
+            "Every 6 months": 6,
+            "Whole year": 12,
+        }
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+        created_details = []
+
+        for emp in employees:
+
+            # ------------------------
+            # Loop Through Leave Types
+            # ------------------------
+            for leave in leave_types:
+
+                # Probation
+                if (
+                    leave.restrict_during_probation
+                    and not emp.skip_probation
+                    and emp.date_of_joining
+                ):
+                    probation_end = add_months(
+                        getdate(emp.date_of_joining),
+                        leave.probation_period_months or 3,
+                    )
+
+                    if probation_end > month_end:
+                        continue
+
+                leave_type = leave.leave_type_name
+                base_leave_count = leave.max_leaves or 0
+
+                try:
+
+                    # Skip if already allocated
+                    if frappe.db.exists(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave.name,
+                            "from_date": month_start,
+                            "to_date": month_end,
+                            "status": "Approved",
+                        },
+                    ):
+                        skipped_count += 1
+                        continue
+
+                    # Previous Allocation
+                    prev_alloc = frappe.get_value(
+                        "Leave Allocation",
+                        {
+                            "employee": emp.name,
+                            "leave_type": leave.name,
+                            "from_date": prev_month_start,
+                            "to_date": prev_month_end,
+                            "status": "Approved",
+                        },
+                        [
+                            "total_leaves_allocated",
+                            "total_leaves_taken",
+                        ],
+                        as_dict=True,
+                    )
+
+                    carry_forward_balance = 0
+                    leave_count = base_leave_count
+
+                    # ------------------------
+                    # Carry Forward Logic
+                    # ------------------------
+                    if leave.carry_forward:
+
+                        frequency = (
+                            leave.reset_frequency
+                            or "Every 3 months"
+                        )
+
+                        reset_interval = freq_map.get(
+                            frequency,
+                            3,
+                        )
+
+                        is_reset_month = (
+                            (month - 1) % reset_interval
+                        ) == 0
+
+                        if is_reset_month:
+                            carry_forward_balance = 0
+
+                        elif prev_alloc:
+
+                            balance = (
+                                flt(
+                                    prev_alloc.total_leaves_allocated
+                                )
+                                - flt(
+                                    prev_alloc.total_leaves_taken
+                                )
+                            )
+
+                            if balance > 0:
+                                carry_forward_balance = balance
+
+                    total_allocation = (
+                        leave_count + carry_forward_balance
+                    )
+
+                    # ------------------------
+                    # Create Allocation
+                    # ------------------------
+                    allocation = frappe.get_doc(
+                        {
+                            "doctype": "Leave Allocation",
+                            "employee": emp.name,
+                            "leave_type": leave.name,
+                            "from_date": month_start,
+                            "to_date": month_end,
+                            "total_leaves_allocated": total_allocation,
+                            "total_leaves_taken": 0,
+                            "status": "Approved",
+                        }
+                    )
+
+                    allocation.insert(
+                        ignore_permissions=True,
+                        ignore_mandatory=True,
+                    )
+
+                    created_count += 1
+
+                    created_details.append(
+                        {
+                            "employee_name": emp.employee_name,
+                            "employee_id": emp.employee_id,
+                            "leave_type": leave.name,
+                            "allocated": total_allocation,
+                            "carry_forward": carry_forward_balance,
+                        }
+                    )
+
+                except Exception as e:
+                    errors.append(
+                        f"{emp.employee_id} - {leave_type} - {str(e)}"
+                    )
+
+        frappe.db.commit()
+
+        return {
+            "created_count": created_count,
+            "skipped_count": skipped_count,
+            "created_details": created_details,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        frappe.throw(f"Error in auto leave allocation: {e}")
+
+
+@frappe.whitelist()
+def get_employee_probation_info(employee, date=None):
+    """
+    Returns probation status and restricted leave types for an employee.
+    """
+
+    if not employee:
+        return {
+            "is_probation": False,
+            "restricted_types": [],
+            "probation_end_date": None,
+        }
+
+    emp = frappe.db.get_value(
+        "Employee",
+        employee,
+        ["date_of_joining", "skip_probation"],
+        as_dict=True,
+    )
+
+    if (
+        not emp
+        or not emp.date_of_joining
+        or emp.skip_probation
+    ):
+        return {
+            "is_probation": False,
+            "restricted_types": [],
+            "probation_end_date": None,
+        }
+
+    check_date = getdate(date) if date else getdate(today())
+
+    leave_types = frappe.get_all(
+        "Leave Type",
+        filters={
+            "status": "Active",
+            "restrict_during_probation": 1,
+        },
+        fields=[
+            "name",
+            "probation_period_months",
+        ],
+    )
+
+    restricted_types = []
+    probation_end_date = None
+
+    for leave in leave_types:
+
+        months = leave.probation_period_months or 3
+
+        end_date = add_months(
+            getdate(emp.date_of_joining),
+            months,
+        )
+
+        if end_date >= check_date:
+            restricted_types.append(leave.name)
+
+            if (
+                probation_end_date is None
+                or end_date > probation_end_date
+            ):
+                probation_end_date = end_date
+
+    return {
+        "is_probation": bool(restricted_types),
+        "restricted_types": restricted_types,
+        "probation_end_date": probation_end_date,
+    }
+
+@frappe.whitelist()
+def get_automation_options():
+    """
+    Get necessary options for the CRM WhatsApp Automation frontend.
+    Returns Lead workflow states, active workflow name, Deal stages, and Lead fields.
+    """
+    options = {
+        "lead_workflow_states": [],
+        "deal_stages": [],
+        "lead_fields": [],
+        "active_lead_workflow": None
+    }
+    
+    # 1. Active Lead Workflow and States
+    workflow = frappe.db.get_value("Workflow", {"document_type": "Lead", "is_active": 1}, "name")
+    if workflow:
+        options["active_lead_workflow"] = workflow
+        states = frappe.get_all(
+            "Workflow Document State",
+            filters={"parent": workflow},
+            fields=["state"],
+            order_by="idx"
+        )
+        options["lead_workflow_states"] = [s.state for s in states]
+        
+    # 2. Deal Stages
+    try:
+        deal_meta = frappe.get_meta("Deal")
+        stage_field = deal_meta.get_field("stage")
+        if stage_field and stage_field.options:
+            options["deal_stages"] = [s for s in stage_field.options.split("\n") if s.strip()]
+    except Exception:
+        pass
+        
+    # 3. Lead Fields
+    try:
+        lead_meta = frappe.get_meta("Lead")
+        for df in lead_meta.fields:
+            if df.fieldtype not in ("Section Break", "Column Break", "Tab Break", "HTML", "Button"):
+                options["lead_fields"].append({
+                    "fieldname": df.fieldname,
+                    "label": df.label,
+                    "fieldtype": df.fieldtype
+                })
+    except Exception:
+        pass
+        
+    return options

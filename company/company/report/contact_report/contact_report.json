@@ -10,7 +10,7 @@
  "idx": 0,
  "is_standard": "Yes",
  "letterhead": null,
- "modified": "2025-12-19 17:58:51.578727",
+ "modified": "2026-07-15 13:10:07.646594",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Contact Report",
@@ -22,6 +22,9 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "CRM And Sales"
   }
  ],
  "timeout": 0

@@ -77,6 +77,14 @@ def get_reminder_emails():
 
     return list(set(emails))  # remove duplicates
 
+def get_primary_recipient():
+    user = frappe.session.user
+    if user and user != "Guest":
+        email = frappe.db.get_value("User", user, "email")
+        if email:
+            return email
+    return None
+
 def get_call_trigger_at(call):
     start = get_datetime(call.call_start_time)
     minutes = get_remind_before_minutes(call)
@@ -149,7 +157,7 @@ def create_or_update_call_queue(call):
         "trigger_at": queue_trigger,
         "status": "Pending",
         "channel": "Email",
-        "recipients": ",".join(get_reminder_emails()),
+        "recipients": get_primary_recipient() or ",".join(get_reminder_emails()),
         "attempts": 0,
     })
     queue.insert(ignore_permissions=True)
@@ -157,27 +165,46 @@ def create_or_update_call_queue(call):
 
 def run_email_reminders():
     now = now_datetime()
-    logger.info(f"[CRON] Reminder job started at {now}")
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    print(f"\n[SCHEDULER TRIGGERED] run_email_reminders running at {now_str}\n")
+    logger.info(f"[CRON START] run_email_reminders started at {now_str}")
+    frappe.log_error(title="DEBUG: Reminder Cron Start", message=f"Started at {now_str}")
+
+    # Check ALL pending first to see if any exist regardless of time
+    all_pending = frappe.get_all("Reminder Queue", filters={"status": "Pending"}, fields=["name", "trigger_at"])
+    frappe.log_error(title="DEBUG: All Pending Count", message=f"Count: {len(all_pending)}\n{all_pending}")
 
     queues = frappe.get_all(
         "Reminder Queue",
         filters={
             "status": "Pending",
-            "trigger_at": ["<=", now],
+            "trigger_at": ["<=", now_str],
         },
         fields=["name", "trigger_at", "reference_doctype", "reference_name"]
     )
 
-    logger.info(f"[CRON] Eligible reminders: {len(queues)}")
+    logger.info(f"[CRON] Pending reminders count: {len(queues)}")
+    if queues:
+        frappe.log_error(title="Pending Reminders Found", message=f"Count: {len(queues)}\nRecords: {queues}")
 
     for q in queues:
         logger.info(
-            f"[CRON] Processing {q.name} | trigger_at={q.trigger_at}"
+            f"[CRON PROCESSING START] Processing {q.name} | trigger_at={q.trigger_at}"
         )
         if q.reference_doctype == "Calls":
             process_call_queue_item(q)
         elif q.reference_doctype == "Meeting":
             process_meet_queue_item(q)
+            
+    frappe.db.commit()
+
+    # Ensure all created email queues are dispatched immediately
+    try:
+        from frappe.email.queue import flush
+        flush()
+    except Exception as e:
+        logger.error(f"[CRON EMAIL FLUSH FAILURE]: {str(e)}")
+
 
 
 def process_call_queue_item(queue_row):
@@ -196,8 +223,9 @@ def process_call_queue_item(queue_row):
             queue.reference_name
         )
 
+        logger.info(f"[CRON EMAIL ATTEMPT] Sending email for Call {queue.reference_name}")
         if queue.reference_doctype == "Calls":
-            recipients = [r for r in queue.recipients.split(",") if r]
+            recipients = [r for r in (queue.recipients or "").split(",") if r]
             send_call_email(doc, recipients)
 
         else:
@@ -205,17 +233,34 @@ def process_call_queue_item(queue_row):
                 f"Unsupported reference_doctype: {queue.reference_doctype}"
             )
 
-        queue.db_set({
-            "status": "Sent",
-            "sent_at": now_datetime(),
-        })
+        queue.db_set("status", "Sent")
+        queue.db_set("sent_at", now_datetime())
+        logger.info(f"[CRON SUCCESS] Reminder {queue_row.name} marked as Sent")
+        frappe.db.commit()
 
     except Exception as e:
-        queue.db_set({
-            "status": "Failed",
-            "attempts": (queue.attempts or 0) + 1,
-            "last_error": str(e),
-        })
+        fallback_recipients = get_reminder_emails()
+        original_recipients = [r for r in (queue.recipients or "").split(",") if r]
+        
+        # If we have fallback recipients and they are different from what we just tried
+        if fallback_recipients and set(fallback_recipients) != set(original_recipients):
+            try:
+                logger.info(f"[CRON EMAIL FALLBACK] Trying fallback for Call {queue.reference_name}")
+                send_call_email(doc, fallback_recipients)
+                queue.db_set("recipients", ",".join(fallback_recipients))
+                queue.db_set("status", "Sent")
+                queue.db_set("sent_at", now_datetime())
+                frappe.db.commit()
+                return
+            except Exception as fallback_e:
+                e = fallback_e
+
+        logger.error(f"[CRON FAILURE] Reminder {queue_row.name} failed: {str(e)}")
+        frappe.log_error(title=f"Reminder Queue Failure: {queue_row.name}", message=frappe.get_traceback())
+        queue.db_set("status", "Failed")
+        queue.db_set("attempts", (queue.attempts or 0) + 1)
+        queue.db_set("last_error", str(e))
+        frappe.db.commit()
 
 
 
@@ -231,7 +276,9 @@ def send_call_email(call, recipients):
         subject=subject,
         message=get_call_reminder_html(call),
         reference_doctype="Calls",
-        reference_name=call.name
+        reference_name=call.name,
+        delayed=False,
+        now=True
     )
 
 
@@ -469,7 +516,7 @@ def create_or_update_meet_queue(meet):
         "trigger_at": queue_trigger,
         "status": "Pending",
         "channel": "Email",
-        "recipients": ",".join(get_reminder_emails()),
+        "recipients": get_primary_recipient() or ",".join(get_reminder_emails()),
         "attempts": 0,
     })
     queue.insert(ignore_permissions=True)
@@ -492,7 +539,7 @@ def process_meet_queue_item(queue_row):
         )
 
         if queue.reference_doctype == "Meeting":
-            recipients = [r for r in queue.recipients.split(",") if r]
+            recipients = [r for r in (queue.recipients or "").split(",") if r]
             send_meet_email(doc, recipients)
 
         else:
@@ -500,17 +547,34 @@ def process_meet_queue_item(queue_row):
                 f"Unsupported reference_doctype: {queue.reference_doctype}"
             )
 
-        queue.db_set({
-            "status": "Sent",
-            "sent_at": now_datetime(),
-        })
+        queue.db_set("status", "Sent")
+        queue.db_set("sent_at", now_datetime())
+        logger.info(f"[CRON SUCCESS] Reminder {queue_row.name} marked as Sent")
+        frappe.db.commit()
 
     except Exception as e:
-        queue.db_set({
-            "status": "Failed",
-            "attempts": (queue.attempts or 0) + 1,
-            "last_error": str(e),
-        })
+        fallback_recipients = get_reminder_emails()
+        original_recipients = [r for r in (queue.recipients or "").split(",") if r]
+        
+        # If we have fallback recipients and they are different from what we just tried
+        if fallback_recipients and set(fallback_recipients) != set(original_recipients):
+            try:
+                logger.info(f"[CRON EMAIL FALLBACK] Trying fallback for Meeting {queue.reference_name}")
+                send_meet_email(doc, fallback_recipients)
+                queue.db_set("recipients", ",".join(fallback_recipients))
+                queue.db_set("status", "Sent")
+                queue.db_set("sent_at", now_datetime())
+                frappe.db.commit()
+                return
+            except Exception as fallback_e:
+                e = fallback_e
+
+        logger.error(f"[CRON FAILURE] Reminder {queue_row.name} failed: {str(e)}")
+        frappe.log_error(title=f"Reminder Queue Failure: {queue_row.name}", message=frappe.get_traceback())
+        queue.db_set("status", "Failed")
+        queue.db_set("attempts", (queue.attempts or 0) + 1)
+        queue.db_set("last_error", str(e))
+        frappe.db.commit()
 
 def send_meet_email(meet, recipients):
     if not recipients:
@@ -524,7 +588,9 @@ def send_meet_email(meet, recipients):
         subject=subject,
         message=get_meet_reminder_html(meet),
         reference_doctype="Meeting",
-        reference_name=meet.name
+        reference_name=meet.name,
+        delayed=False,
+        now=True
     )
 
 

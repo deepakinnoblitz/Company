@@ -1,0 +1,117 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-07-09 11:30:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "integration_section",
+  "is_active",
+  "page_name",
+  "page_id",
+  "meta_app",
+  "page_access_token",
+  "long_lived_token",
+  "webhook_enabled",
+  "business_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "integration_section",
+   "fieldtype": "Section Break",
+   "label": "Meta Page Credentials"
+  },
+  {
+   "fieldname": "page_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Page Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "page_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Page ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "meta_app",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Meta App",
+   "options": "CRM Meta App",
+   "reqd": 1
+  },
+  {
+   "fieldname": "page_access_token",
+   "fieldtype": "Small Text",
+   "label": "Page Access Token",
+   "reqd": 1
+  },
+  {
+   "fieldname": "long_lived_token",
+   "fieldtype": "Small Text",
+   "label": "Long-lived Token"
+  },
+  {
+   "default": "1",
+   "fieldname": "webhook_enabled",
+   "fieldtype": "Check",
+   "label": "Webhook Enabled"
+  },
+  {
+   "fieldname": "business_id",
+   "fieldtype": "Data",
+   "label": "Business ID"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-13 14:12:16.362168",
+ "modified_by": "Administrator",
+ "module": "Company",
+ "name": "CRM Meta Page",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "delete": 1,
+   "report": 1,
+   "role": "CRM And Sales",
+   "share": 1,
+   "write": 1,
+   "select": 1
+ }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

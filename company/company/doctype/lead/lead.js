@@ -429,6 +429,8 @@ function get_available_workflow_actions(frm) {
 
 
 function apply_workflow_action(frm, action) {
+    const previous_state = frm.doc.workflow_state;
+
     frappe.confirm(
         `Are you sure you want to <b>${action}</b>?`,
         () => {
@@ -445,10 +447,18 @@ function apply_workflow_action(frm, action) {
                 freeze: true,
                 callback() {
                     frm.reload_doc().then(() => {
-                        // 🔥 AUTO-POPUP CONVERT DIALOG IF New Lead
-                        if (frm.doc.workflow_state !== "New Lead" && !frm.doc.converted_account) {
-                            show_convert_dialog(frm, "You changed the Workflow. Do you want to convert this Lead?");
-                        }
+
+                        show_whatsapp_automation_dialog(frm, previous_state, () => {
+
+                            if (
+                                frm.doc.workflow_state !== "New Lead" &&
+                                !frm.doc.converted_account
+                            ) {
+                                show_convert_dialog(frm);
+                            }
+
+                        });
+
                     });
                 }
             });
@@ -457,20 +467,23 @@ function apply_workflow_action(frm, action) {
 }
 
 function show_convert_dialog(frm, msg) {
+
     const dialog = new frappe.ui.Dialog({
-        title: "Convert Lead",
+
+        title: __("Convert Lead"),
+
         fields: [
             {
                 fieldtype: "HTML",
                 fieldname: "confirm",
                 options: `
                     <div style="
-                        padding: 12px;
-                        background: #e0f2fe;
-                        border: 1px solid #bae6fd;
-                        border-radius: 8px;
-                        color: #075985;
-                        margin-bottom: 12px;
+                        padding:12px;
+                        background:#e0f2fe;
+                        border:1px solid #bae6fd;
+                        border-radius:8px;
+                        color:#075985;
+                        margin-bottom:12px;
                     ">
                         <b>${msg || "Are you sure you want to convert this Lead?"}</b><br>
                         This action will move the Lead to <b>Accounts & Contacts</b>.
@@ -491,11 +504,14 @@ function show_convert_dialog(frm, msg) {
                 `
             }
         ],
-        primary_action_label: "Yes, Convert Lead",
-        primary_action(values) {
+
+        primary_action_label: __("Yes, Convert Lead"),
+
+        primary_action() {
             dialog.hide();
             convert_lead(frm);
         }
+
     });
 
     dialog.show();
@@ -529,3 +545,194 @@ frappe.realtime.on("lead_followup_updated", function (data) {
         cur_frm.reload_doc();
     }
 });
+
+function show_whatsapp_automation_dialog(frm, previous_state, next = () => {}) {
+
+    frappe.call({
+        method: "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.get_automation_preview",
+        args: {
+            doctype: frm.doc.doctype,
+            docname: frm.doc.name,
+            previous_state: previous_state
+        },
+
+        callback(r) {
+
+            if (!r.message) {
+                next();
+                return;
+            }
+
+            const automation = r.message;
+
+            if (!automation.show_confirmation) {
+                next();
+                return;
+            }
+
+            let dialog_fields = [];
+            
+            if (frm.doc.workflow_state === "Proposal Sent") {
+                dialog_fields.push({
+                    fieldname: "proposal",
+                    label: __("Proposal"),
+                    fieldtype: "Link",
+                    options: "Proposal",
+                    reqd: 1
+                });
+            }
+
+            dialog_fields.push({
+                fieldtype: "HTML",
+                fieldname: "preview"
+            });
+
+            const dialog = new frappe.ui.Dialog({
+
+                title: automation.title || __("Send WhatsApp Message"),
+
+                size: "large",
+
+                fields: dialog_fields,
+
+                primary_action_label: __("Send Message"),
+
+                primary_action() {
+
+                    let proposal = null;
+                    if (frm.doc.workflow_state === "Proposal Sent") {
+                        proposal = dialog.get_value("proposal");
+
+                        if (!proposal) {
+                            frappe.msgprint(__("Please select a Proposal."));
+                            return;
+                        }
+                    }
+
+                    dialog.disable_primary_action();
+
+                    frappe.call({
+
+                        method: "company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation.send_automation_message",
+
+                        freeze: true,
+                        freeze_message: __("Sending WhatsApp..."),
+
+                        args: {
+
+                            automation_name: automation.automation_name,
+                            doctype: frm.doc.doctype,
+                            docname: frm.doc.name,
+                            proposal_name: proposal
+
+                        },
+
+                        callback(res) {
+
+                            dialog.hide();
+
+                            if (res.exc) {
+
+                                frappe.msgprint({
+                                    title: __("Error"),
+                                    indicator: "red",
+                                    message: __("Unable to send WhatsApp message.")
+                                });
+
+                            } else {
+
+                                frappe.show_alert({
+                                    message: __("WhatsApp Message Sent Successfully"),
+                                    indicator: "green"
+                                });
+
+                            }
+
+                            next();
+
+                        },
+
+                        error() {
+
+                            dialog.hide();
+
+                            frappe.msgprint({
+                                title: __("Error"),
+                                indicator: "red",
+                                message: __("Unable to send WhatsApp message.")
+                            });
+
+                            next();
+
+                        }
+
+                    });
+
+                },
+
+                secondary_action_label: __("Skip"),
+
+                secondary_action() {
+
+                    dialog.hide();
+                    next();
+
+                }
+
+            });
+
+            dialog.show();
+
+            if (frm.doc.workflow_state === "Proposal Sent") {
+                // Filter Proposal by Lead
+                dialog.set_query("proposal", () => {
+
+                    return {
+                        filters: {
+                            lead: frm.doc.name
+                        }
+                    };
+
+                });
+            }
+
+            dialog.fields_dict.preview.$wrapper.html(`
+
+                <div style="
+                    padding:16px;
+                    background:#f8fafc;
+                    border-radius:8px;
+                    border:1px solid #e5e7eb;
+                ">
+
+                    <div style="
+                        font-size:15px;
+                        font-weight:600;
+                        margin-bottom:10px;
+                    ">
+                        ${automation.message || "Do you want to send this WhatsApp message?"}
+                    </div>
+
+                    <div style="
+                        background:white;
+                        border:1px solid #d1d5db;
+                        border-radius:6px;
+                        padding:14px;
+                        white-space:pre-wrap;
+                        font-size:13px;
+                        line-height:1.6;
+                        max-height:300px;
+                        overflow:auto;
+                    ">
+${frappe.utils.escape_html(automation.preview)}
+                    </div>
+
+                </div>
+
+            `);
+
+        }
+
+    });
+
+}

@@ -25,23 +25,12 @@ class LeaveApplication(Document):
 
     def validate(self):
         self.validate_dates()
-        self.validate_probation_period()
 
     def validate_dates(self):
         from frappe.utils import getdate
         if self.from_date and self.to_date:
             if getdate(self.to_date) < getdate(self.from_date):
                 frappe.throw("To Date cannot be before From Date")
-
-    def validate_probation_period(self):
-        if self.leave_type == "Paid Leave":
-            from company.company.api import get_employee_probation_info
-            probation_info = get_employee_probation_info(self.employee, self.from_date)
-            if probation_info.get("in_probation"):
-                frappe.throw(
-                    _("Paid Leave is not available during probation period (until {0}).")
-                    .format(frappe.utils.formatdate(probation_info.get("probation_end_date")))
-                )
 
     # =================================================
     # ALL WORKFLOW CHANGES AFTER SUBMIT
@@ -70,17 +59,18 @@ class LeaveApplication(Document):
         emp_emails, primary_email = self.get_employee_emails()
         sender = f"{hr_name} <{hr_email}>" if hr_email else None
 
-        self.send_email(
-            recipients=emp_emails,
-            subject="❌ Leave Rejected",
-            header="Leave Rejected",
-            icon="❌",
-            intro="Your leave application has been rejected/cancelled.",
-            greeting=f"Hello {self.employee_name},",
-            color="#dc3545",
-            sender=sender,
-            reply_to=hr_email
-        )
+        if emp_emails:
+            self.send_email(
+                recipients=emp_emails,
+                subject="❌ Leave Rejected",
+                header="Leave Rejected",
+                icon="❌",
+                intro="Your leave application has been rejected/cancelled.",
+                greeting=f"Hello {self.employee_name},",
+                color="#dc3545",
+                sender=sender,
+                reply_to=hr_email
+            )
 
         # InnoChat Notification to Employee
         receiver = frappe.db.get_value("Employee", self.employee, "user")
@@ -253,28 +243,26 @@ class LeaveApplication(Document):
         hr_email = hr_settings.get("hr_email")
         cc_emails = hr_settings.get("hr_cc_emails")
 
-        if not hr_email:
-            return
-
         emp_emails, primary_email = self.get_employee_emails()
         sender_name = f"{self.employee_name} <{primary_email}>" if primary_email else hr_email
-
+    
         cc_list = []
         if cc_emails:
             cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
-
-        self.send_email(
-            recipients=[hr_email],
-            cc=cc_list,
-            subject=f"📩 New Leave Request - {self.employee_name}",
-            header="New Leave Request",
-            icon="📩",
-            intro=f"{self.employee_name} has submitted a leave application.",
-            greeting="Dear HR,",
-            color="#0062cc",
-            sender=sender_name,
-            reply_to=primary_email or hr_email
-        )
+        
+        if hr_email:
+            self.send_email(
+                recipients=[hr_email],
+                cc=cc_list,
+                subject=f"📩 New Leave Request - {self.employee_name}",
+                header="New Leave Request",
+                icon="📩",
+                intro=f"{self.employee_name} has submitted a leave application.",
+                greeting="Dear HR,",
+                color="#0062cc",
+                sender=sender_name,
+                reply_to=primary_email or hr_email
+            )
 
         # Notication to Chat
 
@@ -344,18 +332,19 @@ class LeaveApplication(Document):
         if current_state == "Clarification Requested":
             hr_msg = self.get_latest_hr_query()
 
-            self.send_email(
-                recipients=emp_emails,
-                subject="📩 Reply from HR - Leave Application",
-                header="Reply from HR",
-                icon="📩",
-                intro="HR has replied to your leave application.",
-                greeting=f"Hello {self.employee_name},",
-                extra_message=self.hr_message_block(hr_msg),
-                color="#ffc107",
-                sender=hr_sender,
-                reply_to=hr_email
-            )
+            if emp_emails:
+                self.send_email(
+                    recipients=emp_emails,
+                    subject="📩 Reply from HR - Leave Application",
+                    header="Reply from HR",
+                    icon="📩",
+                    intro="HR has replied to your leave application.",
+                    greeting=f"Hello {self.employee_name},",
+                    extra_message=self.hr_message_block(hr_msg),
+                    color="#ffc107",
+                    sender=hr_sender,
+                    reply_to=hr_email
+                )
 
             # InnoChat Notification to Employee
             receiver = frappe.db.get_value("Employee", self.employee, "user")
@@ -381,19 +370,20 @@ class LeaveApplication(Document):
             if cc_emails:
                 cc_list = [e.strip() for e in cc_emails.replace("\n", ",").split(",") if e.strip()]
 
-            self.send_email(
-                recipients=[hr_email],
-                cc=cc_list,
-                subject=f"📩 Reply from Employee - {self.employee_name}",
-                header="Reply Received",
-                icon="📩",
-                intro=f"{self.employee_name} has replied to your clarification request.",
-                greeting="Dear HR,",
-                extra_message=self.employee_reply_block(emp_reply),
-                color="#0062cc",
-                sender=employee_sender,
-                reply_to=primary_email or hr_email
-            )
+            if hr_email:
+                self.send_email(
+                    recipients=[hr_email],
+                    cc=cc_list,
+                    subject=f"📩 Reply from Employee - {self.employee_name}",
+                    header="Reply Received",
+                    icon="📩",
+                    intro=f"{self.employee_name} has replied to your clarification request.",
+                    greeting="Dear HR,",
+                    extra_message=self.employee_reply_block(emp_reply),
+                    color="#0062cc",
+                    sender=employee_sender,
+                    reply_to=primary_email or hr_email
+                )
 
             # InnoChat Notification to HR
             hr_users = self.get_hr_users()
@@ -413,17 +403,18 @@ class LeaveApplication(Document):
         # HR → APPROVE → EMPLOYEE ONLY
         # -------------------------------------------------
         elif current_state == "Approved":
-            self.send_email(
-                recipients=emp_emails,
-                subject="✅ Leave Approved",
-                header="Leave Approved",
-                icon="✅",
-                intro="Your leave application has been approved.",
-                greeting=f"Hello {self.employee_name},",
-                color="#28a745",
-                sender=hr_sender,
-                reply_to=hr_email
-            )
+            if emp_emails:
+                self.send_email(
+                    recipients=emp_emails,
+                    subject="✅ Leave Approved",
+                    header="Leave Approved",
+                    icon="✅",
+                    intro="Your leave application has been approved.",
+                    greeting=f"Hello {self.employee_name},",
+                    color="#28a745",
+                    sender=hr_sender,
+                    reply_to=hr_email
+                )
 
             # InnoChat Notification to Employee
             receiver = frappe.db.get_value("Employee", self.employee, "user")
@@ -585,7 +576,7 @@ class LeaveApplication(Document):
                     
                     <!-- Action Button -->
                     <div style="text-align: center; margin-top: 30px;">
-                        <a href="{get_url('/app/leave-application/' + self.name)}" 
+                        <a href="{get_url('leaves')}" 
                            style="background-color: {color}; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
                             View Leave Application
                         </a>

@@ -10,7 +10,9 @@
   "lead_name",
   "gstin",
   "phone_number",
+  "phone_numbers",
   "email",
+  "emails",
   "service",
   "leads_type",
   "leads_from",
@@ -37,9 +39,7 @@
   "converted_account",
   "converted_deal",
   "column_break_lbnh",
-  "converted_contact",
-  "followups_tab",
-  "followup_details"
+  "converted_contact"
  ],
  "fields": [
   {
@@ -63,13 +63,26 @@
   {
    "fieldname": "phone_number",
    "fieldtype": "Phone",
-   "label": "Phone Number (+91-)"
+   "label": "Phone Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "phone_numbers",
+   "fieldtype": "Table",
+   "label": "Phone Numbers",
+   "options": "Lead Phone"
   },
   {
    "fieldname": "email",
    "fieldtype": "Data",
    "label": "Email",
    "options": "Email"
+  },
+  {
+   "fieldname": "emails",
+   "fieldtype": "Table",
+   "label": "Emails",
+   "options": "Lead Email"
   },
   {
    "fieldname": "service",
@@ -123,7 +136,7 @@
    "fieldtype": "Select",
    "hidden": 1,
    "label": "Status",
-   "options": "New Lead\nContacted\nQualified\nProposal Sent\nIn Negotiation\nFollow-up Scheduled\nOn Hold\nNot Interested\nIn Active\nClosed"
+   "options": "Converted\nNot Converted"
   },
   {
    "fieldname": "leads_details_section",
@@ -152,7 +165,8 @@
    "fieldname": "interest_level",
    "fieldtype": "Select",
    "label": "Interest Level",
-   "options": "\nHigh\nMedium\nLow"
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
   },
   {
    "fieldname": "activity_score",
@@ -164,18 +178,6 @@
    "fieldname": "date_and_time",
    "fieldtype": "Datetime",
    "label": "Date and Time",
-   "read_only": 1
-  },
-  {
-   "fieldname": "followups_tab",
-   "fieldtype": "Tab Break",
-   "label": "Followups"
-  },
-  {
-   "fieldname": "followup_details",
-   "fieldtype": "Table",
-   "label": "Followup Details",
-   "options": "Lead Followups",
    "read_only": 1
   },
   {
@@ -244,7 +246,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-10 11:34:15.016876",
+ "modified": "2026-07-09 12:53:21.152215",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",
@@ -260,6 +262,19 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "CRM And Sales",
+   "select": 1,
    "share": 1,
    "write": 1
   }
