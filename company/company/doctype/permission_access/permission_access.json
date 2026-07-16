@@ -12,7 +12,8 @@
   "edit_permission",
   "view_permission",
   "delete_permission",
-  "export_permission"
+  "export_permission",
+  "import_permission"
  ],
  "fields": [
   {
@@ -63,6 +64,13 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Export"
+  },
+  {
+   "default": "0",
+   "fieldname": "import_permission",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Import"
   }
  ],
  "index_web_pages_for_search": 1,
