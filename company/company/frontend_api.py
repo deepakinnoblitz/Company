@@ -995,10 +995,48 @@ def update_import_file(data_import_name, data):
 
     rows = json.loads(data)
 
+    # Read the original file's full content
+    original_rows = []
+    if data_import.import_file:
+        try:
+            parts = data_import.import_file.split(".")
+            ext = parts[-1].lower() if parts else "csv"
+            
+            file_name = frappe.db.get_value("File", {"file_url": data_import.import_file})
+            if file_name:
+                file_doc = frappe.get_doc("File", file_name)
+                file_content = file_doc.get_content()
+                
+                if ext == "csv":
+                    from frappe.utils.csvutils import read_csv_content
+                    original_rows = read_csv_content(file_content)
+                elif ext == "xlsx":
+                    from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
+                    original_rows = read_xlsx_file_from_attached_file(fcontent=file_content)
+                elif ext == "xls":
+                    from frappe.utils.xlsxutils import read_xls_file_from_attached_file
+                    original_rows = read_xls_file_from_attached_file(file_content)
+        except Exception as e:
+            frappe.logger().error(f"Error reading original import file: {str(e)}")
+
+    # Merge edited preview rows with original rows
+    if original_rows and len(original_rows) > 0:
+        edited_preview_rows = rows[1:]
+        original_data_rows = original_rows[1:]
+        
+        # Replace the first len(edited_preview_rows) data rows with the edited ones
+        num_edited = len(edited_preview_rows)
+        merged_data_rows = edited_preview_rows + original_data_rows[num_edited:]
+        
+        # Keep the header row from original_rows
+        final_rows = [original_rows[0]] + merged_data_rows
+    else:
+        final_rows = rows
+
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
-    for row in rows:
+    for row in final_rows:
         writer.writerow(row)
 
     content = output.getvalue()
@@ -1019,6 +1057,43 @@ def update_import_file(data_import_name, data):
     data_import.save()
 
     return {"status": "success", "file_url": file_doc.file_url}
+
+@frappe.whitelist()
+def get_custom_import_preview(data_import_name):
+    """
+    Get the complete import preview data (all rows) without truncating.
+    """
+    data_import = frappe.get_doc("Data Import", data_import_name)
+    data_import.check_permission("read")
+    
+    importer = data_import.get_importer()
+    i = importer.import_file
+    
+    columns = [frappe._dict({"header_title": "Sr. No", "skip_import": True})]
+    columns += [col.as_dict() for col in i.columns]
+    for col in columns:
+        if col.df:
+            col.df = {
+                "fieldtype": col.df.fieldtype,
+                "fieldname": col.df.fieldname,
+                "label": col.df.label,
+                "options": col.df.options,
+                "parent": col.df.parent,
+                "reqd": col.df.reqd,
+                "default": col.df.default,
+                "read_only": col.df.read_only,
+            }
+            
+    data = [[row.row_number, *row.as_list()] for row in i.data]
+    warnings = i.get_warnings()
+    
+    out = frappe._dict()
+    out.data = data
+    out.columns = columns
+    out.warnings = warnings
+    out.total_number_of_rows = len(data)
+    
+    return out
 
 @frappe.whitelist()
 def get_doctype_fields(doctype):
