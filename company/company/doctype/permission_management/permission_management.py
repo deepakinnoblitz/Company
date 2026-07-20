@@ -9,7 +9,7 @@ class PermissionManagement(Document):
 
         # Validate that if any action is allowed, View is also enabled
         for perm in self.permissions:
-            if (perm.add_permission or perm.edit_permission or perm.delete_permission or perm.export_permission):
+            if (perm.add_permission or perm.edit_permission or perm.delete_permission or perm.export_permission or perm.get("import_permission")):
                 perm.view_permission = 1
 
     @frappe.whitelist()
@@ -147,6 +147,7 @@ class PermissionManagement(Document):
                     "edit_permission": 0,
                     "view_permission": 1 if "Dashboard" in screen or screen == "Dashboard" else 0,
                     "delete_permission": 0,
-                    "export_permission": 0
+                    "export_permission": 0,
+                    "import_permission": 0
                 })
 

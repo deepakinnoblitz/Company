@@ -4402,6 +4402,10 @@ def get_user_permissions(user=None):
             if screen:
                 screen_key = screen.strip().lower().replace(" ", "_")
                 permissions_data["menu_mapping"][screen_key] = module
+                if screen_key not in permissions_data["menus"]:
+                    permissions_data["menus"][screen_key] = False
+                if perm.view_permission:
+                    permissions_data["menus"][screen_key] = True
 
             # Screen view access controls menu item rendering
             if module not in permissions_data["menus"]:
