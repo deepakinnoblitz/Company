@@ -269,6 +269,16 @@ def get_current_user_info():
 
     has_crm_permission = bool(frappe.db.exists("User Permission", {"user": user.name}))
 
+    # Retrieve custom role permissions
+    user_pm_names = frappe.get_all(
+        "User Custom Permission",
+        filters={"parent": user.name, "parenttype": "User"},
+        fields=["permission_manager"]
+    )
+    custom_permissions_assigned = len(user_pm_names) > 0
+    user_permissions = get_user_permissions(user.name)
+    user_permissions["custom_permissions_assigned"] = custom_permissions_assigned
+
     return {
         "status": "success",
         "message": "User info fetched successfully",
@@ -287,7 +297,8 @@ def get_current_user_info():
             "allowed_modules": allowed_modules,
             "employee": employee.get("name") if employee else None,
             "employee_name": employee.get("employee_name") if employee else None,
-            "has_crm_permission": has_crm_permission
+            "has_crm_permission": has_crm_permission,
+            "permissions": user_permissions
         }
     }
 
@@ -1111,6 +1122,13 @@ def get_doctype_fields(doctype):
             })
 
     return {"name": doctype, "fields": fields}
+
+@frappe.whitelist()
+def get_populated_permissions(backend_master_role):
+    doc = frappe.new_doc("Permission Management")
+    doc.backend_master_role = backend_master_role
+    doc.populate_default_permissions()
+    return doc.permissions
 
 @frappe.whitelist()
 def get_hr_dashboard_data():
@@ -4406,3 +4424,127 @@ def get_automation_options():
         pass
         
     return options
+
+@frappe.whitelist()
+def get_user_permissions(user=None):
+    """
+    Fetches the Frontend Permission configuration for the logged-in User
+    by inspecting their assigned Frontend Role (from Employee or custom mapping).
+    """
+    if not user:
+        user = frappe.session.user
+    
+    # 1. Initialize empty fallback permissions shape
+    permissions_data = {
+        "frontend_role": None,
+        "menus": {},
+        "actions": {},
+        "menu_mapping": {}
+    }
+    
+    # 2. Check if the user has custom permissions selected in User Doctype
+    user_pm_names = frappe.get_all(
+        "User Custom Permission",
+        filters={"parent": user, "parenttype": "User"},
+        fields=["permission_manager"]
+    )
+    user_pm_list = [d.permission_manager for d in user_pm_names if d.permission_manager]
+
+    matched_pm = []
+    if user_pm_list:
+        matched_pm = frappe.get_all(
+            "Permission Management",
+            filters={"name": ["in", user_pm_list], "status": "Enabled"},
+            fields=["name", "frontend_role_name"]
+        )
+
+    # 3. Fallback: Check if there is an active Permission Management matching user's roles
+    if not matched_pm:
+        user_roles = frappe.get_roles(user)
+        matched_pm = frappe.get_all(
+            "Permission Management",
+            filters={"backend_master_role": ["in", user_roles], "status": "Enabled"},
+            fields=["name", "frontend_role_name"]
+        )
+
+    if not matched_pm:
+        # If no custom configuration matched, return default fallback structure
+        return permissions_data
+
+    # Set frontend_role (using comma-separated list if multiple)
+    permissions_data["frontend_role"] = ", ".join([pm.frontend_role_name for pm in matched_pm])
+
+    # Populate and merge Menus and Screen actions matrices
+    for pm_info in matched_pm:
+        pm_doc = frappe.get_doc("Permission Management", pm_info.name)
+        for perm in pm_doc.permissions:
+            screen = perm.screen_id
+            module = perm.module_id
+
+            if screen:
+                screen_key = screen.strip().lower().replace(" ", "_")
+                permissions_data["menu_mapping"][screen_key] = module
+                if screen_key not in permissions_data["menus"]:
+                    permissions_data["menus"][screen_key] = False
+                if perm.view_permission:
+                    permissions_data["menus"][screen_key] = True
+
+            # Module view access controls parent item rendering
+            if module not in permissions_data["menus"]:
+                permissions_data["menus"][module] = False
+            if perm.view_permission:
+                permissions_data["menus"][module] = True
+
+            # Screen-level CRUD authorizations using screen_key instead of aggregating under parent module
+            if screen:
+                screen_key = screen.strip().lower().replace(" ", "_")
+                if screen_key not in permissions_data["actions"]:
+                    permissions_data["actions"][screen_key] = {
+                        "view": False,
+                        "create": False,
+                        "edit": False,
+                        "delete": False,
+                        "export": False,
+                        "import": False
+                    }
+
+                if perm.view_permission:
+                    permissions_data["actions"][screen_key]["view"] = True
+                if perm.add_permission:
+                    permissions_data["actions"][screen_key]["create"] = True
+                if perm.edit_permission:
+                    permissions_data["actions"][screen_key]["edit"] = True
+                if perm.delete_permission:
+                    permissions_data["actions"][screen_key]["delete"] = True
+                if perm.export_permission:
+                    permissions_data["actions"][screen_key]["export"] = True
+                if perm.get("import_permission"):
+                    permissions_data["actions"][screen_key]["import"] = True
+            
+            # Also keep module level fallback permissions
+            if module not in permissions_data["actions"]:
+                permissions_data["actions"][module] = {
+                    "view": False,
+                    "create": False,
+                    "edit": False,
+                    "delete": False,
+                    "export": False,
+                    "import": False
+                }
+
+            # Keep track of aggregated permissions per screen/module mapping
+            if perm.view_permission:
+                permissions_data["actions"][module]["view"] = True
+            if perm.add_permission:
+                permissions_data["actions"][module]["create"] = True
+            if perm.edit_permission:
+                permissions_data["actions"][module]["edit"] = True
+            if perm.delete_permission:
+                permissions_data["actions"][module]["delete"] = True
+            if perm.export_permission:
+                permissions_data["actions"][module]["export"] = True
+            if perm.get("import_permission"):
+                permissions_data["actions"][module]["import"] = True
+            
+    return permissions_data
+
