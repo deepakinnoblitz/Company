@@ -41,7 +41,7 @@ class PermissionManagement(Document):
                 ("asset", "Asset List"),
                 ("asset", "Asset Assignments"),
                 ("asset", "Asset Requests"),
-                ("expenses", "Company Expenses"),
+                ("expenses", "Expense Tracker"),
                 ("expenses", "Reimbursement Claim List"),
                 ("employee_performance", "Employee Evaluation"),
                 ("employee_performance", "Badges"),
@@ -97,8 +97,12 @@ class PermissionManagement(Document):
                 ("account", "Company"),
                 ("proposal", "Proposal"),
                 ("deal", "Prospects"),
+                ("estimation", "Estimations"),
+                ("invoice", "Invoices"),
+                ("invoice_collection", "Invoice Collections"),
                 ("purchase", "Purchases"),
-                ("expenses", "Expense Tracker"),
+                ("purchase_collection", "Purchase Collections"),
+                ("crm_expenses", "CRM Expense Tracker"),
                 ("events", "Calendar"),
                 ("mail_automation", "Email Templates"),
                 ("mail_automation", "Email Campaigns"),
@@ -106,7 +110,7 @@ class PermissionManagement(Document):
                 ("mail_automation", "Email Settings"),
                 ("whatsapp_automation", "WhatsApp Templates"),
                 ("whatsapp_automation", "WhatsApp Campaigns"),
-                ("whatsapp_automation", "WhatsApp Automation"),
+                ("whatsapp_automation", "WhatsApp Automations"),
                 ("whatsapp_automation", "WhatsApp Settings"),
                 ("lead_integration", "Meta Apps"),
                 ("lead_integration", "Meta Pages"),
@@ -150,4 +154,5 @@ class PermissionManagement(Document):
                     "export_permission": 0,
                     "import_permission": 0
                 })
+        return self.permissions
 

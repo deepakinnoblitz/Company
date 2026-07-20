@@ -1049,6 +1049,13 @@ def get_doctype_fields(doctype):
     return {"name": doctype, "fields": fields}
 
 @frappe.whitelist()
+def get_populated_permissions(backend_master_role):
+    doc = frappe.new_doc("Permission Management")
+    doc.backend_master_role = backend_master_role
+    doc.populate_default_permissions()
+    return doc.permissions
+
+@frappe.whitelist()
 def get_hr_dashboard_data():
     """
     Fetch HR dashboard statistics and data.
@@ -4407,13 +4414,39 @@ def get_user_permissions(user=None):
                 if perm.view_permission:
                     permissions_data["menus"][screen_key] = True
 
-            # Screen view access controls menu item rendering
+            # Module view access controls parent item rendering
             if module not in permissions_data["menus"]:
                 permissions_data["menus"][module] = False
             if perm.view_permission:
                 permissions_data["menus"][module] = True
 
-            # Screen-level CRUD authorizations
+            # Screen-level CRUD authorizations using screen_key instead of aggregating under parent module
+            if screen:
+                screen_key = screen.strip().lower().replace(" ", "_")
+                if screen_key not in permissions_data["actions"]:
+                    permissions_data["actions"][screen_key] = {
+                        "view": False,
+                        "create": False,
+                        "edit": False,
+                        "delete": False,
+                        "export": False,
+                        "import": False
+                    }
+
+                if perm.view_permission:
+                    permissions_data["actions"][screen_key]["view"] = True
+                if perm.add_permission:
+                    permissions_data["actions"][screen_key]["create"] = True
+                if perm.edit_permission:
+                    permissions_data["actions"][screen_key]["edit"] = True
+                if perm.delete_permission:
+                    permissions_data["actions"][screen_key]["delete"] = True
+                if perm.export_permission:
+                    permissions_data["actions"][screen_key]["export"] = True
+                if perm.get("import_permission"):
+                    permissions_data["actions"][screen_key]["import"] = True
+            
+            # Also keep module level fallback permissions
             if module not in permissions_data["actions"]:
                 permissions_data["actions"][module] = {
                     "view": False,
