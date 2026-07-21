@@ -94,7 +94,7 @@ class PermissionManagement(Document):
                 ("dashboard", "Dashboard"),
                 ("lead", "Leads"),
                 ("contact", "Clients"),
-                ("account", "Company"),
+                ("company", "Company"),
                 ("proposal", "Proposal"),
                 ("prospects", "Prospects"),
                 ("estimation", "Estimations"),
