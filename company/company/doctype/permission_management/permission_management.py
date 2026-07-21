@@ -96,7 +96,7 @@ class PermissionManagement(Document):
                 ("contact", "Clients"),
                 ("account", "Company"),
                 ("proposal", "Proposal"),
-                ("deal", "Prospects"),
+                ("prospects", "Prospects"),
                 ("estimation", "Estimations"),
                 ("invoice", "Invoices"),
                 ("invoice_collection", "Invoice Collections"),
