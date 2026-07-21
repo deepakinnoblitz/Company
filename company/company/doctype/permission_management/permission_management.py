@@ -93,7 +93,7 @@ class PermissionManagement(Document):
             modules_list = [
                 ("dashboard", "Dashboard"),
                 ("lead", "Leads"),
-                ("contact", "Clients"),
+                ("clients", "Clients"),
                 ("company", "Company"),
                 ("proposal", "Proposal"),
                 ("prospects", "Prospects"),
