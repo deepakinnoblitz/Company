@@ -4458,17 +4458,8 @@ def get_user_permissions(user=None):
             fields=["name", "frontend_role_name"]
         )
 
-    # 3. Fallback: Check if there is an active Permission Management matching user's roles
+    # If no custom permissions assigned to this user, return empty maps so they fall back to system roles (custom_permissions_assigned: false)
     if not matched_pm:
-        user_roles = frappe.get_roles(user)
-        matched_pm = frappe.get_all(
-            "Permission Management",
-            filters={"backend_master_role": ["in", user_roles], "status": "Enabled"},
-            fields=["name", "frontend_role_name"]
-        )
-
-    if not matched_pm:
-        # If no custom configuration matched, return default fallback structure
         return permissions_data
 
     # Set frontend_role (using comma-separated list if multiple)
