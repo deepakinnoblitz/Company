@@ -16,6 +16,8 @@
   "skip_probation",
   "bank_account",
   "dob",
+  "blood_group",
+  "sex",
   "pf_number",
   "esi_no",
   "column_break_hiwd",
@@ -128,6 +130,18 @@
    "fieldname": "dob",
    "fieldtype": "Date",
    "label": "Date of Birth"
+  },
+  {
+   "fieldname": "blood_group",
+   "fieldtype": "Link",
+   "label": "Blood Group",
+   "options": "Blood Group"
+  },
+  {
+   "fieldname": "sex",
+   "fieldtype": "Select",
+   "label": "Sex",
+   "options": "Male\nFemale\nOther"
   },
   {
    "fieldname": "pf_number",
@@ -252,7 +266,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-01 11:14:14.832389",
+ "modified": "2026-07-22 16:45:04.131184",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Employee",
@@ -273,16 +287,16 @@
   },
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
-   "delete": 1,
    "report": 1,
    "role": "HR",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "select": 1
+   "write": 1
   },
   {
    "email": 1,
@@ -291,9 +305,9 @@
    "read": 1,
    "report": 1,
    "role": "Employee",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "select": 1
+   "write": 1
   }
  ],
  "row_format": "Dynamic",
