@@ -102,7 +102,7 @@ class PermissionManagement(Document):
                 ("invoice_collection", "Invoice Collections"),
                 ("purchase", "Purchases"),
                 ("purchase_collection", "Purchase Collections"),
-                ("crm_expenses", "Expense Tracker"),
+                ("crm_expenses", "CRM Expense Tracker"),
                 ("events", "Calendar"),
                 ("email_templates", "Email Templates"),
                 ("email_campaigns", "Email Campaigns"),
