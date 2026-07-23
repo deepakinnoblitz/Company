@@ -67,6 +67,7 @@ class PermissionManagement(Document):
                 ("master_designation", "Designation"),
                 ("master_salary_component", "Salary Component"),
                 ("master_leave_type", "Leave Type"),
+                ("master_blood_group", "Blood Group"),
                 ("reminders", "Reminders")
             ]
         elif role == "Employee":
