@@ -27,6 +27,7 @@
   "date_and_time",
   "section_break_cfqn",
   "owner_name",
+  "lead_notes",
   "tab_2_tab",
   "lead_score",
   "activity_score",
@@ -241,12 +242,18 @@
   {
    "fieldname": "section_break_hkuj",
    "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "lead_notes",
+   "fieldtype": "Table",
+   "label": "Lead Notes",
+   "options": "Lead notes"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-09 12:53:21.152215",
+ "modified": "2026-07-16 11:22:06.611183",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",
