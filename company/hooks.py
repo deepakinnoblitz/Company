@@ -184,7 +184,7 @@ spa_routes = [
     "bank-account", "asset-category", "asset-category", "performance-criteria-category", 
     "designation", "salary-structure-component", "leave-type", "settings", "master", "proposals",
     "email-templates", "email-campaigns", "email-automations", "email-settings", "whatsapp-templates",
-    "whatsapp-automation", "whatsapp-settings", "whatsapp-campaigns", "lead-integration"
+    "whatsapp-automation", "whatsapp-settings", "whatsapp-campaigns", "lead-integration", "sales-target-entry"
 ]
 
 website_route_rules = []
