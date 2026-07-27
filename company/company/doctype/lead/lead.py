@@ -33,6 +33,17 @@ class Lead(Document):
         self.lead_score = (score / max_score) * 100
 
     def validate_phone_and_email(self):
+        # Automatically populate child tables from main fields if child tables are empty
+        if self.phone_number and not self.get("phone_numbers"):
+            self.append("phone_numbers", {
+                "phone": self.phone_number.strip()
+            })
+
+        if self.email and not self.get("emails"):
+            self.append("emails", {
+                "email": self.email.strip()
+            })
+
         # Validate that at least one phone number exists
         if not self.get("phone_numbers"):
             frappe.throw("At least one Phone Number is required")

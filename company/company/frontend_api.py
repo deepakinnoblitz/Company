@@ -269,6 +269,16 @@ def get_current_user_info():
 
     has_crm_permission = bool(frappe.db.exists("User Permission", {"user": user.name}))
 
+    # Retrieve custom role permissions
+    user_pm_names = frappe.get_all(
+        "User Custom Permission",
+        filters={"parent": user.name, "parenttype": "User"},
+        fields=["permission_manager"]
+    )
+    custom_permissions_assigned = len(user_pm_names) > 0
+    user_permissions = get_user_permissions(user.name)
+    user_permissions["custom_permissions_assigned"] = custom_permissions_assigned
+
     return {
         "status": "success",
         "message": "User info fetched successfully",
@@ -287,7 +297,8 @@ def get_current_user_info():
             "allowed_modules": allowed_modules,
             "employee": employee.get("name") if employee else None,
             "employee_name": employee.get("employee_name") if employee else None,
-            "has_crm_permission": has_crm_permission
+            "has_crm_permission": has_crm_permission,
+            "permissions": user_permissions
         }
     }
 
@@ -995,10 +1006,48 @@ def update_import_file(data_import_name, data):
 
     rows = json.loads(data)
 
+    # Read the original file's full content
+    original_rows = []
+    if data_import.import_file:
+        try:
+            parts = data_import.import_file.split(".")
+            ext = parts[-1].lower() if parts else "csv"
+            
+            file_name = frappe.db.get_value("File", {"file_url": data_import.import_file})
+            if file_name:
+                file_doc = frappe.get_doc("File", file_name)
+                file_content = file_doc.get_content()
+                
+                if ext == "csv":
+                    from frappe.utils.csvutils import read_csv_content
+                    original_rows = read_csv_content(file_content)
+                elif ext == "xlsx":
+                    from frappe.utils.xlsxutils import read_xlsx_file_from_attached_file
+                    original_rows = read_xlsx_file_from_attached_file(fcontent=file_content)
+                elif ext == "xls":
+                    from frappe.utils.xlsxutils import read_xls_file_from_attached_file
+                    original_rows = read_xls_file_from_attached_file(file_content)
+        except Exception as e:
+            frappe.logger().error(f"Error reading original import file: {str(e)}")
+
+    # Merge edited preview rows with original rows
+    if original_rows and len(original_rows) > 0:
+        edited_preview_rows = rows[1:]
+        original_data_rows = original_rows[1:]
+        
+        # Replace the first len(edited_preview_rows) data rows with the edited ones
+        num_edited = len(edited_preview_rows)
+        merged_data_rows = edited_preview_rows + original_data_rows[num_edited:]
+        
+        # Keep the header row from original_rows
+        final_rows = [original_rows[0]] + merged_data_rows
+    else:
+        final_rows = rows
+
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
-    for row in rows:
+    for row in final_rows:
         writer.writerow(row)
 
     content = output.getvalue()
@@ -1021,6 +1070,43 @@ def update_import_file(data_import_name, data):
     return {"status": "success", "file_url": file_doc.file_url}
 
 @frappe.whitelist()
+def get_custom_import_preview(data_import_name):
+    """
+    Get the complete import preview data (all rows) without truncating.
+    """
+    data_import = frappe.get_doc("Data Import", data_import_name)
+    data_import.check_permission("read")
+    
+    importer = data_import.get_importer()
+    i = importer.import_file
+    
+    columns = [frappe._dict({"header_title": "Sr. No", "skip_import": True})]
+    columns += [col.as_dict() for col in i.columns]
+    for col in columns:
+        if col.df:
+            col.df = {
+                "fieldtype": col.df.fieldtype,
+                "fieldname": col.df.fieldname,
+                "label": col.df.label,
+                "options": col.df.options,
+                "parent": col.df.parent,
+                "reqd": col.df.reqd,
+                "default": col.df.default,
+                "read_only": col.df.read_only,
+            }
+            
+    data = [[row.row_number, *row.as_list()] for row in i.data]
+    warnings = i.get_warnings()
+    
+    out = frappe._dict()
+    out.data = data
+    out.columns = columns
+    out.warnings = warnings
+    out.total_number_of_rows = len(data)
+    
+    return out
+
+@frappe.whitelist()
 def get_doctype_fields(doctype):
     meta = frappe.get_meta(doctype)
     fields = []
@@ -1036,6 +1122,13 @@ def get_doctype_fields(doctype):
             })
 
     return {"name": doctype, "fields": fields}
+
+@frappe.whitelist()
+def get_populated_permissions(backend_master_role):
+    doc = frappe.new_doc("Permission Management")
+    doc.backend_master_role = backend_master_role
+    doc.populate_default_permissions()
+    return doc.permissions
 
 @frappe.whitelist()
 def get_hr_dashboard_data():
@@ -4331,3 +4424,118 @@ def get_automation_options():
         pass
         
     return options
+
+@frappe.whitelist()
+def get_user_permissions(user=None):
+    """
+    Fetches the Frontend Permission configuration for the logged-in User
+    by inspecting their assigned Frontend Role (from Employee or custom mapping).
+    """
+    if not user:
+        user = frappe.session.user
+    
+    # 1. Initialize empty fallback permissions shape
+    permissions_data = {
+        "frontend_role": None,
+        "menus": {},
+        "actions": {},
+        "menu_mapping": {}
+    }
+    
+    # 2. Check if the user has custom permissions selected in User Doctype
+    user_pm_names = frappe.get_all(
+        "User Custom Permission",
+        filters={"parent": user, "parenttype": "User"},
+        fields=["permission_manager"]
+    )
+    user_pm_list = [d.permission_manager for d in user_pm_names if d.permission_manager]
+
+    matched_pm = []
+    if user_pm_list:
+        matched_pm = frappe.get_all(
+            "Permission Management",
+            filters={"name": ["in", user_pm_list], "status": "Enabled"},
+            fields=["name", "frontend_role_name"]
+        )
+
+    # If no custom permissions assigned to this user, return empty maps so they fall back to system roles (custom_permissions_assigned: false)
+    if not matched_pm:
+        return permissions_data
+
+    # Set frontend_role (using comma-separated list if multiple)
+    permissions_data["frontend_role"] = ", ".join([pm.frontend_role_name for pm in matched_pm])
+
+    # Populate and merge Menus and Screen actions matrices
+    for pm_info in matched_pm:
+        pm_doc = frappe.get_doc("Permission Management", pm_info.name)
+        for perm in pm_doc.permissions:
+            screen = perm.screen_id
+            module = perm.module_id
+
+            if screen:
+                screen_key = screen.strip().lower().replace(" ", "_")
+                permissions_data["menu_mapping"][screen_key] = module
+                if screen_key not in permissions_data["menus"]:
+                    permissions_data["menus"][screen_key] = False
+                if perm.view_permission:
+                    permissions_data["menus"][screen_key] = True
+
+            # Module view access controls parent item rendering
+            if module not in permissions_data["menus"]:
+                permissions_data["menus"][module] = False
+            if perm.view_permission:
+                permissions_data["menus"][module] = True
+
+            # Screen-level CRUD authorizations using screen_key instead of aggregating under parent module
+            if screen:
+                screen_key = screen.strip().lower().replace(" ", "_")
+                if screen_key not in permissions_data["actions"]:
+                    permissions_data["actions"][screen_key] = {
+                        "view": False,
+                        "create": False,
+                        "edit": False,
+                        "delete": False,
+                        "export": False,
+                        "import": False
+                    }
+
+                if perm.view_permission:
+                    permissions_data["actions"][screen_key]["view"] = True
+                if perm.add_permission:
+                    permissions_data["actions"][screen_key]["create"] = True
+                if perm.edit_permission:
+                    permissions_data["actions"][screen_key]["edit"] = True
+                if perm.delete_permission:
+                    permissions_data["actions"][screen_key]["delete"] = True
+                if perm.export_permission:
+                    permissions_data["actions"][screen_key]["export"] = True
+                if perm.get("import_permission"):
+                    permissions_data["actions"][screen_key]["import"] = True
+            
+            # Also keep module level fallback permissions
+            if module not in permissions_data["actions"]:
+                permissions_data["actions"][module] = {
+                    "view": False,
+                    "create": False,
+                    "edit": False,
+                    "delete": False,
+                    "export": False,
+                    "import": False
+                }
+
+            # Keep track of aggregated permissions per screen/module mapping
+            if perm.view_permission:
+                permissions_data["actions"][module]["view"] = True
+            if perm.add_permission:
+                permissions_data["actions"][module]["create"] = True
+            if perm.edit_permission:
+                permissions_data["actions"][module]["edit"] = True
+            if perm.delete_permission:
+                permissions_data["actions"][module]["delete"] = True
+            if perm.export_permission:
+                permissions_data["actions"][module]["export"] = True
+            if perm.get("import_permission"):
+                permissions_data["actions"][module]["import"] = True
+            
+    return permissions_data
+
