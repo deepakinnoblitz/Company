@@ -22,6 +22,7 @@
   "outgoing_call_status",
   "completed_meet_status",
   "completed_meet_notes",
+  "meeting_notes",
   "lead_followup_row",
   "reminder_setting_section",
   "enable_reminder",
@@ -148,6 +149,12 @@
    "fieldname": "completed_meet_notes",
    "fieldtype": "Small Text",
    "label": "Completed Meet Notes"
+  },
+  {
+   "fieldname": "meeting_notes",
+   "fieldtype": "Table",
+   "label": "Meeting Notes",
+   "options": "Meeting notes"
   },
   {
    "fieldname": "lead_followup_row",

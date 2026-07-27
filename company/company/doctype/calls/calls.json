@@ -21,6 +21,7 @@
   "outgoing_call_status",
   "completed_call_status",
   "completed_call_notes",
+  "call_notes",
   "color",
   "column_break_qnno",
   "call_start_time",
@@ -183,6 +184,12 @@
    "fieldname": "completed_call_notes",
    "fieldtype": "Small Text",
    "label": "Completed Call Notes"
+  },
+  {
+   "fieldname": "call_notes",
+   "fieldtype": "Table",
+   "label": "Call Notes",
+   "options": "Call notes"
   },
   {
    "fieldname": "section_break_xtoy",
