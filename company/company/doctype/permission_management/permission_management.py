@@ -50,6 +50,7 @@ class PermissionManagement(Document):
                 ("job_applicants", "Job Applicant List"),
                 ("interviews", "Interview List"),
                 ("employee_referrals", "Employee Referral List"),
+                ("hr_document_templates", "Document Templates"),
                 ("report_attendance", "Attendance Report"),
                 ("report_daily_log", "Daily Log Report"),
                 ("report_task", "Task Report"),
