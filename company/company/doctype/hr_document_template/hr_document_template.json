@@ -9,7 +9,6 @@
   "basic_section",
   "template_name",
   "category",
-  "document_type",
   "is_active",
   "description",
   "content_section",
@@ -47,14 +46,6 @@
    "label": "Category",
    "options": "HR Document Category",
    "reqd": 1
-  },
-  {
-   "fetch_from": "category.category_name",
-   "fieldname": "document_type",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Document Type",
-   "read_only": 1
   },
   {
    "default": "1",
@@ -171,19 +162,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "HR Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "HR User",
+   "role": "HR",
    "share": 1,
    "write": 1
   }

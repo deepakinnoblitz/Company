@@ -20,9 +20,9 @@ frappe.ui.form.on("HR Document Generation", {
 	},
 	document_template(frm) {
 		if (frm.doc.document_template) {
-			frappe.db.get_value("HR Document Template", frm.doc.document_template, ["document_type", "subject", "template_content"], (r) => {
+			frappe.db.get_value("HR Document Template", frm.doc.document_template, ["category", "subject", "template_content"], (r) => {
 				if (r) {
-					if (r.document_type) frm.set_value("document_type", r.document_type);
+					if (r.category) frm.set_value("document_type", r.category);
 					if (!frm.doc.subject && r.subject) frm.set_value("subject", r.subject);
 					if (!frm.doc.template_content && r.template_content) frm.set_value("template_content", r.template_content);
 				}

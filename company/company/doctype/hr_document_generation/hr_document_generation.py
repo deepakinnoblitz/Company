@@ -39,8 +39,8 @@ class HRDocumentGeneration(Document):
 			if not category_active:
 				frappe.throw(_("HR Document Category '{0}' associated with template is inactive").format(template.category))
 
-		# Auto set document type from template
-		self.document_type = template.document_type or ""
+		# Auto set document type from category
+		self.document_type = template.category or ""
 
 	def auto_populate_details(self):
 		if not self.generated_by:
