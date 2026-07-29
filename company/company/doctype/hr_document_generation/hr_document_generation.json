@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-07-28 06:40:00.000000",
+ "creation": "2026-07-28 06:40:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -57,14 +57,6 @@
    "reqd": 1
   },
   {
-   "fetch_from": "document_template.document_type",
-   "fieldname": "document_type",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Document Type",
-   "read_only": 1
-  },
-  {
    "fieldname": "generated_on",
    "fieldtype": "Datetime",
    "label": "Generated On",
@@ -116,12 +108,19 @@
    "fieldtype": "Text Editor",
    "label": "Rendered Content",
    "read_only": 1
+  },
+  {
+   "fetch_from": "document_template.category",
+   "fieldname": "document_type",
+   "fieldtype": "Data",
+   "label": "Document Type",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 06:40:00.000000",
+ "modified": "2026-07-29 10:56:48.543334",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "HR Document Generation",
