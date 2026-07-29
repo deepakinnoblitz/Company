@@ -85,12 +85,14 @@
   {
    "fieldname": "subject",
    "fieldtype": "Data",
-   "label": "Subject Override"
+   "label": "Subject Override",
+   "reqd": 1
   },
   {
    "fieldname": "template_content",
    "fieldtype": "Text Editor",
-   "label": "Content Override"
+   "label": "Content Override",
+   "reqd": 1
   },
   {
    "fieldname": "rendered_section",
@@ -120,7 +122,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-29 10:56:48.543334",
+ "modified": "2026-07-29 15:00:37.179851",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "HR Document Generation",
