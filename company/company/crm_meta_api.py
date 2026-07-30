@@ -305,8 +305,11 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         form_doc = frappe.get_doc("CRM Meta Form", lead_audit.meta_form)
         page_doc = frappe.get_doc("CRM Meta Page", form_doc.meta_page)
         
-        access_token = page_doc.page_access_token
+        access_token = page_doc.get_token()
         if not access_token:
+            if hasattr(page_doc, 'meta_account') and page_doc.meta_account:
+                account_doc = frappe.get_doc("CRM Meta Account", page_doc.meta_account)
+                account_doc.record_error(f"Page Access Token missing for Page '{page_doc.page_name}'. Please reconnect Facebook.")
             raise ValueError(f"Page Access Token is not configured for Page ID: {page_doc.page_id}")
             
         # Fetch lead fields from Meta Graph API
@@ -317,7 +320,14 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         response = requests.get(url, headers=headers, timeout=15)
         
         if response.status_code != 200:
-            raise Exception(f"Facebook Graph API responded with status {response.status_code}: {response.text}")
+            err_msg = f"Facebook Graph API responded with status {response.status_code}: {response.text}"
+            if response.status_code in (400, 401, 403) and hasattr(page_doc, 'meta_account') and page_doc.meta_account:
+                try:
+                    account_doc = frappe.get_doc("CRM Meta Account", page_doc.meta_account)
+                    account_doc.record_error(f"Meta API error ({response.status_code}): {response.json().get('error', {}).get('message', response.text)}")
+                except Exception:
+                    pass
+            raise Exception(err_msg)
             
         lead_data = response.json()
         lead_audit.lead_json = json.dumps(lead_data, indent=2)
@@ -515,3 +525,236 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         lead_audit.save(ignore_permissions=True)
         queue_job.save(ignore_permissions=True)
         frappe.db.commit()
+
+
+# ----------------------------------------------------------------------
+# PHASE 3: META OAUTH AUTHORIZATION & CALLBACK HANDLERS
+# ----------------------------------------------------------------------
+
+@frappe.whitelist()
+def initiate_meta_oauth(meta_app=None):
+    """
+    Constructs Meta OAuth authorization URL for Facebook Login with required permissions.
+    """
+    if not meta_app:
+        meta_app = frappe.db.get_value("CRM Meta App", {"is_default": 1, "is_active": 1}, "name")
+        if not meta_app:
+            meta_app = frappe.db.get_value("CRM Meta App", {"is_active": 1}, "name")
+
+    if not meta_app:
+        frappe.throw("No active CRM Meta App configured in system. Please configure Meta Developer App credentials first.")
+
+    app_doc = frappe.get_doc("CRM Meta App", meta_app)
+    if not app_doc.app_id:
+        frappe.throw(f"App ID is missing in CRM Meta App '{app_doc.name}'.")
+
+    redirect_uri = app_doc.oauth_redirect_uri or frappe.utils.get_url("/api/method/company.company.crm_meta_api.meta_oauth_callback")
+    graph_version = app_doc.graph_api_version or "v23.0"
+
+    # Generate secure state token
+    import uuid
+    nonce = str(uuid.uuid4())
+    state_payload = {
+        "user": frappe.session.user,
+        "app": app_doc.name,
+        "nonce": nonce,
+        "ts": datetime.now().timestamp()
+    }
+    state_key = f"meta_oauth_state_{nonce}"
+    frappe.cache().set_value(state_key, json.dumps(state_payload), expires_in_sec=900)
+
+    scopes = [
+        "pages_show_list",
+        "leads_retrieval",
+        "pages_read_engagement",
+        "pages_manage_metadata"
+    ]
+    scope_str = ",".join(scopes)
+
+    oauth_url = (
+        f"https://www.facebook.com/{graph_version}/dialog/oauth?"
+        f"client_id={app_doc.app_id}"
+        f"&redirect_uri={requests.utils.quote(redirect_uri, safe='')}"
+        f"&state={nonce}"
+        f"&scope={scope_str}"
+    )
+
+    return {
+        "oauth_url": oauth_url,
+        "app_name": app_doc.app_name,
+        "redirect_uri": redirect_uri
+    }
+
+
+@frappe.whitelist(allow_guest=True)
+def meta_oauth_callback(code=None, state=None, error=None, error_description=None):
+    """
+    Handles Meta OAuth Callback.
+    1. Validates CSRF State token
+    2. Exchanges auth code for short-lived user token
+    3. Exchanges short-lived token for long-lived user token (~60 days)
+    4. Fetches User Profile details from Meta Graph API
+    5. Calls create_or_update_meta_account()
+    6. Redirects browser back to CRM frontend
+    """
+    logger = get_logger()
+    req = frappe.request
+    
+    # Extract query params if passed via GET
+    if not code and req.args.get("code"):
+        code = req.args.get("code")
+    if not state and req.args.get("state"):
+        state = req.args.get("state")
+    if not error and req.args.get("error"):
+        error = req.args.get("error")
+    if not error_description and req.args.get("error_description"):
+        error_description = req.args.get("error_description")
+
+    frontend_redirect = frappe.utils.get_url("/lead-integration/meta-apps")
+
+    if error:
+        logger.error(f"Meta OAuth Error Callback: {error} - {error_description}")
+        return frappe.respond_as_web_page(
+            "Meta OAuth Failed",
+            f"Facebook returned an authorization error: {error_description or error}. You may close this window and try again.",
+            indicator_color="red"
+        )
+
+    if not code or not state:
+        return frappe.respond_as_web_page(
+            "Invalid OAuth Callback",
+            "Missing authorization code or state token in response.",
+            indicator_color="red"
+        )
+
+    # Validate state parameter
+    state_key = f"meta_oauth_state_{state}"
+    cached_state_str = frappe.cache().get_value(state_key)
+    if not cached_state_str:
+        return frappe.respond_as_web_page(
+            "CSRF State Expired",
+            "The authorization state token has expired or is invalid. Please restart Facebook connection from CRM.",
+            indicator_color="red"
+        )
+
+    frappe.cache().delete_value(state_key)
+    state_data = json.loads(cached_state_str)
+    app_name = state_data.get("app")
+
+    try:
+        app_doc = frappe.get_doc("CRM Meta App", app_name)
+        app_secret = app_doc.get_password("app_secret")
+        redirect_uri = app_doc.oauth_redirect_uri or frappe.utils.get_url("/api/method/company.company.crm_meta_api.meta_oauth_callback")
+        graph_version = app_doc.graph_api_version or "v23.0"
+
+        # Step 1: Exchange code for Short-Lived Access Token
+        exchange_url = f"https://graph.facebook.com/{graph_version}/oauth/access_token"
+        params = {
+            "client_id": app_doc.app_id,
+            "redirect_uri": redirect_uri,
+            "client_secret": app_secret,
+            "code": code
+        }
+
+        res = requests.get(exchange_url, params=params, timeout=15)
+        if res.status_code != 200:
+            raise Exception(f"Failed short-lived token exchange: {res.text}")
+
+        token_data = res.json()
+        short_token = token_data.get("access_token")
+        if not short_token:
+            raise Exception("No access_token returned by Meta.")
+
+        # Step 2: Exchange for Long-Lived User Access Token (~60 days)
+        long_token_url = f"https://graph.facebook.com/{graph_version}/oauth/access_token"
+        long_params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": app_doc.app_id,
+            "client_secret": app_secret,
+            "fb_exchange_token": short_token
+        }
+
+        long_res = requests.get(long_token_url, params=long_params, timeout=15)
+        long_token = short_token
+        expires_in = token_data.get("expires_in")
+
+        if long_res.status_code == 200:
+            long_data = long_res.json()
+            if long_data.get("access_token"):
+                long_token = long_data.get("access_token")
+                expires_in = long_data.get("expires_in") or expires_in
+
+        # Step 3: Fetch User Profile from Graph API
+        me_url = f"https://graph.facebook.com/{graph_version}/me"
+        me_res = requests.get(
+            me_url,
+            headers={"Authorization": f"Bearer {long_token}"},
+            params={"fields": "id,name,email"},
+            timeout=15
+        )
+
+        if me_res.status_code != 200:
+            raise Exception(f"Failed to fetch Facebook User profile: {me_res.text}")
+
+        user_info = me_res.json()
+        fb_user_id = user_info.get("id")
+        fb_user_name = user_info.get("name")
+        fb_email = user_info.get("email")
+
+        # Step 4: Create/Update CRM Meta Account
+        from company.company.crm_meta_account_api import create_or_update_meta_account
+        acc_name = create_or_update_meta_account(
+            meta_app=app_doc.name,
+            facebook_user_id=fb_user_id,
+            user_access_token=long_token,
+            facebook_user_name=fb_user_name,
+            facebook_email=fb_email,
+            token_type=token_data.get("token_type", "bearer"),
+            expires_in_seconds=expires_in,
+            is_default=1
+        )
+
+        logger.info(f"Meta OAuth connection successful -> CRM Meta Account: {acc_name}")
+
+        # Step 5: Render auto-closing HTML page for popup window
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Facebook Connected Successfully</title>
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #1e293b; text-align: center; }}
+                .card {{ background: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); max-width: 400px; }}
+                .icon {{ width: 56px; height: 56px; background: #22c55e; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 16px; }}
+                h2 {{ margin: 0 0 8px; color: #0f172a; }}
+                p {{ color: #64748b; font-size: 14px; margin: 0 0 20px; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">✓</div>
+                <h2>Connected Successfully</h2>
+                <p>Facebook Account connected to CRM. Closing window...</p>
+            </div>
+            <script>
+                if (window.opener) {{
+                    window.opener.postMessage({{ type: "META_OAUTH_SUCCESS", account: "{acc_name}" }}, "*");
+                }}
+                setTimeout(function() {{
+                    window.close();
+                }}, 1200);
+            </script>
+        </body>
+        </html>
+        """
+        frappe.respond_as_web_page("Facebook Connected", html_content, http_status_code=200)
+        return
+
+    except Exception as e:
+        logger.error(f"Meta OAuth Callback processing error: {str(e)}")
+        return frappe.respond_as_web_page(
+            "Connection Failed",
+            f"Failed to connect Meta Account: {str(e)}. You may close this page and try again.",
+            indicator_color="red"
+        )
+

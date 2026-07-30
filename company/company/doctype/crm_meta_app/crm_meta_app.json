@@ -6,19 +6,23 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "integration_section",
+  "status_section",
   "is_active",
   "is_default",
+  "app_status",
+  "integration_section",
   "app_name",
   "app_id",
   "app_secret",
-  "verify_token",
-  "webhook_url",
   "graph_api_version",
-  "business_manager_id",
-  "app_status",
-  "webhook_secret",
-  "signature_validation"
+  "section_break_eiui",
+  "oauth_redirect_uri",
+  "webhook_section",
+  "webhook_url",
+  "verify_token",
+  "signature_validation",
+  "optional_section",
+  "business_manager_id"
  ],
  "fields": [
   {
@@ -57,9 +61,10 @@
    "reqd": 1
   },
   {
+   "description": "Callback URL registered in Meta for webhook events.",
    "fieldname": "webhook_url",
    "fieldtype": "Data",
-   "label": "Webhook URL",
+   "label": "Webhook Callback URL",
    "read_only": 1
   },
   {
@@ -82,16 +87,11 @@
    "options": "Development\nProduction"
   },
   {
-   "description": "Used to compute HMAC-SHA256 hash validation for payloads if App Secret is not used.",
-   "fieldname": "webhook_secret",
-   "fieldtype": "Password",
-   "label": "Webhook Secret"
-  },
-  {
    "default": "1",
+   "description": "Validate incoming Meta webhook requests using X-Hub-Signature-256.",
    "fieldname": "signature_validation",
    "fieldtype": "Check",
-   "label": "Enable Signature Validation"
+   "label": "Verify App Signature"
   },
   {
    "default": "0",
@@ -104,11 +104,38 @@
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Is Active"
+  },
+  {
+   "fieldname": "section_break_eiui",
+   "fieldtype": "Section Break",
+   "label": "OAuth"
+  },
+  {
+   "description": "Callback URL used by Meta OAuth after Facebook login.",
+   "fieldname": "oauth_redirect_uri",
+   "fieldtype": "Data",
+   "label": "OAuth Redirect URI",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Webhook"
+  },
+  {
+   "fieldname": "optional_section",
+   "fieldtype": "Section Break",
+   "label": "Optional"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-13 17:00:42.476474",
+ "modified": "2026-07-30 12:48:20.886278",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "CRM Meta App",
@@ -129,17 +156,17 @@
   },
   {
    "create": 1,
+   "delete": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
-   "delete": 1,
    "report": 1,
    "role": "CRM And Sales",
+   "select": 1,
    "share": 1,
-   "write": 1,
-   "select": 1
- }
+   "write": 1
+  }
  ],
  "row_format": "Dynamic",
  "sort_field": "creation",
