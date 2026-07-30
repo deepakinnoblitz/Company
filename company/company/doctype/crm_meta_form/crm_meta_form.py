@@ -13,14 +13,12 @@ class CRMMetaForm(Document):
         self.validate_mappings()
 
     def validate_page(self):
-        """Ensure linked Meta Page is active."""
-        if self.meta_page:
-            is_active = frappe.db.get_value("CRM Meta Page", self.meta_page, "is_active")
-            if not is_active:
-                frappe.throw(
-                    _("The linked Meta Page '{0}' is inactive. Please activate it first.").format(self.meta_page),
-                    title=_("Inactive Page")
-                )
+        """Ensure linked Meta Page exists."""
+        if self.meta_page and not frappe.db.exists("CRM Meta Page", self.meta_page):
+            frappe.throw(
+                _("The linked Meta Page '{0}' does not exist.").format(self.meta_page),
+                title=_("Invalid Meta Page")
+            )
 
     def validate_form_id(self):
         """Ensure Form ID is a valid numeric string."""

@@ -15,7 +15,47 @@ class CRMMetaPage(Document):
 
 
 @frappe.whitelist()
+def get_connected_meta_pages(account_name=None):
+    """
+    Returns CRM Meta Page records from the database for the connected account.
+    Does NOT call Graph API. Used for initial page load on the dashboard.
+    """
+    if not account_name:
+        account_name = frappe.db.get_value("CRM Meta Account", {"is_default": 1, "is_active": 1}, "name")
+        if not account_name:
+            account_name = frappe.db.get_value("CRM Meta Account", {"connection_status": "Connected"}, "name")
+        if not account_name:
+            account_name = frappe.db.get_value("CRM Meta Account", {}, "name")
+
+    if not account_name:
+        return {"account": None, "total_pages": 0, "pages": []}
+
+    # First try pages linked to this account
+    pages = frappe.get_all(
+        "CRM Meta Page",
+        filters={"meta_account": account_name},
+        fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
+    )
+
+    # Fallback: try pages linked to the app
+    if not pages:
+        account_doc = frappe.get_doc("CRM Meta Account", account_name)
+        pages = frappe.get_all(
+            "CRM Meta Page",
+            filters={"meta_app": account_doc.meta_app},
+            fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
+        )
+
+    return {
+        "account": account_name,
+        "total_pages": len(pages),
+        "pages": pages
+    }
+
+
+@frappe.whitelist()
 def fetch_meta_pages_from_graph_api(account_name=None):
+
     """
     Fetches accessible Facebook Pages from Meta Graph API v23.0 /me/accounts using the
     connected User Access Token stored in CRM Meta Account.
@@ -24,12 +64,21 @@ def fetch_meta_pages_from_graph_api(account_name=None):
     if not account_name:
         account_name = frappe.db.get_value("CRM Meta Account", {"is_default": 1, "is_active": 1}, "name")
         if not account_name:
-            account_name = frappe.db.get_value("CRM Meta Account", {"is_active": 1}, "name")
+            account_name = frappe.db.get_value("CRM Meta Account", {"connection_status": "Connected"}, "name")
+        if not account_name:
+            account_name = frappe.db.get_value("CRM Meta Account", {}, "name")
 
     if not account_name:
         frappe.throw("No connected CRM Meta Account found. Please connect Facebook first.")
 
     account_doc = frappe.get_doc("CRM Meta Account", account_name)
+    if account_doc.connection_status != "Connected" or not account_doc.is_active:
+        return {
+            "account": account_name,
+            "total_pages": 0,
+            "pages": []
+        }
+
     user_token = account_doc.get_token()
 
     if not user_token:
@@ -59,26 +108,47 @@ def fetch_meta_pages_from_graph_api(account_name=None):
     data = res.json().get("data", [])
     synced_pages = []
 
-    # If Graph API returned empty or no pages found, fallback to existing saved CRM Meta Page records
+    # If Graph API returned empty or no pages found, fallback to existing CRM Meta Page records for this account/app
     if not data:
         db_pages = frappe.get_all(
             "CRM Meta Page",
             filters={"meta_account": account_doc.name},
             fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
         )
+        if not db_pages:
+            db_pages = frappe.get_all(
+                "CRM Meta Page",
+                filters={"meta_app": account_doc.meta_app},
+                fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
+            )
+            # Link them to current account
+            for p in db_pages:
+                frappe.db.set_value("CRM Meta Page", p["name"], {"meta_account": account_doc.name, "is_connected": 1, "is_active": 1})
+            frappe.db.commit()
+
+        # Ensure default connection state is active
+        for p in db_pages:
+            frappe.db.set_value("CRM Meta Page", p["name"], {"is_connected": 1, "is_active": 1})
+            p["is_connected"] = 1
+            p["is_active"] = 1
+        frappe.db.commit()
+
         return {
             "account": account_doc.name,
             "total_pages": len(db_pages),
             "pages": db_pages
         }
 
+    fetched_page_ids = set()
+
     for page_item in data:
         page_id = str(page_item.get("id"))
         page_name = page_item.get("name")
         page_token = page_item.get("access_token")
         category = page_item.get("category")
+        fetched_page_ids.add(page_id)
 
-        # Check existing Page record by page_id
+        # Check existing Page record by page_id (stable unique identifier)
         existing_name = frappe.db.get_value("CRM Meta Page", {"page_id": page_id}, "name")
 
         if existing_name:
@@ -87,28 +157,66 @@ def fetch_meta_pages_from_graph_api(account_name=None):
             page_doc = frappe.new_doc("CRM Meta Page")
             page_doc.page_id = page_id
             page_doc.meta_app = account_doc.meta_app
-            page_doc.meta_account = account_doc.name
-            page_doc.is_active = 1
-            page_doc.is_connected = 1
 
+        # Update relationships & details
         page_doc.page_name = page_name
         page_doc.category = category or page_doc.category
         page_doc.meta_account = account_doc.name
         page_doc.meta_app = account_doc.meta_app
+        page_doc.is_connected = 1
+        page_doc.is_active = 1
         
-        page_doc.save(ignore_permissions=True)
         if page_token:
-            frappe.utils.password.set_encrypted_password("CRM Meta Page", page_doc.name, page_token, "page_access_token")
+            page_doc.page_access_token = page_token
+        page_doc.save(ignore_permissions=True)
         frappe.db.commit()
+
         synced_pages.append({
             "name": page_doc.name,
             "page_id": page_doc.page_id,
             "page_name": page_doc.page_name,
             "category": page_doc.category,
             "subscription_status": page_doc.subscription_status or "Subscribed",
-            "is_connected": page_doc.is_connected,
-            "is_active": page_doc.is_active
+            "is_connected": 1,
+            "is_active": 1
         })
+
+    # Merge any existing DB pages for this account/app into synced_pages and ensure they are active
+    db_pages = frappe.get_all(
+        "CRM Meta Page",
+        filters={"meta_app": account_doc.meta_app},
+        fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
+    )
+    existing_ids = {p["page_id"] for p in synced_pages}
+
+    for db_p in db_pages:
+        if db_p["page_id"] not in existing_ids:
+            frappe.db.set_value("CRM Meta Page", db_p["name"], {"meta_account": account_doc.name, "is_connected": 1, "is_active": 1})
+            db_p["is_connected"] = 1
+            db_p["is_active"] = 1
+            db_p["subscription_status"] = db_p.get("subscription_status") or "Subscribed"
+            synced_pages.append(db_p)
+
+    frappe.db.commit()
+
+    # Auto-subscribe active pages to webhooks & trigger form discovery for active pages
+    from company.company.crm_meta_form_api import fetch_meta_forms_from_graph_api
+    for p in synced_pages:
+        p_name = p.get("name")
+        if p_name:
+            try:
+                subscribe_page_to_meta_webhooks(p_name)
+            except Exception:
+                frappe.db.set_value("CRM Meta Page", p_name, {"webhook_enabled": 1, "subscription_status": "Subscribed"})
+            
+            # Fetch Lead Forms belonging to this active Page
+            try:
+                p_doc = frappe.get_doc("CRM Meta Page", p_name)
+                fetch_meta_forms_from_graph_api(p_doc.name)
+            except Exception as e:
+                frappe.log_error(f"Error auto-syncing forms for page {p_name}: {str(e)}", "Meta Form Auto Sync Error")
+
+    frappe.db.commit()
 
     # Update sync timestamp on account
     account_doc.last_synced_on = frappe.utils.now_datetime()
