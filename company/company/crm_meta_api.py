@@ -716,7 +716,22 @@ def meta_oauth_callback(code=None, state=None, error=None, error_description=Non
 
         logger.info(f"Meta OAuth connection successful -> CRM Meta Account: {acc_name}")
 
-        # Step 5: Render auto-closing HTML page for popup window
+        # Step 5: Automatically discovery and sync Pages & Forms upon connection
+        try:
+            from company.company.crm_meta_page_api import fetch_meta_pages_from_graph_api
+            from company.company.crm_meta_form_api import fetch_meta_forms_from_graph_api
+
+            pages_res = fetch_meta_pages_from_graph_api(account_name=acc_name)
+            synced_pages = pages_res.get("pages", [])
+            for page_item in synced_pages:
+                page_name = page_item.get("name")
+                if page_name:
+                    fetch_meta_forms_from_graph_api(page_name=page_name)
+            logger.info(f"Auto-synced {len(synced_pages)} Facebook pages and lead forms for {acc_name}")
+        except Exception as sync_err:
+            logger.error(f"Auto-sync during OAuth callback warning: {str(sync_err)}")
+
+        # Step 6: Render auto-closing HTML page for popup window
         html_content = f"""
         <!DOCTYPE html>
         <html>
