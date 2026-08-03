@@ -577,6 +577,7 @@ def initiate_meta_oauth(meta_app=None):
         f"&redirect_uri={requests.utils.quote(redirect_uri, safe='')}"
         f"&state={nonce}"
         f"&scope={scope_str}"
+        f"&auth_type=rerequest"
     )
 
     return {
