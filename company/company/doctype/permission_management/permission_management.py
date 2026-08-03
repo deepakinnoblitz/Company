@@ -115,6 +115,7 @@ class PermissionManagement(Document):
                 ("whatsapp_campaigns", "WhatsApp Campaigns"),
                 ("whatsapp_automations", "WhatsApp Automations"),
                 ("whatsapp_settings", "WhatsApp Settings"),
+                ("meta_account", "Meta Account"),
                 ("meta_apps", "Meta Apps"),
                 ("meta_pages", "Meta Pages"),
                 ("meta_forms", "Meta Forms"),
