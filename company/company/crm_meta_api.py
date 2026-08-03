@@ -732,37 +732,28 @@ def meta_oauth_callback(code=None, state=None, error=None, error_description=Non
         except Exception as sync_err:
             logger.error(f"Auto-sync during OAuth callback warning: {str(sync_err)}")
 
-        # Step 6: Render auto-closing HTML page for popup window
+        # Step 6: Render auto-closing HTML page for popup window (closes instantly)
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Facebook Connected Successfully</title>
-            <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #1e293b; text-align: center; }}
-                .card {{ background: #ffffff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); max-width: 400px; }}
-                .icon {{ width: 56px; height: 56px; background: #22c55e; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 16px; }}
-                h2 {{ margin: 0 0 8px; color: #0f172a; }}
-                p {{ color: #64748b; font-size: 14px; margin: 0 0 20px; }}
-            </style>
+            <title>Connecting...</title>
         </head>
-        <body>
-            <div class="card">
-                <div class="icon">✓</div>
-                <h2>Connected Successfully</h2>
-                <p>Facebook Account connected to CRM. Closing window...</p>
-            </div>
+        <body style="background:#ffffff;margin:0;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
             <script>
-                if (window.opener) {{
-                    window.opener.postMessage({{ type: "META_OAUTH_SUCCESS", account: "{acc_name}" }}, "*");
-                }}
-                setTimeout(function() {{
-                    window.close();
-                }}, 1200);
+                try {{
+                    if (window.opener) {{
+                        window.opener.postMessage({{ type: "META_OAUTH_SUCCESS", account: "{acc_name}" }}, "*");
+                    }}
+                }} catch(e) {{}}
+                window.close();
             </script>
         </body>
         </html>
         """
+        frappe.response["type"] = "page"
+        frappe.response["page_name"] = "meta_oauth_success"
+        frappe.response["filecontent"] = html_content
         frappe.respond_as_web_page("Facebook Connected", html_content, http_status_code=200)
         return
 
