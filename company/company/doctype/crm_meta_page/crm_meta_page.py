@@ -6,4 +6,12 @@ import frappe
 from frappe.model.document import Document
 
 class CRMMetaPage(Document):
-    pass
+    def get_token(self):
+        """
+        Safely fetch page access token without raising error if missing.
+        """
+        try:
+            return self.get_password("page_access_token")
+        except Exception:
+            return None
+
