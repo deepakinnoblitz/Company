@@ -191,10 +191,16 @@ def fetch_meta_pages_from_graph_api(account_name=None):
 
     for db_p in db_pages:
         if db_p["page_id"] not in existing_ids:
-            frappe.db.set_value("CRM Meta Page", db_p["name"], {"meta_account": account_doc.name, "is_connected": 1, "is_active": 1})
+            frappe.db.set_value("CRM Meta Page", db_p["name"], {
+                "meta_account": account_doc.name,
+                "is_connected": 1,
+                "is_active": 1,
+                "webhook_enabled": 1,
+                "subscription_status": "Subscribed"
+            })
             db_p["is_connected"] = 1
             db_p["is_active"] = 1
-            db_p["subscription_status"] = db_p.get("subscription_status") or "Subscribed"
+            db_p["subscription_status"] = "Subscribed"
             synced_pages.append(db_p)
 
     frappe.db.commit()
@@ -204,24 +210,22 @@ def fetch_meta_pages_from_graph_api(account_name=None):
     for p in synced_pages:
         p_name = p.get("name")
         if p_name:
+            sub_res = None
             try:
-                subscribe_page_to_meta_webhooks(p_name)
-            except Exception:
-                frappe.db.set_value("CRM Meta Page", p_name, {"webhook_enabled": 1, "subscription_status": "Subscribed"})
+                sub_res = subscribe_page_to_meta_webhooks(p_name)
+            except Exception as sub_err:
+                frappe.log_error(f"Error subscribing page {p_name} to webhooks: {str(sub_err)}", "Meta Page Webhook Subscription Exception")
+            
+            p_doc = frappe.get_doc("CRM Meta Page", p_name)
+            p["subscription_status"] = p_doc.subscription_status or "Subscribed"
+            p["webhook_enabled"] = p_doc.webhook_enabled
             
             # Fetch Lead Forms belonging to this active Page
             try:
-                p_doc = frappe.get_doc("CRM Meta Page", p_name)
                 fetch_meta_forms_from_graph_api(p_doc.name)
             except Exception as e:
                 frappe.log_error(f"Error auto-syncing forms for page {p_name}: {str(e)}", "Meta Form Auto Sync Error")
 
-    frappe.db.commit()
-
-    # Update sync timestamp on account
-    account_doc.last_synced_on = frappe.utils.now_datetime()
-    account_doc.last_successful_sync = frappe.utils.now_datetime()
-    account_doc.save(ignore_permissions=True)
     frappe.db.commit()
 
     return {
@@ -242,8 +246,12 @@ def subscribe_page_to_meta_webhooks(page_name):
     page_doc = frappe.get_doc("CRM Meta Page", page_name)
     page_token = page_doc.get_token()
 
-    if not page_token:
-        frappe.throw(f"Page Access Token is missing for Facebook Page '{page_doc.page_name}'.")
+    account_doc = frappe.get_doc("CRM Meta Account", page_doc.meta_account) if page_doc.meta_account else None
+    user_token = account_doc.get_token() if account_doc else None
+
+    token_to_use = page_token or user_token
+    if not token_to_use:
+        frappe.throw(f"No access token available to subscribe Facebook Page '{page_doc.page_name}'.")
 
     app_doc = frappe.get_doc("CRM Meta App", page_doc.meta_app)
     graph_version = app_doc.graph_api_version or "v23.0"
@@ -251,9 +259,14 @@ def subscribe_page_to_meta_webhooks(page_name):
     # POST /{page_id}/subscribed_apps
     url = f"https://graph.facebook.com/{graph_version}/{page_doc.page_id}/subscribed_apps"
     params = {"subscribed_fields": "leadgen"}
-    headers = {"Authorization": f"Bearer {page_token}"}
+    headers = {"Authorization": f"Bearer {token_to_use}"}
 
     res = requests.post(url, headers=headers, data=params, timeout=15)
+    
+    # If page token failed and user token is available, try with user token
+    if res.status_code != 200 and page_token and user_token and page_token != user_token:
+        headers = {"Authorization": f"Bearer {user_token}"}
+        res = requests.post(url, headers=headers, data=params, timeout=15)
     
     if res.status_code == 200 and res.json().get("success"):
         page_doc.webhook_enabled = 1
