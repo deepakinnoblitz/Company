@@ -27,13 +27,14 @@ def get_connected_meta_forms(page_name=None):
             filters={"is_connected": 1, "is_active": 1},
             pluck="name"
         )
-        if not connected_pages:
-            connected_pages = frappe.get_all("CRM Meta Page", pluck="name")
-            
         if connected_pages:
             filters["meta_page"] = ["in", connected_pages]
+            filters["is_active"] = 1
         else:
             return {"page": None, "total_forms": 0, "forms": []}
+
+    if "is_active" not in filters:
+        filters["is_active"] = 1
 
     forms = frappe.get_all(
         "CRM Meta Form",
@@ -248,7 +249,12 @@ def toggle_meta_form_connection(form_name, is_active):
         frappe.throw(f"Meta Form '{form_name}' not found.")
 
     doc = frappe.get_doc("CRM Meta Form", form_name)
-    doc.is_active = 1 if int(is_active) else 0
+    is_act = 1 if int(is_active) else 0
+    doc.is_active = is_act
+    if not is_act:
+        doc.form_status = "INACTIVE"
+    else:
+        doc.form_status = "ACTIVE"
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 

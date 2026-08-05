@@ -30,21 +30,12 @@ def get_connected_meta_pages(account_name=None):
     if not account_name:
         return {"account": None, "total_pages": 0, "pages": []}
 
-    # First try pages linked to this account
+    # Only return connected and active pages in database
     pages = frappe.get_all(
         "CRM Meta Page",
-        filters={"meta_account": account_name},
+        filters={"meta_account": account_name, "is_connected": 1, "is_active": 1},
         fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
     )
-
-    # Fallback: try pages linked to the app
-    if not pages:
-        account_doc = frappe.get_doc("CRM Meta Account", account_name)
-        pages = frappe.get_all(
-            "CRM Meta Page",
-            filters={"meta_app": account_doc.meta_app},
-            fields=["name", "page_id", "page_name", "category", "subscription_status", "is_connected", "is_active"]
-        )
 
     return {
         "account": account_name,
@@ -344,7 +335,10 @@ def toggle_meta_page_connection(page_name, is_connected):
         # Cascade deactivation to all linked Lead Ad Forms
         forms = frappe.get_all("CRM Meta Form", filters={"meta_page": page_name}, fields=["name"])
         for f in forms:
-            frappe.db.set_value("CRM Meta Form", f.name, "is_active", 0)
+            frappe.db.set_value("CRM Meta Form", f.name, {
+                "is_active": 0,
+                "form_status": "INACTIVE"
+            })
         frappe.db.commit()
 
     doc.reload()
