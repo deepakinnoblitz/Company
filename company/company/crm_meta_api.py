@@ -357,21 +357,31 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             if mapping.default_value:
                 default_dict[mapping.crm_field] = mapping.default_value
                 
+        # Load questions configuration to retrieve labels
+        questions_list = []
+        if form_doc.questions_json:
+            try:
+                questions_list = json.loads(form_doc.questions_json)
+            except Exception:
+                pass
+        question_label_map = {q.get("key"): q.get("label") for q in questions_list if q.get("key")}
+
         # Transform and populate values
         extracted_data = {}
+        custom_records_dict = {}
         custom_questions = []
-        
+
         for name, val in field_data.items():
             val = "" if val is None else str(val).strip()
-            
+
             # Remove HTML XSS tags from value
             val = val.replace("<", "").replace(">", "").strip()
-            
+
             if name in mapping_dict:
                 mapping_info = mapping_dict[name]
                 crm_field = mapping_info["crm_field"]
                 transform = mapping_info["transform"]
-                
+
                 # Apply transforms
                 if transform == "Title Case":
                     val = val.title()
@@ -383,8 +393,12 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                     val = "".join(filter(str.isdigit, val))
                     if not val.startswith("+"):
                         val = "+" + val
-                        
-                extracted_data[crm_field] = val
+
+                if crm_field == "notes":
+                    lbl = question_label_map.get(name, name)
+                    custom_questions.append(f"{lbl}\n{val}")
+                else:
+                    extracted_data[crm_field] = val
             else:
                 # Default matching heuristics for common fields
                 if name in ("full_name", "first_name", "last_name", "name") and "lead_name" not in extracted_data:
@@ -393,20 +407,27 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                     extracted_data["email"] = val
                 elif name in ("phone", "phone_number") and "phone_number" not in extracted_data:
                     extracted_data["phone_number"] = val
+                elif name in ("company_name", "company") and "company_name" not in extracted_data:
+                    extracted_data["company_name"] = val
                 else:
-                    custom_questions.append(f"{name}: {val}")
-                    
+                    lbl = question_label_map.get(name, name)
+                    custom_questions.append(f"{lbl}\n{val}")
+
+        # Set the notes field to contain the formatted plain text lines
+        if custom_questions:
+            extracted_data["notes"] = "\n\n".join(custom_questions)
+
         # Apply defaults
         for crm_fld, def_val in default_dict.items():
             if not extracted_data.get(crm_fld):
                 extracted_data[crm_fld] = def_val
-                
+
         # Format name fallback
         lead_name = extracted_data.get("lead_name")
         if not lead_name:
             lead_name = f"Meta Lead {lead_audit.meta_lead_id}"
         extracted_data["lead_name"] = lead_name
-        
+
         email = extracted_data.get("email")
         phone = extracted_data.get("phone_number")
         remarks_str = "\n".join(custom_questions) if custom_questions else ""
@@ -481,7 +502,6 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             "leads_from": extracted_data.get("leads_from") or "Meta Lead Ads",
             "leads_type": extracted_data.get("leads_type") or "Incoming",
             "status": "Not Converted",
-            "remarks": f"Source: Meta Lead Ads (Form ID: {form_doc.form_id})\n{remarks_str}".strip()
         }
         
         for fld, val in extracted_data.items():
