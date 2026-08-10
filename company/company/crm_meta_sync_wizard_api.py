@@ -189,6 +189,8 @@ def preview_graph_api_forms(selected_pages=None):
                         "page_name": page_name,
                         "form_status": status,
                         "leads_count": leads_count,
+                        "locale": f_item.get("locale"),
+                        "questions": f_item.get("questions") or [],
                         "is_existing": bool(existing),
                         "db_name": existing["name"] if existing else None,
                         "is_active": existing["is_active"] if existing else 0
@@ -299,6 +301,60 @@ def import_selected_meta_pages_and_forms(account_name=None, selected_pages=None,
             form_doc.meta_page = parent_page.name
             form_doc.form_status = status
             form_doc.is_active = 1
+
+            questions = form_item.get("questions") or []
+            form_doc.locale = form_item.get("locale")
+            form_doc.questions_json = json.dumps(questions, indent=2)
+
+            if not form_doc.field_mappings:
+                for q in questions:
+                    key = q.get("key", "").strip()
+                    q_type = q.get("type", "").upper()
+
+                    if not key:
+                        continue
+
+                    crm_fld = None
+                    transform = "None"
+
+                    if key in ("full_name", "first_name", "last_name", "name") or "FULL_NAME" in q_type or "FIRST_NAME" in q_type:
+                        crm_fld = "lead_name"
+                        transform = "Title Case"
+                    elif key in ("email", "e-mail") or "EMAIL" in q_type:
+                        crm_fld = "email"
+                        transform = "Lower Case"
+                    elif key in ("phone", "phone_number") or "PHONE" in q_type:
+                        crm_fld = "phone_number"
+                        transform = "Clean Phone"
+                    elif key in ("company_name", "company") or "COMPANY_NAME" in q_type:
+                        crm_fld = "company_name"
+                    else:
+                        crm_fld = "notes"
+
+                    is_reqd = 0
+                    if crm_fld in ("lead_name", "phone_number"):
+                        is_reqd = 1
+
+                    form_doc.append("field_mappings", {
+                        "meta_field": key,
+                        "crm_field": crm_fld,
+                        "required": is_reqd,
+                        "transform_function": transform
+                    })
+
+                # Automatically add defaults for mandatory lead fields
+                form_doc.append("field_mappings", {
+                    "crm_field": "leads_type",
+                    "default_value": "Incoming",
+                    "required": 0,
+                    "transform_function": "None"
+                })
+                form_doc.append("field_mappings", {
+                    "crm_field": "leads_from",
+                    "default_value": "Meta Lead Ads",
+                    "required": 0,
+                    "transform_function": "None"
+                })
 
             form_doc.save(ignore_permissions=True)
             saved_forms_count += 1

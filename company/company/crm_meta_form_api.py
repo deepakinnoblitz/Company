@@ -180,10 +180,11 @@ def sync_single_meta_page_forms(page_name):
                     crm_fld = "company_name"
 
                 if crm_fld:
+                    is_reqd = 1 if crm_fld in ("lead_name", "phone_number") else 0
                     form_doc.append("field_mappings", {
                         "meta_field": key,
                         "crm_field": crm_fld,
-                        "required": 0,
+                        "required": is_reqd,
                         "transform_function": transform
                     })
 
