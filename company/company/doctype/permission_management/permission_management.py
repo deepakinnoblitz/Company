@@ -51,6 +51,7 @@ class PermissionManagement(Document):
                 ("interviews", "Interview List"),
                 ("employee_referrals", "Employee Referral List"),
                 ("hr_document_templates", "Document Templates"),
+                ("hr_document_templates", "Document Generation"),
                 ("report_attendance", "Attendance Report"),
                 ("report_daily_log", "Daily Log Report"),
                 ("report_task", "Task Report"),
