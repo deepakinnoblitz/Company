@@ -76,6 +76,9 @@ frappe.ui.form.on("CRM Meta Form", {
                         row.crm_field = f.fieldname;
                         row.meta_label = f.label;
                         row.meta_field = default_meta_keys[f.fieldname] || "";
+                        if (f.fieldname === "lead_name" || f.fieldname === "phone_number") {
+                            row.required = 1;
+                        }
                     });
 
                     frm.refresh_field("field_mappings");
