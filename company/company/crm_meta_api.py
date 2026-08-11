@@ -369,7 +369,10 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         # Transform and populate values
         extracted_data = {}
         custom_records_dict = {}
-        custom_questions = []
+        
+        # We will build notes questions following the order of field_mappings
+        custom_questions_map = {}
+        unmapped_questions = []
 
         for name, val in field_data.items():
             val = "" if val is None else str(val).strip()
@@ -396,7 +399,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
 
                 if crm_field == "notes":
                     lbl = question_label_map.get(name, name)
-                    custom_questions.append(f"{lbl}\n{val}")
+                    custom_questions_map[name] = f"{lbl}\n{val}"
                 else:
                     extracted_data[crm_field] = val
             else:
@@ -411,7 +414,16 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                     extracted_data["company_name"] = val
                 else:
                     lbl = question_label_map.get(name, name)
-                    custom_questions.append(f"{lbl}\n{val}")
+                    unmapped_questions.append(f"{lbl}\n{val}")
+
+        # Construct ordered custom questions list using mapping table rows order
+        custom_questions = []
+        for mapping in form_doc.field_mappings:
+            if mapping.meta_field and mapping.crm_field == "notes" and mapping.meta_field in custom_questions_map:
+                custom_questions.append(custom_questions_map[mapping.meta_field])
+
+        # Append any unmapped questions at the end
+        custom_questions.extend(unmapped_questions)
 
         # Set the notes field to contain the formatted plain text lines
         if custom_questions:
