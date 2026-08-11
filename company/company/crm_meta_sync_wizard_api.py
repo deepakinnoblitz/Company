@@ -45,18 +45,14 @@ def preview_graph_api_pages(account_name=None):
     graph_version = app_doc.graph_api_version or "v23.0"
 
     # GET /me/accounts
-    url = f"https://graph.facebook.com/{graph_version}/me/accounts"
+    current_url = f"https://graph.facebook.com/{graph_version}/me/accounts"
     params = {
         "access_token": user_access_token,
-        "fields": "id,name,access_token,category,tasks"
+        "fields": "id,name,access_token,category,tasks",
+        "limit": 100
     }
 
-    res = requests.get(url, params=params, timeout=15)
-    if res.status_code != 200:
-        err_msg = res.json().get("error", {}).get("message", res.text)
-        frappe.throw(f"Meta Graph API Error fetching pages: {err_msg}")
-
-    data = res.json().get("data", [])
+    preview_pages = []
     
     # Query existing DB pages for reference
     db_pages = frappe.get_all(
@@ -66,27 +62,45 @@ def preview_graph_api_pages(account_name=None):
     )
     existing_page_map = {p["page_id"]: p for p in db_pages}
 
-    preview_pages = []
-    for page_item in data:
-        page_id = str(page_item.get("id"))
-        page_name = page_item.get("name")
-        page_token = page_item.get("access_token")
-        category = page_item.get("category") or "Business"
+    try:
+        while current_url:
+            if params:
+                res = requests.get(current_url, params=params, timeout=15)
+            else:
+                res = requests.get(current_url, timeout=15)
+                
+            if res.status_code != 200:
+                err_msg = res.json().get("error", {}).get("message", res.text)
+                frappe.throw(f"Meta Graph API Error fetching pages: {err_msg}")
+                
+            res_json = res.json()
+            data = res_json.get("data", [])
+            for page_item in data:
+                page_id = str(page_item.get("id"))
+                page_name = page_item.get("name")
+                page_token = page_item.get("access_token")
+                category = page_item.get("category") or "Business"
 
-        existing = existing_page_map.get(page_id)
-        
-        preview_pages.append({
-            "page_id": page_id,
-            "page_name": page_name,
-            "page_access_token": page_token,
-            "category": category,
-            "is_existing": bool(existing),
-            "db_name": existing["name"] if existing else None,
-            "is_active": existing["is_active"] if existing else 0,
-            "is_connected": existing["is_connected"] if existing else 0,
-            "webhook_enabled": existing["webhook_enabled"] if existing else 0,
-            "subscription_status": existing["subscription_status"] if existing else "Unsubscribed"
-        })
+                existing = existing_page_map.get(page_id)
+                
+                preview_pages.append({
+                    "page_id": page_id,
+                    "page_name": page_name,
+                    "page_access_token": page_token,
+                    "category": category,
+                    "is_existing": bool(existing),
+                    "db_name": existing["name"] if existing else None,
+                    "is_active": existing["is_active"] if existing else 0,
+                    "is_connected": existing["is_connected"] if existing else 0,
+                    "webhook_enabled": existing["webhook_enabled"] if existing else 0,
+                    "subscription_status": existing["subscription_status"] if existing else "Unsubscribed"
+                })
+                
+            paging = res_json.get("paging", {})
+            current_url = paging.get("next")
+            params = None # URL contains parameters now
+    except Exception as err:
+        frappe.throw(f"Error fetching pages from Facebook: {str(err)}")
 
     return {
         "account": account_doc.name,
