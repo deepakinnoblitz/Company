@@ -76,37 +76,37 @@ def get_data(filters):
     values = {}
 
     if filters.get("account_name"):
-        conditions.append("account_name LIKE %(account_name)s")
+        conditions.append("a.account_name LIKE %(account_name)s")
         values["account_name"] = f"%{filters['account_name']}%"
 
     if filters.get("country"):
-        conditions.append("country = %(country)s")
+        conditions.append("a.country = %(country)s")
         values["country"] = filters["country"]
 
     if filters.get("state"):
-        conditions.append("state = %(state)s")
+        conditions.append("a.state = %(state)s")
         values["state"] = filters["state"]
 
     if filters.get("city"):
-        conditions.append("city = %(city)s")
+        conditions.append("a.city = %(city)s")
         values["city"] = filters["city"]
 
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner")
     if has_permission:
         owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("a.owner_name = %(owner)s")
         values["owner"] = owner_filter
     elif owner_val and owner_val != "all":
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("a.owner_name = %(owner)s")
         values["owner"] = owner_val
 
     if filters.get("from_date"):
-        conditions.append("DATE(creation) >= %(from_date)s")
+        conditions.append("DATE(a.creation) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("DATE(creation) <= %(to_date)s")
+        conditions.append("DATE(a.creation) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     where_clause = " AND ".join(conditions)
@@ -116,20 +116,22 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
-            name,
-            account_name,
-            phone_number,
-            website,
-            gstin,
-            country,
-            state,
-            city,
-            owner_name,
-            creation,
-            modified
-        FROM `tabAccounts`
+            a.name,
+            a.account_name,
+            a.phone_number,
+            a.website,
+            a.gstin,
+            a.country,
+            a.state,
+            a.city,
+            a.owner_name,
+            u.full_name AS owner_full_name,
+            a.creation,
+            a.modified
+        FROM `tabAccounts` a
+        LEFT JOIN `tabUser` u ON u.name = a.owner_name
         {where_clause}
-        ORDER BY creation DESC
+        ORDER BY a.creation DESC
         """,
         values,
         as_dict=True
