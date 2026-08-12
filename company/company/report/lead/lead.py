@@ -34,33 +34,33 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("DATE(creation) >= %(from_date)s")
+        conditions.append("DATE(l.creation) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("DATE(creation) <= %(to_date)s")
+        conditions.append("DATE(l.creation) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("leads_type"):
-        conditions.append("leads_type = %(leads_type)s")
+        conditions.append("l.leads_type = %(leads_type)s")
         values["leads_type"] = filters["leads_type"]
 
     if filters.get("leads_from"):
-        conditions.append("leads_from = %(leads_from)s")
+        conditions.append("l.leads_from = %(leads_from)s")
         values["leads_from"] = filters["leads_from"]
 
     if filters.get("service"):
-        conditions.append("service = %(service)s")
+        conditions.append("l.service = %(service)s")
         values["service"] = filters["service"]
 
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner")
     if has_permission:
         owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("l.owner_name = %(owner)s")
         values["owner"] = owner_filter
     elif owner_val and owner_val != "all":
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("l.owner_name = %(owner)s")
         values["owner"] = owner_val
 
     where_clause = " AND ".join(conditions)
@@ -70,20 +70,22 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
-            name,
-            lead_name,
-            company_name,
-            phone_number,
-            email,
-            service,
-            leads_type,
-            leads_from,
-            owner_name,
-            creation,
-            modified
-        FROM `tabLead`
+            l.name,
+            l.lead_name,
+            l.company_name,
+            l.phone_number,
+            l.email,
+            l.service,
+            l.leads_type,
+            l.leads_from,
+            l.owner_name,
+            u.full_name AS owner_full_name,
+            l.creation,
+            l.modified
+        FROM `tabLead` l
+        LEFT JOIN `tabUser` u ON u.name = l.owner_name
         {where_clause}
-        ORDER BY creation DESC
+        ORDER BY l.creation DESC
         """,
         values,
         as_dict=True
