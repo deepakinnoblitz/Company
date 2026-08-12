@@ -23,6 +23,57 @@ def _plain_response(body, status=200):
     frappe.response["http_status_code"] = status
     return
 
+def format_phone_standard(p_val):
+    """
+    Format Phone Number into standard Frappe format (+<CountryCode>-<SubscriberNumber>)
+    """
+    if not p_val:
+        return p_val
+    raw = str(p_val).strip()
+
+    # 1. Try parsing with Google `phonenumbers` library (works for all 240+ countries/territories)
+    try:
+        import phonenumbers
+        # Test parsing with explicit '+' prefix first
+        parse_target = raw if raw.startswith("+") else "+" + raw
+        parsed = phonenumbers.parse(parse_target, None)
+        if phonenumbers.is_possible_number(parsed) or phonenumbers.is_valid_number(parsed):
+            return f"+{parsed.country_code}-{parsed.national_number}"
+    except Exception:
+        pass
+
+    # 2. Fallback parsing for raw digits
+    raw_digits = "".join(filter(str.isdigit, raw))
+    if not raw_digits:
+        return p_val
+
+    # If user provided number starting with +, strip + and extract country code using phonenumbers if available
+    try:
+        import phonenumbers
+        for test_str in [f"+{raw_digits}", raw_digits]:
+            try:
+                p = phonenumbers.parse(test_str, None)
+                if p.country_code and p.national_number:
+                    return f"+{p.country_code}-{p.national_number}"
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 3. Fallback Heuristics when phonenumbers is unavailable
+    if len(raw_digits) == 10:
+        # 10 digits without country code default to +91
+        return f"+91-{raw_digits}"
+    elif len(raw_digits) > 10:
+        # Check for 1-digit country code (+1 North America)
+        if raw_digits.startswith("1") and len(raw_digits) == 11:
+            return f"+1-{raw_digits[1:]}"
+        # Check for 2-digit country code (e.g. 44 UK, 33 France, 49 Germany, 91 India, 81 Japan, 61 Australia)
+        cc_len = 2 if len(raw_digits) == 12 else (len(raw_digits) - 10)
+        return f"+{raw_digits[:cc_len]}-{raw_digits[cc_len:]}"
+
+    return f"+{raw_digits}"
+
 @frappe.whitelist(allow_guest=True)
 def webhook():
     """
@@ -393,9 +444,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                 elif transform == "Lower Case":
                     val = val.lower()
                 elif transform == "Clean Phone":
-                    val = "".join(filter(str.isdigit, val))
-                    if not val.startswith("+"):
-                        val = "+" + val
+                    val = format_phone_standard(val)
 
                 if crm_field == "notes":
                     lbl = question_label_map.get(name, name)
@@ -419,8 +468,13 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         # Construct ordered custom questions list using mapping table rows order
         custom_questions = []
         for mapping in form_doc.field_mappings:
-            if mapping.meta_field and mapping.crm_field == "notes" and mapping.meta_field in custom_questions_map:
-                custom_questions.append(custom_questions_map[mapping.meta_field])
+            if mapping.crm_field == "notes":
+                if mapping.meta_field and mapping.meta_field in custom_questions_map:
+                    val = custom_questions_map[mapping.meta_field]
+                    if val and val.strip():
+                        custom_questions.append(val.strip())
+                elif mapping.default_value and mapping.default_value.strip():
+                    custom_questions.append(mapping.default_value.strip())
 
         # Append any unmapped questions at the end
         custom_questions.extend(unmapped_questions)
@@ -431,7 +485,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
 
         # Apply defaults
         for crm_fld, def_val in default_dict.items():
-            if not extracted_data.get(crm_fld):
+            if crm_fld != "notes" and not extracted_data.get(crm_fld):
                 extracted_data[crm_fld] = def_val
 
         # Format name fallback
@@ -490,6 +544,10 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             lead_audit.processing_status = "Duplicate"
             raise Exception(f"Duplicate Lead found: Lead already exists with same email or phone: {duplicate_lead}")
             
+        if phone:
+            phone = format_phone_standard(phone)
+            extracted_data["phone_number"] = phone
+
         # Validate phone formatting fallback
         is_phone_valid = False
         if phone:
@@ -500,7 +558,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                 is_phone_valid = False
                 
         if not phone or not is_phone_valid:
-            phone = "+919999999999"
+            phone = "+91-9999999999"
             extracted_data["phone_number"] = phone
             
         # Validate Country link
@@ -514,6 +572,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             "leads_from": extracted_data.get("leads_from") or "Meta Lead Ads",
             "leads_type": extracted_data.get("leads_type") or "Incoming",
             "status": "Not Converted",
+            "phone_number": phone,
         }
         
         for fld, val in extracted_data.items():

@@ -4539,3 +4539,35 @@ def get_user_permissions(user=None):
             
     return permissions_data
 
+
+@frappe.whitelist()
+def get_meta_lead_info(lead_id):
+    """Fetch Meta Form and Meta Page details (IDs and names) for a given Lead ID."""
+    if not lead_id:
+        return None
+    res = frappe.db.sql("""
+        SELECT 
+            ml.meta_form AS form_id,
+            f.form_name,
+            f.form_id AS meta_form_id,
+            ml.meta_page AS page_id,
+            p.page_name,
+            p.page_id AS meta_page_id
+        FROM `tabCRM Meta Lead` ml
+        LEFT JOIN `tabCRM Meta Form` f ON f.name = ml.meta_form
+        LEFT JOIN `tabCRM Meta Page` p ON p.name = ml.meta_page
+        WHERE ml.created_lead = %s
+        ORDER BY ml.creation DESC
+        LIMIT 1
+    """, (lead_id,), as_dict=True)
+    if res:
+        row = res[0]
+        return {
+            "form_name": row.get("form_name"),
+            "form_id": row.get("meta_form_id") or row.get("form_id"),
+            "page_name": row.get("page_name"),
+            "page_id": row.get("meta_page_id") or row.get("page_id")
+        }
+    return None
+
+
