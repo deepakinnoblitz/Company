@@ -784,3 +784,48 @@ def meta_oauth_callback(code=None, state=None, error=None, error_description=Non
             indicator_color="red"
         )
 
+
+@frappe.whitelist()
+def retry_meta_lead(meta_lead_name):
+    """
+    Manually retries processing a failed/pending CRM Meta Lead.
+    """
+    logger = get_logger()
+    
+    try:
+        # Load the Meta Lead audit record
+        lead_audit = frappe.get_doc("CRM Meta Lead", meta_lead_name)
+        
+        # Reset Status
+        lead_audit.processing_status = "Pending"
+        lead_audit.error_message = None
+        lead_audit.save(ignore_permissions=True)
+        
+        # Create queue job tracker record
+        queue_doc = frappe.get_doc({
+            "doctype": "CRM Meta Queue",
+            "meta_lead": lead_audit.name,
+            "status": "Queued",
+            "attempts": 0
+        })
+        queue_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Enqueue processing pipeline
+        job = frappe.enqueue(
+            "company.company.crm_meta_api.process_meta_lead_job",
+            queue="default",
+            meta_lead_name=lead_audit.name,
+            queue_job_name=queue_doc.name
+        )
+        
+        # Save Job ID
+        queue_doc.job_id = job.id
+        queue_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        return {"status": "success", "message": "Meta Lead enqueued for processing successfully"}
+    except Exception as e:
+        logger.error(f"Error retrying Meta Lead {meta_lead_name}: {str(e)}")
+        frappe.throw(f"Failed to retry Meta Lead: {str(e)}")
+
