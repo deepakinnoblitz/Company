@@ -419,8 +419,13 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
         # Construct ordered custom questions list using mapping table rows order
         custom_questions = []
         for mapping in form_doc.field_mappings:
-            if mapping.meta_field and mapping.crm_field == "notes" and mapping.meta_field in custom_questions_map:
-                custom_questions.append(custom_questions_map[mapping.meta_field])
+            if mapping.crm_field == "notes":
+                if mapping.meta_field and mapping.meta_field in custom_questions_map:
+                    val = custom_questions_map[mapping.meta_field]
+                    if val and val.strip():
+                        custom_questions.append(val.strip())
+                elif mapping.default_value and mapping.default_value.strip():
+                    custom_questions.append(mapping.default_value.strip())
 
         # Append any unmapped questions at the end
         custom_questions.extend(unmapped_questions)
@@ -431,7 +436,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
 
         # Apply defaults
         for crm_fld, def_val in default_dict.items():
-            if not extracted_data.get(crm_fld):
+            if crm_fld != "notes" and not extracted_data.get(crm_fld):
                 extracted_data[crm_fld] = def_val
 
         # Format name fallback
