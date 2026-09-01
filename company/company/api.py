@@ -1216,76 +1216,15 @@ def has_approved_leave(employee, from_date, to_date, exclude_doc=None):
 def sync_future_leave_allocations(employee, leave_type, from_date, previous_balance):
     """
     Recalculate future carry-forward allocations until the next reset period.
+    Note: Allocated days (total_leaves_allocated) remain fixed once allocated.
     """
-
-    leave = frappe.get_doc("Leave Type", leave_type)
-
-    if not leave.carry_forward:
-        return
-
-    freq_map = {
-        "Every 3 months": 3,
-        "Every 4 months": 4,
-        "Every 6 months": 6,
-        "Whole year": 12,
-    }
-
-    reset_interval = freq_map.get(
-        leave.reset_frequency,
-        3
-    )
-
-    allocations = frappe.get_all(
-        "Leave Allocation",
-        filters={
-            "employee": employee,
-            "leave_type": leave_type,
-            "status": "Approved",
-            "from_date": [">=", from_date]
-        },
-        fields=[
-            "name",
-            "from_date",
-            "total_leaves_allocated",
-            "total_leaves_taken",
-        ],
-        order_by="from_date asc",
-    )
-
-    if len(allocations) <= 1:
-        return
-
-    # Update future months
-    base = flt(leave.max_leaves)
-
-    for index, alloc in enumerate(allocations[1:], start=1):
-
-        # Stop at the configured reset interval
-        if index >= reset_interval:
-            break
-
-        carry = max(previous_balance, 0)
-
-        new_total = base + carry
-
-        if flt(alloc.total_leaves_allocated) != new_total:
-            frappe.db.set_value(
-                "Leave Allocation",
-                alloc.name,
-                "total_leaves_allocated",
-                new_total
-            )
-
-        previous_balance = max(
-            0,
-            new_total - flt(alloc.total_leaves_taken)
-        )
+    return
 
 def update_leave_allocation(doc, method=None):
     """
     Update Leave Allocation when Leave Application is Approved.
-    Deducts only from the current month's allocation and
-    recalculates future carry-forward allocations.
+    Deducts leave days based on the exact overlap between the leave application
+    and each leave allocation period.
     """
 
     if getattr(doc.flags, "in_delete", False):
@@ -1327,61 +1266,124 @@ def update_leave_allocation(doc, method=None):
         unit = "days"
 
     # -----------------------------
-    # Current Month Allocation
+    # Matching Allocation(s)
     # -----------------------------
-    allocation = frappe.get_value(
+    allocations = frappe.get_all(
         "Leave Allocation",
-        {
+        filters={
             "employee": doc.employee,
             "leave_type": doc.leave_type,
             "status": "Approved",
-            "from_date": ["<=", doc.from_date],
-            "to_date": [">=", doc.to_date],
+            "from_date": ["<=", doc.to_date],
+            "to_date": [">=", doc.from_date],
         },
-        [
+        fields=[
             "name",
             "from_date",
+            "to_date",
             "total_leaves_allocated",
             "total_leaves_taken",
         ],
-        as_dict=True,
+        order_by="from_date asc",
     )
 
-    if not allocation:
+    if not allocations:
         frappe.throw(
             f"No Leave Allocation found for {doc.employee}"
         )
 
-    allocated = flt(allocation.total_leaves_allocated)
-    taken = flt(allocation.total_leaves_taken)
+    doc_from = getdate(doc.from_date)
+    doc_to = getdate(doc.to_date)
 
-    available = allocated - taken
+    spillover = 0.0
+    total_allocated_sum = 0.0
+    total_taken_sum = 0.0
 
-    if available < to_add:
+    # --- Pass 1: Deduct exact overlapping days from each allocation ---
+    for alloc in allocations:
+        allocated = flt(alloc.total_leaves_allocated)
+        taken = flt(alloc.total_leaves_taken)
+        available = allocated - taken
+        total_allocated_sum += allocated
+
+        alloc_from = getdate(alloc.from_date)
+        alloc_to = getdate(alloc.to_date)
+
+        if leave_type_lower == "permission":
+            if alloc_from <= doc_from <= alloc_to:
+                days_in_alloc = to_add
+            else:
+                days_in_alloc = 0.0
+        else:
+            overlap_start = max(doc_from, alloc_from)
+            overlap_end = min(doc_to, alloc_to)
+
+            if overlap_start <= overlap_end:
+                days_in_alloc = float((overlap_end - overlap_start).days + 1)
+                if doc.half_day:
+                    days_in_alloc = 0.5
+            else:
+                days_in_alloc = 0.0
+
+        if days_in_alloc > 0:
+            deduct = min(available, days_in_alloc)
+            spillover += (days_in_alloc - deduct)
+            new_taken = taken + deduct
+            total_taken_sum += new_taken
+
+            frappe.db.set_value(
+                "Leave Allocation",
+                alloc.name,
+                "total_leaves_taken",
+                new_taken
+            )
+
+            previous_balance = max(0, allocated - new_taken)
+
+            sync_future_leave_allocations(
+                doc.employee,
+                doc.leave_type,
+                alloc.from_date,
+                previous_balance
+            )
+        else:
+            total_taken_sum += taken
+
+    # --- Pass 2: Handle spillover if an allocation period lacked enough balance ---
+    if spillover > 0:
+        for alloc in allocations:
+            allocated = flt(alloc.total_leaves_allocated)
+            taken = flt(frappe.db.get_value("Leave Allocation", alloc.name, "total_leaves_taken"))
+            available = allocated - taken
+
+            if available > 0 and spillover > 0:
+                deduct = min(available, spillover)
+                spillover -= deduct
+                new_taken = taken + deduct
+
+                frappe.db.set_value(
+                    "Leave Allocation",
+                    alloc.name,
+                    "total_leaves_taken",
+                    new_taken
+                )
+
+                previous_balance = max(0, allocated - new_taken)
+
+                sync_future_leave_allocations(
+                    doc.employee,
+                    doc.leave_type,
+                    alloc.from_date,
+                    previous_balance
+                )
+
+                if spillover <= 0:
+                    break
+
+    if spillover > 0:
         frappe.throw(
-            f"Only {available} {unit} available."
+            f"Not enough leave balance for {doc.employee}"
         )
-
-    new_taken = taken + to_add
-
-    frappe.db.set_value(
-        "Leave Allocation",
-        allocation.name,
-        "total_leaves_taken",
-        new_taken
-    )
-
-    previous_balance = max(
-        0,
-        allocated - new_taken
-    )
-
-    sync_future_leave_allocations(
-        doc.employee,
-        doc.leave_type,
-        allocation.from_date,
-        previous_balance
-    )
 
     frappe.db.commit()
 
@@ -1389,9 +1391,9 @@ def update_leave_allocation(doc, method=None):
         f"""
         <b>{doc.leave_type}</b> updated successfully.<br><br>
 
-        Allocated : <b>{allocated}</b><br>
-        Taken : <b>{new_taken}</b><br>
-        Remaining : <b>{previous_balance}</b>
+        Allocated : <b>{total_allocated_sum}</b><br>
+        Taken : <b>{total_taken_sum}</b><br>
+        Remaining : <b>{max(0, total_allocated_sum - total_taken_sum)}</b>
         """
     )
 

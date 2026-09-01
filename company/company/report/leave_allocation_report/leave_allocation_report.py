@@ -42,10 +42,10 @@ def get_data(filters: dict | None) -> list[dict]:
 		from_date = filters.get("from_date")
 		to_date = filters.get("to_date")
 		if from_date:
-			conditions.append("la.from_date >= %(from_date)s")
+			conditions.append("la.to_date >= %(from_date)s")
 			values["from_date"] = from_date
 		if to_date:
-			conditions.append("la.to_date <= %(to_date)s")
+			conditions.append("la.from_date <= %(to_date)s")
 			values["to_date"] = to_date
 
 		# Employee filter parsing
