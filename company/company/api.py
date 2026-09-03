@@ -1307,93 +1307,142 @@ def update_leave_allocation(doc, method=None):
     # Calculate Leave Amount
     # -----------------------------
     if leave_type_lower == "permission":
-
         if not doc.permission_hours:
             frappe.throw("Permission Hours are required.")
 
         to_add = flt(doc.permission_hours)
         unit = "minutes"
 
-    else:
+        allocation = frappe.get_value(
+            "Leave Allocation",
+            {
+                "employee": doc.employee,
+                "leave_type": doc.leave_type,
+                "status": "Approved",
+                "from_date": ["<=", doc.from_date],
+                "to_date": [">=", doc.from_date],
+            },
+            [
+                "name",
+                "from_date",
+                "total_leaves_allocated",
+                "total_leaves_taken",
+            ],
+            as_dict=True,
+        )
 
-        to_add = (
-            getdate(doc.to_date)
-            - getdate(doc.from_date)
-        ).days + 1
+        if not allocation:
+            frappe.throw(
+                f"No Leave Allocation found for {doc.employee} on {doc.from_date}"
+            )
 
-        if doc.half_day:
-            to_add = 0.5
+        allocated = flt(allocation.total_leaves_allocated)
+        taken = flt(allocation.total_leaves_taken)
+        available = allocated - taken
 
-        unit = "days"
+        if available < to_add:
+            frappe.throw(
+                f"Only {available} {unit} available."
+            )
 
-    # -----------------------------
-    # Current Month Allocation
-    # -----------------------------
-    allocation = frappe.get_value(
-        "Leave Allocation",
-        {
-            "employee": doc.employee,
-            "leave_type": doc.leave_type,
-            "status": "Approved",
-            "from_date": ["<=", doc.from_date],
-            "to_date": [">=", doc.to_date],
-        },
-        [
-            "name",
-            "from_date",
-            "total_leaves_allocated",
+        new_taken = taken + to_add
+        frappe.db.set_value(
+            "Leave Allocation",
+            allocation.name,
             "total_leaves_taken",
-        ],
-        as_dict=True,
-    )
-
-    if not allocation:
-        frappe.throw(
-            f"No Leave Allocation found for {doc.employee}"
+            new_taken
         )
 
-    allocated = flt(allocation.total_leaves_allocated)
-    taken = flt(allocation.total_leaves_taken)
+        previous_balance = max(0, allocated - new_taken)
+        sync_future_leave_allocations(
+            doc.employee,
+            doc.leave_type,
+            allocation.from_date,
+            previous_balance
+        )
+        frappe.db.commit()
 
-    available = allocated - taken
+        frappe.msgprint(
+            f"""
+            <b>{doc.leave_type}</b> updated successfully.<br><br>
 
-    if available < to_add:
-        frappe.throw(
-            f"Only {available} {unit} available."
+            Allocated : <b>{allocated}</b><br>
+            Taken : <b>{new_taken}</b><br>
+            Remaining : <b>{previous_balance}</b>
+            """
         )
 
-    new_taken = taken + to_add
+    else:
+        # Loop through each day in the date range (handles multi-day & cross-month leaves)
+        current_date = getdate(doc.from_date)
+        end_date = getdate(doc.to_date)
+        total_days = (end_date - current_date).days + 1
+        day_cost = 0.5 if (doc.half_day and total_days == 1) else 1.0
 
-    frappe.db.set_value(
-        "Leave Allocation",
-        allocation.name,
-        "total_leaves_taken",
-        new_taken
-    )
+        updated_allocations = set()
 
-    previous_balance = max(
-        0,
-        allocated - new_taken
-    )
+        while current_date <= end_date:
+            allocation = frappe.get_value(
+                "Leave Allocation",
+                {
+                    "employee": doc.employee,
+                    "leave_type": doc.leave_type,
+                    "status": "Approved",
+                    "from_date": ["<=", current_date],
+                    "to_date": [">=", current_date],
+                },
+                [
+                    "name",
+                    "from_date",
+                    "total_leaves_allocated",
+                    "total_leaves_taken",
+                ],
+                as_dict=True,
+            )
 
-    sync_future_leave_allocations(
-        doc.employee,
-        doc.leave_type,
-        allocation.from_date,
-        previous_balance
-    )
+            if not allocation:
+                frappe.throw(
+                    f"No Leave Allocation found for {doc.employee} ({doc.leave_type}) on {current_date}"
+                )
 
-    frappe.db.commit()
+            allocated = flt(allocation.total_leaves_allocated)
+            taken = flt(allocation.total_leaves_taken)
+            available = allocated - taken
 
-    frappe.msgprint(
-        f"""
-        <b>{doc.leave_type}</b> updated successfully.<br><br>
+            if available < day_cost:
+                frappe.throw(
+                    f"Insufficient leave balance on {current_date}. Available: {available} days, Required: {day_cost} day."
+                )
 
-        Allocated : <b>{allocated}</b><br>
-        Taken : <b>{new_taken}</b><br>
-        Remaining : <b>{previous_balance}</b>
-        """
-    )
+            new_taken = taken + day_cost
+            frappe.db.set_value(
+                "Leave Allocation",
+                allocation.name,
+                "total_leaves_taken",
+                new_taken
+            )
+
+            updated_allocations.add((allocation.name, allocation.from_date, allocated))
+            current_date += timedelta(days=1)
+
+        # Sync future leave allocations for all modified monthly allocations
+        for alloc_name, alloc_from_date, allocated in updated_allocations:
+            curr_taken = flt(frappe.db.get_value("Leave Allocation", alloc_name, "total_leaves_taken"))
+            prev_balance = max(0, allocated - curr_taken)
+            sync_future_leave_allocations(
+                doc.employee,
+                doc.leave_type,
+                alloc_from_date,
+                prev_balance
+            )
+
+        frappe.db.commit()
+
+        frappe.msgprint(
+            f"""
+            <b>{doc.leave_type}</b> updated successfully for period {doc.from_date} to {doc.to_date}.
+            """
+        )
 
 
 
