@@ -455,7 +455,7 @@ def sync_event_to_todo(doc, method):
     todo.priority = doc.priority
     # Status
     todo.status = (
-        "Closed" if doc.status == "Closed" else "Open"
+        "Cancelled" if doc.status in ["Cancelled", "Canceled"] else ("Closed" if doc.status == "Closed" else "Open")
     )   
 
     # Prevent loop
@@ -676,7 +676,7 @@ def create_event_for_todo(doc, method=None):
         event.starts_on = frappe.utils.now_datetime()
         event.ends_on = event.starts_on
 
-    event.status = "Closed" if doc.status == "Closed" else "Open"
+    event.status = "Cancelled" if doc.status in ["Cancelled", "Canceled"] else ("Closed" if doc.status == "Closed" else "Open")
     event.all_day = 1
     event.reference_doctype = "ToDo"
     event.reference_docname = doc.name
@@ -706,7 +706,7 @@ def update_event_for_todo(doc, method=None):
         event.starts_on = f"{date_str} 00:00:00" if len(str(date_str)) <= 10 else str(date_str)
         event.ends_on = event.starts_on
 
-    event.status = "Closed" if doc.status == "Closed" else "Open"
+    event.status = "Cancelled" if doc.status in ["Cancelled", "Canceled"] else ("Closed" if doc.status == "Closed" else "Open")
     
     frappe.flags.ignore_todo_sync = True
     event.save(ignore_permissions=True)
