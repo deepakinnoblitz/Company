@@ -3348,20 +3348,57 @@ def get_month_calendar_data(month=None, year=None):
                 "employee": employee_id,
                 "attendance_date": ["between", [start_date, end_date]]
             },
-            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours", "leave_type"],
             order_by="attendance_date asc"
         )
 
         for att in att_records:
-            attendance.append({
+            att_dict = {
                 "date": str(att.attendance_date),
                 "status": att.status,
                 "in_time": td_to_str(att.in_time),
                 "out_time": td_to_str(att.out_time),
                 "working_hours": att.working_hours or 0
-            })
+            }
+            if att.leave_type:
+                att_dict["leave_type"] = att.leave_type
+            attendance.append(att_dict)
 
-    # 3. Build Full Month Timeline
+    # 3. Fetch approved Leave Applications for the month
+    leave_app_map = {}
+    try:
+        approved_leaves = frappe.get_all("Leave Application",
+            filters={
+                "employee": employee_id,
+                "from_date": ["<=", end_date],
+                "to_date": [">=", start_date],
+                "docstatus": ["<", 2]
+            },
+            fields=["leave_type", "from_date", "to_date", "half_day", "status", "workflow_state", "docstatus"]
+        )
+        for l in approved_leaves:
+            status_val = str(l.get("status") or "").lower()
+            wf_val = str(l.get("workflow_state") or "").lower()
+            is_approved = status_val == "approved" or wf_val == "approved" or l.get("docstatus") == 1
+            if is_approved:
+                l_from = getdate(l.from_date)
+                l_to = getdate(l.to_date)
+                m_s = getdate(start_date)
+                m_e = getdate(end_date)
+                d_p = max(l_from, m_s)
+                d_e = min(l_to, m_e)
+                while d_p <= d_e:
+                    l_type = l.leave_type
+                    if l.half_day:
+                        l_type += " (Half Day)"
+                    leave_app_map[str(d_p)] = l_type
+                    d_p = add_days(d_p, 1)
+                    if isinstance(d_p, str):
+                        d_p = getdate(d_p)
+    except Exception as e:
+        frappe.log_error(f"Error in get_month_calendar_data leave fetch: {e}")
+
+    # 4. Build Full Month Timeline
     calendar_data = []
     first_day = getdate(f"{year}-{month:02d}-01")
     last_day = get_last_day(first_day)
@@ -3379,7 +3416,8 @@ def get_month_calendar_data(month=None, year=None):
             "check_out": None,
             "working_hours": 0,
             "holiday_info": None,
-            "holiday_is_working_day": 0
+            "holiday_is_working_day": 0,
+            "leave_type": leave_app_map.get(date_str)
         }
         
         # Add attendance data if exists
@@ -3391,7 +3429,15 @@ def get_month_calendar_data(month=None, year=None):
                 "check_out": att["out_time"],
                 "working_hours": att["working_hours"]
             })
-            
+            if att.get("leave_type"):
+                day_record["leave_type"] = att["leave_type"]
+
+        # Add leave application info if exists
+        if date_str in leave_app_map:
+            day_record["leave_type"] = leave_app_map[date_str]
+            if day_record["status"] in ["Not Marked", "On Leave", "Leave"]:
+                day_record["status"] = "On Leave"
+
         # Add holiday info if exists
         if date_str in holiday_map:
             h = holiday_map[date_str]
