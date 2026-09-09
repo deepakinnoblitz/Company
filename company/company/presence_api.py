@@ -991,6 +991,13 @@ def log_location(latitude, longitude, accuracy=None, status=None, source=None, d
     if not employee:
         frappe.throw(_("Employee not found for current user"))
 
+    target = getattr(settings, "location_tracking_target", "All Employees") or "All Employees"
+    if target == "Selected Employees":
+        tracked_raw = getattr(settings, "tracked_employees", "[]") or "[]"
+        tracked_list = frappe.parse_json(tracked_raw) if isinstance(tracked_raw, str) else (tracked_raw or [])
+        if employee not in tracked_list:
+            return {"status": "ignored", "message": f"Location tracking is disabled for employee {employee}."}
+
     active_session = get_active_session(employee)
     session_name = active_session.name if active_session else None
 
