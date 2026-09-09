@@ -983,10 +983,6 @@ def log_location(latitude, longitude, accuracy=None, status=None, source=None, d
     if not settings.enable_location_tracking:
         return {"status": "ignored", "message": "Location tracking is disabled globally."}
 
-    min_accuracy = settings.minimum_gps_accuracy or 100
-    if accuracy is not None and float(accuracy) > float(min_accuracy):
-        return {"status": "ignored", "message": f"GPS accuracy ({accuracy}m) is worse than minimum allowed ({min_accuracy}m)."}
-
     employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
     if not employee:
         frappe.throw(_("Employee not found for current user"))
