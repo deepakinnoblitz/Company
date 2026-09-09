@@ -2060,12 +2060,13 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     Matches the backend Employee Dashboard layout exactly.
     """
     user = frappe.session.user
-    employee_info = frappe.db.get_value("Employee", {"user": user}, ["name", "employee_name"], as_dict=True)
+    employee_info = frappe.db.get_value("Employee", {"user": user}, ["name", "employee_name", "date_of_joining"], as_dict=True)
     
     if not employee_info:
         return {}
 
     employee = employee_info.name
+    joining_date = employee_info.get("date_of_joining")
     today = frappe.utils.today()
     
     # Calculate start, end dates and total days in period
@@ -2094,6 +2095,7 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     data = {
         "employee_name": employee_info.employee_name,
         "employee": employee,
+        "joining_date": str(joining_date) if joining_date else None,
         "attendance_range": attendance_range,
         "start_date": str(start_date),
         "end_date": str(end_date),
@@ -2353,110 +2355,218 @@ def get_employee_dashboard_data(attendance_range="This Month"):
         data["holidays"] = []
 
 
-    # -------------------- ATTENDANCE DEBUG --------------------
+    # 3. Monthly Attendance Overview & Breakdown
     try:
-        total_days = data.get("total_days_in_period", 1)
         data["hide_missing"] = True if source == "Daily Log" else False
+        today_date = frappe.utils.getdate(today)
+        month_start = frappe.utils.get_first_day(today_date)
+        month_end = frappe.utils.get_last_day(today_date)
+        today_str = str(today_date)
 
-        # Show raw attendance rows
-        raw_attendance = frappe.db.sql("""
-            SELECT attendance_date, status
-            FROM `tabAttendance`
-            WHERE employee = %s
-            AND attendance_date BETWEEN %s AND %s
-            ORDER BY attendance_date
-        """, (employee, start_date, end_date), as_dict=True)
+        # 3a. Fetch Approved Leave Applications for this month
+        leave_app_map = {}
+        try:
+            leaves = frappe.db.sql("""
+                SELECT from_date, to_date, leave_type
+                FROM `tabLeave Application`
+                WHERE employee = %s
+                AND (status = 'Approved' OR workflow_state = 'Approved' OR docstatus = 1)
+                AND from_date <= %s
+                AND to_date >= %s
+                AND docstatus < 2
+            """, (employee, month_end, month_start), as_dict=True)
+            for l in leaves:
+                d_p = max(frappe.utils.getdate(l.from_date), month_start)
+                d_e = min(frappe.utils.getdate(l.to_date), month_end)
+                while d_p <= d_e:
+                    leave_app_map[str(d_p)] = l.leave_type
+                    d_p = frappe.utils.add_days(d_p, 1)
+        except Exception:
+            pass
 
+        # Helper to convert timedelta or time to HH:MM:SS
+        def td_to_str(td):
+            if not td: return None
+            if isinstance(td, str): return td
+            if hasattr(td, 'total_seconds'):
+                total_seconds = int(td.total_seconds())
+                return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
+            return str(td)
 
-        breakdown = {
-            "present": 0,
-            "absent": 0,
-            "half_day": 0,
-            "on_leave": 0,
-            "missing": 0,
-            "holiday": len(holiday_dates),
-            "total_days": 0,
-            "calendar_total": total_days
-        }
-
-        # Dynamic Breakdown Calculation based on source
+        # 3b. Fetch Attendance or Employee Session records
+        attendance_map = {}
         if source == "Daily Log":
-            attendance_records = frappe.db.sql("""
-                SELECT total_work_hours as working_hours
+            sessions = frappe.db.sql("""
+                SELECT login_date, login_time as check_in, logout_time as check_out, total_work_hours as working_hours
                 FROM `tabEmployee Session`
                 WHERE employee = %s
                 AND login_date BETWEEN %s AND %s
-            """, (employee, start_date, end_date), as_dict=True)
-            
-            for record in attendance_records:
-                status = _get_attendance_status(record.working_hours, p_threshold, h_threshold)
-                status_key = status.lower().replace(" ", "_")
-                if status_key in breakdown:
-                    breakdown[status_key] += 1
+            """, (employee, month_start, month_end), as_dict=True)
+            for s in sessions:
+                st = _get_attendance_status(s.working_hours, p_threshold, h_threshold)
+                attendance_map[str(s.login_date)] = {
+                    "status": st,
+                    "check_in": td_to_str(s.check_in),
+                    "check_out": td_to_str(s.check_out),
+                    "working_hours": flt(s.working_hours)
+                }
         else:
-            # For Attendance, we use the pre-calculated status via SQL grouping (original logic)
-            attendance_breakdown = frappe.db.sql("""
-                SELECT 
-                    status,
-                    COUNT(*) as count
-                FROM `tabAttendance`
-                WHERE employee = %s
-                AND attendance_date BETWEEN %s AND %s
-                GROUP BY status
-            """, (employee, start_date, end_date), as_dict=True)
+            full_attendance = frappe.get_all("Attendance",
+                filters={
+                    "employee": employee,
+                    "attendance_date": ["between", [month_start, month_end]]
+                },
+                fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+                order_by="attendance_date asc"
+            )
+            for att in full_attendance:
+                attendance_map[str(att.attendance_date)] = {
+                    "status": att.status,
+                    "check_in": td_to_str(att.in_time),
+                    "check_out": td_to_str(att.out_time),
+                    "working_hours": flt(att.working_hours) or 0
+                }
 
-            for record in attendance_breakdown:
-                status_val = record.get("status")
-                if status_val:
-                    status_key = status_val.lower().replace(" ", "_").replace("-", "_")
-                    if status_key == "leave":
-                        status_key = "on_leave"
-                    if status_key in breakdown:
-                        breakdown[status_key] = int(record.get("count") or 0)
-
-        workingDays = total_days - breakdown["holiday"]
-        breakdown["total_days"] = workingDays
-
-        # Calculate "Till Today" metrics for the percentage
-        today_date = frappe.utils.getdate(today)
-        start_date_obj = frappe.utils.getdate(start_date)
+        # 3c. Fetch Holiday List map for the month
+        holiday_list = frappe.db.get_value(
+            "Holiday List",
+            {
+                "month_year": str(month),
+                "year": year
+            },
+            "name"
+        )
+        if not holiday_list:
+            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
         
-        # Calendar days elapsed so far in the period
-        days_elapsed = frappe.utils.date_diff(today_date, start_date_obj) + 1
-        
-        # Holidays that have already occurred in the period
+        holiday_map = {}
+        if holiday_list:
+            h_records = frappe.db.sql("""
+                SELECT holiday_date as date, description, is_working_day
+                FROM `tabHolidays`
+                WHERE parent = %s
+                AND holiday_date BETWEEN %s AND %s
+            """, (holiday_list, month_start, month_end), as_dict=True)
+            holiday_map = {str(h.date): h for h in h_records}
+
+        # 3d. Build full month timeline
+        attendance_events = []
+        curr_ptr = month_start
+        while curr_ptr <= month_end:
+            d_str = str(curr_ptr)
+            day_record = {
+                "date": d_str,
+                "status": "Not Marked",
+                "check_in": None,
+                "check_out": None,
+                "working_hours": 0,
+                "holiday_info": None,
+                "holiday_is_working_day": 0,
+                "leave_type": None
+            }
+            
+            if d_str in attendance_map:
+                day_record.update(attendance_map[d_str])
+            
+            if d_str in holiday_map:
+                h = holiday_map[d_str]
+                day_record["holiday_info"] = h["description"]
+                day_record["holiday_is_working_day"] = h["is_working_day"]
+                if day_record["status"] == "Not Marked" and not h["is_working_day"]:
+                    day_record["status"] = "Holiday"
+
+            if d_str in leave_app_map and day_record["status"] not in ["Present", "Half Day"]:
+                day_record["status"] = "On Leave"
+                day_record["leave_type"] = leave_app_map[d_str]
+
+            if day_record["status"] == "Not Marked" and d_str < today_str:
+                day_record["status"] = "Absent"
+            
+            if d_str == today_str and day_record["status"] == "Absent":
+                day_record["status"] = "Not Marked"
+            
+            attendance_events.append(day_record)
+            curr_ptr = frappe.utils.add_days(curr_ptr, 1)
+            if isinstance(curr_ptr, str):
+                curr_ptr = frappe.utils.getdate(curr_ptr)
+
+        data["monthly_attendance_list"] = attendance_events
+
+        # 3e. Calculate monthly breakdown directly from the complete timeline
+        present_cnt = 0
+        absent_cnt = 0
+        half_day_cnt = 0
+        on_leave_cnt = 0
+        holiday_cnt = 0
+
+        j_date = joining_date if 'joining_date' in locals() and joining_date else data.get("joining_date")
+        joining_date_obj = frappe.utils.getdate(j_date) if j_date else None
+
+        for rec in attendance_events:
+            rec_date = frappe.utils.getdate(rec["date"])
+            if joining_date_obj and rec_date < joining_date_obj:
+                continue
+
+            if rec["status"] == "Holiday" or (rec.get("holiday_info") and not rec.get("holiday_is_working_day")):
+                holiday_cnt += 1
+                continue
+
+            if rec_date > today_date:
+                continue
+
+            # Don't count today as Absent while the work day is still ongoing
+            st = rec.get("status")
+            if rec_date == today_date and st == "Absent":
+                continue
+
+            if st == "Present":
+                present_cnt += 1
+            elif st == "Half Day":
+                half_day_cnt += 1
+            elif st == "On Leave" or st == "Leave":
+                on_leave_cnt += 1
+            elif st == "Absent":
+                absent_cnt += 1
+
+        total_days_in_month = (month_end - month_start).days + 1
+        working_days_in_month = max(0, total_days_in_month - holiday_cnt)
+
+        days_elapsed = (today_date - month_start).days + 1
         holidays_elapsed = len([
-            d for d in holiday_dates 
-            if frappe.utils.getdate(d) <= today_date
+            r for r in attendance_events 
+            if frappe.utils.getdate(r["date"]) <= today_date and (r["status"] == "Holiday" or (r.get("holiday_info") and not r.get("holiday_is_working_day")))
         ])
+        working_days_elapsed = max(0, days_elapsed - holidays_elapsed)
 
-        # Weighted calculation Till Today
-        # Numerator includes user-requested components
-        present_weighted = (
-            breakdown["present"] + 
-            breakdown["on_leave"] + 
-            (breakdown["half_day"] * 0.5) +
-            breakdown["missing"] + 
-            holidays_elapsed  # Use elapsed holidays in the numerator
+        present_weighted = present_cnt + on_leave_cnt + (half_day_cnt * 0.5)
+        attendance_percentage = (
+            round((present_weighted / working_days_elapsed) * 100)
+            if working_days_elapsed > 0 else 0
         )
 
-        # Denominator is total calendar days elapsed
-        breakdown["attendance_percentage"] = (
-            round((present_weighted / days_elapsed) * 100)
-            if days_elapsed > 0 else 0
-        )
-
-        data["monthly_attendance_breakdown"] = breakdown
-
+        data["monthly_attendance_breakdown"] = {
+            "present": present_cnt,
+            "absent": absent_cnt,
+            "half_day": half_day_cnt,
+            "on_leave": on_leave_cnt,
+            "missing": 0,
+            "holiday": holiday_cnt,
+            "total_days": working_days_in_month,
+            "calendar_total": total_days_in_month,
+            "attendance_percentage": attendance_percentage
+        }
     except Exception as e:
-
+        frappe.log_error(frappe.get_traceback(), "Monthly Attendance Error")
+        data["monthly_attendance_list"] = []
         data["monthly_attendance_breakdown"] = {
             "present": 0,
             "absent": 0,
             "half_day": 0,
             "on_leave": 0,
             "missing": 0,
-            "total_days": 0
+            "total_days": 0,
+            "calendar_total": 0,
+            "attendance_percentage": 0
         }
 
     # 4. Missing Timesheets (Current Month-to-Date - All Working Days)  
@@ -2557,91 +2667,6 @@ def get_employee_dashboard_data(attendance_range="This Month"):
     data["announcements"] = hr_data.get("announcements", [])
     data["todays_birthdays"] = hr_data.get("todays_birthdays", [])
     data["todays_leaves"] = hr_data.get("todays_leaves", [])
-
-    # 7. Attendance for Calendar (Last 6 months + Current range)
-    try:
-        # Fetch a broader range for the calendar to show "all data present"
-        calendar_start = frappe.utils.add_months(start_date, -6)
-        
-        full_attendance = frappe.get_all("Attendance",
-            filters={
-                "employee": employee,
-                "attendance_date": ["between", [calendar_start, end_date]]
-            },
-            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
-            order_by="attendance_date asc"
-        )
-        
-        # Helper to convert timedelta to time str
-        def td_to_str(td):
-            if not td: return None
-            total_seconds = int(td.total_seconds())
-            return f"{total_seconds // 3600:02d}:{(total_seconds % 3600) // 60:02d}:{(total_seconds % 60):02d}"
-
-        # Create attendance map
-        attendance_map = {}
-        for att in full_attendance:
-            attendance_map[str(att.attendance_date)] = {
-                "status": att.status,
-                "check_in": td_to_str(att.in_time),
-                "check_out": td_to_str(att.out_time),
-                "working_hours": att.working_hours or 0
-            }
-
-        # Build full month timeline
-        attendance_events = []
-        month_start = frappe.utils.get_first_day(today_date)
-        month_end = frappe.utils.get_last_day(today_date)
-        
-        # Get holidays for this period correctly
-        holiday_list = None
-        company = frappe.db.get_value("Employee", employee, "company")
-        if company:
-            holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
-        if not holiday_list:
-            holiday_list = frappe.db.get_value("Holiday List", {}, "name")
-        
-        holiday_map = {}
-        if holiday_list:
-            h_records = frappe.db.sql("""
-                SELECT holiday_date as date, description, is_working_day
-                FROM `tabHolidays`
-                WHERE parent = %s
-                AND holiday_date BETWEEN %s AND %s
-            """, (holiday_list, month_start, month_end), as_dict=True)
-            holiday_map = {str(h.date): h for h in h_records}
-
-        curr_ptr = month_start
-        while curr_ptr <= month_end:
-            d_str = str(curr_ptr)
-            day_record = {
-                "date": d_str,
-                "status": "Not Marked",
-                "check_in": None,
-                "check_out": None,
-                "working_hours": 0,
-                "holiday_info": None,
-                "holiday_is_working_day": 0
-            }
-            
-            if d_str in attendance_map:
-                day_record.update(attendance_map[d_str])
-            
-            if d_str in holiday_map:
-                h = holiday_map[d_str]
-                day_record["holiday_info"] = h["description"]
-                day_record["holiday_is_working_day"] = h["is_working_day"]
-                if day_record["status"] == "Not Marked" and not h["is_working_day"]:
-                    day_record["status"] = "Holiday"
-            
-            attendance_events.append(day_record)
-            curr_ptr = frappe.utils.add_days(curr_ptr, 1)
-            if isinstance(curr_ptr, str):
-                curr_ptr = frappe.utils.getdate(curr_ptr)
-
-        data["monthly_attendance_list"] = attendance_events
-    except Exception as e:
-        data["monthly_attendance_list"] = []
 
     return data
 
