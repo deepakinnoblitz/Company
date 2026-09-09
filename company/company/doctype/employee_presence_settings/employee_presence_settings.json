@@ -27,7 +27,9 @@
   "track_on_logout",
   "track_on_status_change",
   "tracking_interval_minutes",
-  "minimum_gps_accuracy"
+  "minimum_gps_accuracy",
+  "location_tracking_target",
+  "tracked_employees"
  ],
  "fields": [
   {
@@ -113,21 +115,21 @@
    "label": "Enable Location Tracking"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "track_on_login",
    "fieldtype": "Check",
    "label": "Track On Login",
    "depends_on": "eval:doc.enable_location_tracking == 1"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "track_on_logout",
    "fieldtype": "Check",
    "label": "Track On Logout",
    "depends_on": "eval:doc.enable_location_tracking == 1"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "track_on_status_change",
    "fieldtype": "Check",
    "label": "Track On Status Change",
@@ -146,6 +148,20 @@
    "fieldtype": "Int",
    "label": "Minimum GPS Accuracy (Meters)",
    "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "default": "All Employees",
+   "fieldname": "location_tracking_target",
+   "fieldtype": "Select",
+   "label": "Location Tracking Target",
+   "options": "All Employees\nSelected Employees",
+   "depends_on": "eval:doc.enable_location_tracking == 1"
+  },
+  {
+   "fieldname": "tracked_employees",
+   "fieldtype": "Long Text",
+   "label": "Tracked Employees (JSON)",
+   "depends_on": "eval:doc.enable_location_tracking == 1 && doc.location_tracking_target == 'Selected Employees'"
   }
  ],
  "index_pages": [],
