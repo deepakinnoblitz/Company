@@ -89,10 +89,14 @@ def get_data(filters):
             c.state,
             c.city,
             c.source_lead,
+            l.lead_name AS source_lead_name,
             c.owner_name,
+            u.full_name AS owner_full_name,
             c.creation,
             c.modified
         FROM `tabContacts` c
+        LEFT JOIN `tabLead` l ON l.name = c.source_lead
+        LEFT JOIN `tabUser` u ON u.name = c.owner_name
         {where_clause}
         ORDER BY c.creation DESC
         """,

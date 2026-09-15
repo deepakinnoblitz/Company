@@ -107,33 +107,33 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("DATE(`from`) >= %(from_date)s")
+        conditions.append("DATE(m.`from`) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("DATE(`from`) <= %(to_date)s")
+        conditions.append("DATE(m.`from`) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("meet_for"):
-        conditions.append("meet_for = %(meet_for)s")
+        conditions.append("m.meet_for = %(meet_for)s")
         values["meet_for"] = filters["meet_for"]
 
     if filters.get("status"):
-        conditions.append("outgoing_call_status = %(status)s")
+        conditions.append("m.outgoing_call_status = %(status)s")
         values["status"] = filters["status"]
 
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner")
     if has_permission:
         owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("m.owner_name = %(owner)s")
         values["owner"] = owner_filter
     elif owner_val and owner_val != "all":
-        conditions.append("owner_name = %(owner)s")
+        conditions.append("m.owner_name = %(owner)s")
         values["owner"] = owner_val
 
     if filters.get("enable_reminder") is not None:
-        conditions.append("enable_reminder = %(enable_reminder)s")
+        conditions.append("m.enable_reminder = %(enable_reminder)s")
         values["enable_reminder"] = filters["enable_reminder"]
 
     where_clause = " AND ".join(conditions)
@@ -143,28 +143,36 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
-            name,
-            title,
-            meet_for,
-            lead_name,
-            contact_name,
-            accounts_name,
-            meeting_venue,
-            location,
-            outgoing_call_status,
-            completed_meet_status,
-            `from` AS from_time,
-            `to` AS to_time,
-            owner_name,
-            creation,
-            modified,
+            m.name,
+            m.title,
+            m.meet_for,
+            m.lead_name,
+            l.lead_name AS lead_title,
+            m.contact_name,
+            cnt.first_name AS contact_title,
+            m.accounts_name,
+            acc.account_name AS account_title,
+            m.meeting_venue,
+            m.location,
+            m.outgoing_call_status,
+            m.completed_meet_status,
+            m.`from` AS from_time,
+            m.`to` AS to_time,
+            m.owner_name,
+            u.full_name AS owner_full_name,
+            m.creation,
+            m.modified,
             CASE
-                WHEN enable_reminder = 1 THEN 'Yes'
+                WHEN m.enable_reminder = 1 THEN 'Yes'
                 ELSE 'No'
             END AS enable_reminder
-        FROM `tabMeeting`
+        FROM `tabMeeting` m
+        LEFT JOIN `tabLead` l ON l.name = m.lead_name
+        LEFT JOIN `tabContacts` cnt ON cnt.name = m.contact_name
+        LEFT JOIN `tabAccounts` acc ON acc.name = m.accounts_name
+        LEFT JOIN `tabUser` u ON u.name = m.owner_name
         {where_clause}
-        ORDER BY `from` DESC
+        ORDER BY m.`from` DESC
         """,
         values,
         as_dict=True

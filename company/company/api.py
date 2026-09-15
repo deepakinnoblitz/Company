@@ -1307,93 +1307,142 @@ def update_leave_allocation(doc, method=None):
     # Calculate Leave Amount
     # -----------------------------
     if leave_type_lower == "permission":
-
         if not doc.permission_hours:
             frappe.throw("Permission Hours are required.")
 
         to_add = flt(doc.permission_hours)
         unit = "minutes"
 
-    else:
+        allocation = frappe.get_value(
+            "Leave Allocation",
+            {
+                "employee": doc.employee,
+                "leave_type": doc.leave_type,
+                "status": "Approved",
+                "from_date": ["<=", doc.from_date],
+                "to_date": [">=", doc.from_date],
+            },
+            [
+                "name",
+                "from_date",
+                "total_leaves_allocated",
+                "total_leaves_taken",
+            ],
+            as_dict=True,
+        )
 
-        to_add = (
-            getdate(doc.to_date)
-            - getdate(doc.from_date)
-        ).days + 1
+        if not allocation:
+            frappe.throw(
+                f"No Leave Allocation found for {doc.employee} on {doc.from_date}"
+            )
 
-        if doc.half_day:
-            to_add = 0.5
+        allocated = flt(allocation.total_leaves_allocated)
+        taken = flt(allocation.total_leaves_taken)
+        available = allocated - taken
 
-        unit = "days"
+        if available < to_add:
+            frappe.throw(
+                f"Only {available} {unit} available."
+            )
 
-    # -----------------------------
-    # Current Month Allocation
-    # -----------------------------
-    allocation = frappe.get_value(
-        "Leave Allocation",
-        {
-            "employee": doc.employee,
-            "leave_type": doc.leave_type,
-            "status": "Approved",
-            "from_date": ["<=", doc.from_date],
-            "to_date": [">=", doc.to_date],
-        },
-        [
-            "name",
-            "from_date",
-            "total_leaves_allocated",
+        new_taken = taken + to_add
+        frappe.db.set_value(
+            "Leave Allocation",
+            allocation.name,
             "total_leaves_taken",
-        ],
-        as_dict=True,
-    )
-
-    if not allocation:
-        frappe.throw(
-            f"No Leave Allocation found for {doc.employee}"
+            new_taken
         )
 
-    allocated = flt(allocation.total_leaves_allocated)
-    taken = flt(allocation.total_leaves_taken)
+        previous_balance = max(0, allocated - new_taken)
+        sync_future_leave_allocations(
+            doc.employee,
+            doc.leave_type,
+            allocation.from_date,
+            previous_balance
+        )
+        frappe.db.commit()
 
-    available = allocated - taken
+        frappe.msgprint(
+            f"""
+            <b>{doc.leave_type}</b> updated successfully.<br><br>
 
-    if available < to_add:
-        frappe.throw(
-            f"Only {available} {unit} available."
+            Allocated : <b>{allocated}</b><br>
+            Taken : <b>{new_taken}</b><br>
+            Remaining : <b>{previous_balance}</b>
+            """
         )
 
-    new_taken = taken + to_add
+    else:
+        # Loop through each day in the date range (handles multi-day & cross-month leaves)
+        current_date = getdate(doc.from_date)
+        end_date = getdate(doc.to_date)
+        total_days = (end_date - current_date).days + 1
+        day_cost = 0.5 if (doc.half_day and total_days == 1) else 1.0
 
-    frappe.db.set_value(
-        "Leave Allocation",
-        allocation.name,
-        "total_leaves_taken",
-        new_taken
-    )
+        updated_allocations = set()
 
-    previous_balance = max(
-        0,
-        allocated - new_taken
-    )
+        while current_date <= end_date:
+            allocation = frappe.get_value(
+                "Leave Allocation",
+                {
+                    "employee": doc.employee,
+                    "leave_type": doc.leave_type,
+                    "status": "Approved",
+                    "from_date": ["<=", current_date],
+                    "to_date": [">=", current_date],
+                },
+                [
+                    "name",
+                    "from_date",
+                    "total_leaves_allocated",
+                    "total_leaves_taken",
+                ],
+                as_dict=True,
+            )
 
-    sync_future_leave_allocations(
-        doc.employee,
-        doc.leave_type,
-        allocation.from_date,
-        previous_balance
-    )
+            if not allocation:
+                frappe.throw(
+                    f"No Leave Allocation found for {doc.employee} ({doc.leave_type}) on {current_date}"
+                )
 
-    frappe.db.commit()
+            allocated = flt(allocation.total_leaves_allocated)
+            taken = flt(allocation.total_leaves_taken)
+            available = allocated - taken
 
-    frappe.msgprint(
-        f"""
-        <b>{doc.leave_type}</b> updated successfully.<br><br>
+            if available < day_cost:
+                frappe.throw(
+                    f"Insufficient leave balance on {current_date}. Available: {available} days, Required: {day_cost} day."
+                )
 
-        Allocated : <b>{allocated}</b><br>
-        Taken : <b>{new_taken}</b><br>
-        Remaining : <b>{previous_balance}</b>
-        """
-    )
+            new_taken = taken + day_cost
+            frappe.db.set_value(
+                "Leave Allocation",
+                allocation.name,
+                "total_leaves_taken",
+                new_taken
+            )
+
+            updated_allocations.add((allocation.name, allocation.from_date, allocated))
+            current_date += timedelta(days=1)
+
+        # Sync future leave allocations for all modified monthly allocations
+        for alloc_name, alloc_from_date, allocated in updated_allocations:
+            curr_taken = flt(frappe.db.get_value("Leave Allocation", alloc_name, "total_leaves_taken"))
+            prev_balance = max(0, allocated - curr_taken)
+            sync_future_leave_allocations(
+                doc.employee,
+                doc.leave_type,
+                alloc_from_date,
+                prev_balance
+            )
+
+        frappe.db.commit()
+
+        frappe.msgprint(
+            f"""
+            <b>{doc.leave_type}</b> updated successfully for period {doc.from_date} to {doc.to_date}.
+            """
+        )
 
 
 
@@ -3299,20 +3348,57 @@ def get_month_calendar_data(month=None, year=None):
                 "employee": employee_id,
                 "attendance_date": ["between", [start_date, end_date]]
             },
-            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours"],
+            fields=["attendance_date", "status", "in_time", "out_time", "working_hours_decimal as working_hours", "leave_type"],
             order_by="attendance_date asc"
         )
 
         for att in att_records:
-            attendance.append({
+            att_dict = {
                 "date": str(att.attendance_date),
                 "status": att.status,
                 "in_time": td_to_str(att.in_time),
                 "out_time": td_to_str(att.out_time),
                 "working_hours": att.working_hours or 0
-            })
+            }
+            if att.leave_type:
+                att_dict["leave_type"] = att.leave_type
+            attendance.append(att_dict)
 
-    # 3. Build Full Month Timeline
+    # 3. Fetch approved Leave Applications for the month
+    leave_app_map = {}
+    try:
+        approved_leaves = frappe.get_all("Leave Application",
+            filters={
+                "employee": employee_id,
+                "from_date": ["<=", end_date],
+                "to_date": [">=", start_date],
+                "docstatus": ["<", 2]
+            },
+            fields=["leave_type", "from_date", "to_date", "half_day", "status", "workflow_state", "docstatus"]
+        )
+        for l in approved_leaves:
+            status_val = str(l.get("status") or "").lower()
+            wf_val = str(l.get("workflow_state") or "").lower()
+            is_approved = status_val == "approved" or wf_val == "approved" or l.get("docstatus") == 1
+            if is_approved:
+                l_from = getdate(l.from_date)
+                l_to = getdate(l.to_date)
+                m_s = getdate(start_date)
+                m_e = getdate(end_date)
+                d_p = max(l_from, m_s)
+                d_e = min(l_to, m_e)
+                while d_p <= d_e:
+                    l_type = l.leave_type
+                    if l.half_day:
+                        l_type += " (Half Day)"
+                    leave_app_map[str(d_p)] = l_type
+                    d_p = add_days(d_p, 1)
+                    if isinstance(d_p, str):
+                        d_p = getdate(d_p)
+    except Exception as e:
+        frappe.log_error(f"Error in get_month_calendar_data leave fetch: {e}")
+
+    # 4. Build Full Month Timeline
     calendar_data = []
     first_day = getdate(f"{year}-{month:02d}-01")
     last_day = get_last_day(first_day)
@@ -3330,7 +3416,8 @@ def get_month_calendar_data(month=None, year=None):
             "check_out": None,
             "working_hours": 0,
             "holiday_info": None,
-            "holiday_is_working_day": 0
+            "holiday_is_working_day": 0,
+            "leave_type": leave_app_map.get(date_str)
         }
         
         # Add attendance data if exists
@@ -3342,7 +3429,15 @@ def get_month_calendar_data(month=None, year=None):
                 "check_out": att["out_time"],
                 "working_hours": att["working_hours"]
             })
-            
+            if att.get("leave_type"):
+                day_record["leave_type"] = att["leave_type"]
+
+        # Add leave application info if exists
+        if date_str in leave_app_map:
+            day_record["leave_type"] = leave_app_map[date_str]
+            if day_record["status"] in ["Not Marked", "On Leave", "Leave"]:
+                day_record["status"] = "On Leave"
+
         # Add holiday info if exists
         if date_str in holiday_map:
             h = holiday_map[date_str]

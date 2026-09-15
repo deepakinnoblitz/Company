@@ -25,6 +25,7 @@
   "status",
   "billing_address",
   "date_and_time",
+  "notes",
   "section_break_cfqn",
   "owner_name",
   "lead_notes",
@@ -248,12 +249,17 @@
    "fieldtype": "Table",
    "label": "Lead Notes",
    "options": "Lead notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Long Text",
+   "label": "Notes"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-16 11:22:06.611183",
+ "modified": "2026-08-10 17:10:50.267010",
  "modified_by": "Administrator",
  "module": "Company",
  "name": "Lead",

@@ -96,33 +96,33 @@ def get_data(filters):
     values = {}
 
     if filters.get("from_date"):
-        conditions.append("DATE(call_start_time) >= %(from_date)s")
+        conditions.append("DATE(c.call_start_time) >= %(from_date)s")
         values["from_date"] = filters["from_date"]
 
     if filters.get("to_date"):
-        conditions.append("DATE(call_start_time) <= %(to_date)s")
+        conditions.append("DATE(c.call_start_time) <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
     if filters.get("call_for"):
-        conditions.append("call_for = %(call_for)s")
+        conditions.append("c.call_for = %(call_for)s")
         values["call_for"] = filters["call_for"]
 
     if filters.get("status"):
-        conditions.append("outgoing_call_status = %(status)s")
+        conditions.append("c.outgoing_call_status = %(status)s")
         values["status"] = filters["status"]
 
     has_permission = frappe.db.exists("User Permission", {"user": frappe.session.user})
     owner_val = filters.get("owner_name")
     if has_permission:
         owner_filter = owner_val if (owner_val and owner_val != "all") else frappe.session.user
-        conditions.append("owner_name = %(owner_name)s")
+        conditions.append("c.owner_name = %(owner_name)s")
         values["owner_name"] = owner_filter
     elif owner_val and owner_val != "all":
-        conditions.append("owner_name = %(owner_name)s")
+        conditions.append("c.owner_name = %(owner_name)s")
         values["owner_name"] = owner_val
 
     if filters.get("enable_reminder") is not None:
-        conditions.append("enable_reminder = %(enable_reminder)s")
+        conditions.append("c.enable_reminder = %(enable_reminder)s")
         values["enable_reminder"] = filters["enable_reminder"]
 
     where_clause = " AND ".join(conditions)
@@ -132,23 +132,31 @@ def get_data(filters):
     return frappe.db.sql(
         f"""
         SELECT
-            name,
-            title,
-            call_for,
-            lead_name,
-            contact_name,
-            account_name,
-            outgoing_call_status,
-            completed_call_status,
-            call_start_time,
-            call_end_time,
-            owner_name,
-            enable_reminder,
-            creation,
-            modified
-        FROM `tabCalls`
+            c.name,
+            c.title,
+            c.call_for,
+            c.lead_name,
+            l.lead_name AS lead_title,
+            c.contact_name,
+            cnt.first_name AS contact_title,
+            c.account_name,
+            acc.account_name AS account_title,
+            c.outgoing_call_status,
+            c.completed_call_status,
+            c.call_start_time,
+            c.call_end_time,
+            c.owner_name,
+            u.full_name AS owner_full_name,
+            c.enable_reminder,
+            c.creation,
+            c.modified
+        FROM `tabCalls` c
+        LEFT JOIN `tabLead` l ON l.name = c.lead_name
+        LEFT JOIN `tabContacts` cnt ON cnt.name = c.contact_name
+        LEFT JOIN `tabAccounts` acc ON acc.name = c.account_name
+        LEFT JOIN `tabUser` u ON u.name = c.owner_name
         {where_clause}
-        ORDER BY call_start_time DESC
+        ORDER BY c.call_start_time DESC
         """,
         values,
         as_dict=True

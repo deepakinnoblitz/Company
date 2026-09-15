@@ -62,28 +62,7 @@ def create_or_update_meta_account(
     if user_access_token:
         frappe.utils.password.set_encrypted_password("CRM Meta Account", doc.name, user_access_token, "user_access_token")
 
-    # Cascade re-activation to linked pages and forms under this app
-    pages = frappe.get_all("CRM Meta Page", filters={"meta_app": doc.meta_app}, fields=["name"])
-    for p in pages:
-        frappe.db.set_value("CRM Meta Page", p.name, {
-            "meta_account": doc.name,
-            "is_connected": 1,
-            "is_active": 1,
-            "webhook_enabled": 1,
-            "subscription_status": "Subscribed"
-        })
-        forms = frappe.get_all("CRM Meta Form", filters={"meta_page": p.name}, fields=["name"])
-        for f in forms:
-            frappe.db.set_value("CRM Meta Form", f.name, {"is_active": 1})
-
     frappe.db.commit()
-
-    # Trigger Graph API sync to fetch/compare pages
-    try:
-        from company.company.crm_meta_page_api import fetch_meta_pages_from_graph_api
-        fetch_meta_pages_from_graph_api(doc.name)
-    except Exception as e:
-        frappe.log_error(f"Error auto-syncing pages for account {doc.name}: {str(e)}", "Meta OAuth Page Sync Error")
 
     return doc.name
 
@@ -160,7 +139,10 @@ def disconnect_meta_account(account_name):
         # Cascade deactivation to forms under this page
         forms = frappe.get_all("CRM Meta Form", filters={"meta_page": p.name}, fields=["name"])
         for f in forms:
-            frappe.db.set_value("CRM Meta Form", f.name, "is_active", 0)
+            frappe.db.set_value("CRM Meta Form", f.name, {
+                "is_active": 0,
+                "form_status": "INACTIVE"
+            })
 
     frappe.db.commit()
     return {"status": "Disconnected", "account": account_name}

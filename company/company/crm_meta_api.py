@@ -23,6 +23,57 @@ def _plain_response(body, status=200):
     frappe.response["http_status_code"] = status
     return
 
+def format_phone_standard(p_val):
+    """
+    Format Phone Number into standard Frappe format (+<CountryCode>-<SubscriberNumber>)
+    """
+    if not p_val:
+        return p_val
+    raw = str(p_val).strip()
+
+    # 1. Try parsing with Google `phonenumbers` library (works for all 240+ countries/territories)
+    try:
+        import phonenumbers
+        # Test parsing with explicit '+' prefix first
+        parse_target = raw if raw.startswith("+") else "+" + raw
+        parsed = phonenumbers.parse(parse_target, None)
+        if phonenumbers.is_possible_number(parsed) or phonenumbers.is_valid_number(parsed):
+            return f"+{parsed.country_code}-{parsed.national_number}"
+    except Exception:
+        pass
+
+    # 2. Fallback parsing for raw digits
+    raw_digits = "".join(filter(str.isdigit, raw))
+    if not raw_digits:
+        return p_val
+
+    # If user provided number starting with +, strip + and extract country code using phonenumbers if available
+    try:
+        import phonenumbers
+        for test_str in [f"+{raw_digits}", raw_digits]:
+            try:
+                p = phonenumbers.parse(test_str, None)
+                if p.country_code and p.national_number:
+                    return f"+{p.country_code}-{p.national_number}"
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 3. Fallback Heuristics when phonenumbers is unavailable
+    if len(raw_digits) == 10:
+        # 10 digits without country code default to +91
+        return f"+91-{raw_digits}"
+    elif len(raw_digits) > 10:
+        # Check for 1-digit country code (+1 North America)
+        if raw_digits.startswith("1") and len(raw_digits) == 11:
+            return f"+1-{raw_digits[1:]}"
+        # Check for 2-digit country code (e.g. 44 UK, 33 France, 49 Germany, 91 India, 81 Japan, 61 Australia)
+        cc_len = 2 if len(raw_digits) == 12 else (len(raw_digits) - 10)
+        return f"+{raw_digits[:cc_len]}-{raw_digits[cc_len:]}"
+
+    return f"+{raw_digits}"
+
 @frappe.whitelist(allow_guest=True)
 def webhook():
     """
@@ -357,21 +408,34 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             if mapping.default_value:
                 default_dict[mapping.crm_field] = mapping.default_value
                 
+        # Load questions configuration to retrieve labels
+        questions_list = []
+        if form_doc.questions_json:
+            try:
+                questions_list = json.loads(form_doc.questions_json)
+            except Exception:
+                pass
+        question_label_map = {q.get("key"): q.get("label") for q in questions_list if q.get("key")}
+
         # Transform and populate values
         extracted_data = {}
-        custom_questions = []
+        custom_records_dict = {}
         
+        # We will build notes questions following the order of field_mappings
+        custom_questions_map = {}
+        unmapped_questions = []
+
         for name, val in field_data.items():
             val = "" if val is None else str(val).strip()
-            
+
             # Remove HTML XSS tags from value
             val = val.replace("<", "").replace(">", "").strip()
-            
+
             if name in mapping_dict:
                 mapping_info = mapping_dict[name]
                 crm_field = mapping_info["crm_field"]
                 transform = mapping_info["transform"]
-                
+
                 # Apply transforms
                 if transform == "Title Case":
                     val = val.title()
@@ -380,11 +444,13 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                 elif transform == "Lower Case":
                     val = val.lower()
                 elif transform == "Clean Phone":
-                    val = "".join(filter(str.isdigit, val))
-                    if not val.startswith("+"):
-                        val = "+" + val
-                        
-                extracted_data[crm_field] = val
+                    val = format_phone_standard(val)
+
+                if crm_field == "notes":
+                    lbl = question_label_map.get(name, name)
+                    custom_questions_map[name] = f"{lbl}\n{val}"
+                else:
+                    extracted_data[crm_field] = val
             else:
                 # Default matching heuristics for common fields
                 if name in ("full_name", "first_name", "last_name", "name") and "lead_name" not in extracted_data:
@@ -393,20 +459,41 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                     extracted_data["email"] = val
                 elif name in ("phone", "phone_number") and "phone_number" not in extracted_data:
                     extracted_data["phone_number"] = val
+                elif name in ("company_name", "company") and "company_name" not in extracted_data:
+                    extracted_data["company_name"] = val
                 else:
-                    custom_questions.append(f"{name}: {val}")
-                    
+                    lbl = question_label_map.get(name, name)
+                    unmapped_questions.append(f"{lbl}\n{val}")
+
+        # Construct ordered custom questions list using mapping table rows order
+        custom_questions = []
+        for mapping in form_doc.field_mappings:
+            if mapping.crm_field == "notes":
+                if mapping.meta_field and mapping.meta_field in custom_questions_map:
+                    val = custom_questions_map[mapping.meta_field]
+                    if val and val.strip():
+                        custom_questions.append(val.strip())
+                elif mapping.default_value and mapping.default_value.strip():
+                    custom_questions.append(mapping.default_value.strip())
+
+        # Append any unmapped questions at the end
+        custom_questions.extend(unmapped_questions)
+
+        # Set the notes field to contain the formatted plain text lines
+        if custom_questions:
+            extracted_data["notes"] = "\n\n".join(custom_questions)
+
         # Apply defaults
         for crm_fld, def_val in default_dict.items():
-            if not extracted_data.get(crm_fld):
+            if crm_fld != "notes" and not extracted_data.get(crm_fld):
                 extracted_data[crm_fld] = def_val
-                
+
         # Format name fallback
         lead_name = extracted_data.get("lead_name")
         if not lead_name:
             lead_name = f"Meta Lead {lead_audit.meta_lead_id}"
         extracted_data["lead_name"] = lead_name
-        
+
         email = extracted_data.get("email")
         phone = extracted_data.get("phone_number")
         remarks_str = "\n".join(custom_questions) if custom_questions else ""
@@ -457,6 +544,10 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             lead_audit.processing_status = "Duplicate"
             raise Exception(f"Duplicate Lead found: Lead already exists with same email or phone: {duplicate_lead}")
             
+        if phone:
+            phone = format_phone_standard(phone)
+            extracted_data["phone_number"] = phone
+
         # Validate phone formatting fallback
         is_phone_valid = False
         if phone:
@@ -467,7 +558,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
                 is_phone_valid = False
                 
         if not phone or not is_phone_valid:
-            phone = "+919999999999"
+            phone = "+91-9999999999"
             extracted_data["phone_number"] = phone
             
         # Validate Country link
@@ -481,7 +572,7 @@ def process_meta_lead_job(meta_lead_name, queue_job_name):
             "leads_from": extracted_data.get("leads_from") or "Meta Lead Ads",
             "leads_type": extracted_data.get("leads_type") or "Incoming",
             "status": "Not Converted",
-            "remarks": f"Source: Meta Lead Ads (Form ID: {form_doc.form_id})\n{remarks_str}".strip()
+            "phone_number": phone,
         }
         
         for fld, val in extracted_data.items():
@@ -717,20 +808,7 @@ def meta_oauth_callback(code=None, state=None, error=None, error_description=Non
 
         logger.info(f"Meta OAuth connection successful -> CRM Meta Account: {acc_name}")
 
-        # Step 5: Automatically discovery and sync Pages & Forms upon connection
-        try:
-            from company.company.crm_meta_page_api import fetch_meta_pages_from_graph_api
-            from company.company.crm_meta_form_api import fetch_meta_forms_from_graph_api
-
-            pages_res = fetch_meta_pages_from_graph_api(account_name=acc_name)
-            synced_pages = pages_res.get("pages", [])
-            for page_item in synced_pages:
-                page_name = page_item.get("name")
-                if page_name:
-                    fetch_meta_forms_from_graph_api(page_name=page_name)
-            logger.info(f"Auto-synced {len(synced_pages)} Facebook pages and lead forms for {acc_name}")
-        except Exception as sync_err:
-            logger.error(f"Auto-sync during OAuth callback warning: {str(sync_err)}")
+        # Step 5: OAuth Connection complete. Pages and Forms are synced when user confirms import in Wizard Dialog.
 
         # Step 6: Render auto-closing HTML page for popup window (closes instantly)
         html_content = f"""
@@ -764,4 +842,49 @@ def meta_oauth_callback(code=None, state=None, error=None, error_description=Non
             f"Failed to connect Meta Account: {str(e)}. You may close this page and try again.",
             indicator_color="red"
         )
+
+
+@frappe.whitelist()
+def retry_meta_lead(meta_lead_name):
+    """
+    Manually retries processing a failed/pending CRM Meta Lead.
+    """
+    logger = get_logger()
+    
+    try:
+        # Load the Meta Lead audit record
+        lead_audit = frappe.get_doc("CRM Meta Lead", meta_lead_name)
+        
+        # Reset Status
+        lead_audit.processing_status = "Pending"
+        lead_audit.error_message = None
+        lead_audit.save(ignore_permissions=True)
+        
+        # Create queue job tracker record
+        queue_doc = frappe.get_doc({
+            "doctype": "CRM Meta Queue",
+            "meta_lead": lead_audit.name,
+            "status": "Queued",
+            "attempts": 0
+        })
+        queue_doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        # Enqueue processing pipeline
+        job = frappe.enqueue(
+            "company.company.crm_meta_api.process_meta_lead_job",
+            queue="default",
+            meta_lead_name=lead_audit.name,
+            queue_job_name=queue_doc.name
+        )
+        
+        # Save Job ID
+        queue_doc.job_id = job.id
+        queue_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        return {"status": "success", "message": "Meta Lead enqueued for processing successfully"}
+    except Exception as e:
+        logger.error(f"Error retrying Meta Lead {meta_lead_name}: {str(e)}")
+        frappe.throw(f"Failed to retry Meta Lead: {str(e)}")
 
