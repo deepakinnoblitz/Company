@@ -2488,20 +2488,31 @@ def get_month_holidays(month=None, year=None):
 
     holiday_lists = frappe.get_all(
         "Holiday List",
-        filters={"year": year},
+        filters={"year": year, "month_year": str(month)},
         fields=["name"]
     )
+    if not holiday_lists:
+        holiday_lists = frappe.get_all(
+            "Holiday List",
+            filters={"year": year},
+            fields=["name"]
+        )
 
     result = []
+    seen_dates = set()
 
     for hl in holiday_lists:
         doc = frappe.get_doc("Holiday List", hl.name)
         for h in doc.holidays:
-            if h.holiday_date.month == month and h.holiday_date.year == year and h.is_working_day == 0:
-                result.append({
-                    "holiday_date": h.holiday_date.strftime("%Y-%m-%d"),
-                    "description": h.description
-                })
+            if h.holiday_date.month == month and h.holiday_date.year == year:
+                date_str = h.holiday_date.strftime("%Y-%m-%d")
+                if (h.description or h.is_working_day == 0) and date_str not in seen_dates:
+                    seen_dates.add(date_str)
+                    result.append({
+                        "holiday_date": date_str,
+                        "description": h.description,
+                        "is_working_day": h.is_working_day
+                    })
 
     return result
 
