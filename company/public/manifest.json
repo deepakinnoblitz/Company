@@ -1,7 +1,8 @@
 {
   "name": "Innoblitz ERP",
   "short_name": "Innoblitz",
-  "start_url": "/desk",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "theme_color": "#1f2937",
   "background_color": "#ffffff",

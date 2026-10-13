@@ -2,7 +2,7 @@ import re
 import time
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, time_diff_in_seconds, flt, today
+from frappe.utils import now_datetime, time_diff_in_seconds, flt, today, get_datetime
 from frappe.exceptions import TimestampMismatchError
 
 DEFAULT_STATUS_MESSAGES = {
@@ -978,7 +978,7 @@ def force_offline_all():
     frappe.db.commit()
 
 @frappe.whitelist()
-def log_location(latitude, longitude, accuracy=None, status=None, source=None, device_type=None, ip_address=None):
+def log_location(latitude, longitude, accuracy=None, status=None, source=None, device_type=None, ip_address=None, logged_at=None):
     settings = frappe.get_single("Employee Presence Settings")
     if not settings.enable_location_tracking:
         return {"status": "ignored", "message": "Location tracking is disabled globally."}
@@ -1006,6 +1006,21 @@ def log_location(latitude, longitude, accuracy=None, status=None, source=None, d
     if not ip_address and hasattr(frappe, "local") and frappe.local:
         ip_address = frappe.local.request_ip
 
+    log_time = logged_at if logged_at else now_datetime()
+
+    if source == "Auto Tracking":
+        # Deduplication check: ignore duplicate Auto Tracking logs created in the last 45 seconds
+        last_log_time = frappe.db.get_value(
+            "Employee Location Log",
+            {"employee": employee, "source": "Auto Tracking"},
+            "logged_at",
+            order_by="logged_at desc"
+        )
+        if last_log_time:
+            diff = (get_datetime(log_time) - get_datetime(last_log_time)).total_seconds()
+            if abs(diff) < 45:
+                return {"status": "ignored", "message": "Duplicate auto tracking log throttled."}
+
     doc = frappe.get_doc({
         "doctype": "Employee Location Log",
         "employee": employee,
@@ -1015,13 +1030,81 @@ def log_location(latitude, longitude, accuracy=None, status=None, source=None, d
         "latitude": flt(latitude),
         "longitude": flt(longitude),
         "accuracy": flt(accuracy) if accuracy is not None else None,
-        "logged_at": now_datetime(),
+        "logged_at": log_time,
         "device_type": device_type,
         "ip_address": ip_address
     })
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return {"status": "success", "name": doc.name}
+
+@frappe.whitelist()
+def log_location_batch(logs):
+    """Batch-ingest offline cached location logs."""
+    if isinstance(logs, str):
+        logs = frappe.parse_json(logs)
+    if not logs or not isinstance(logs, list):
+        return {"status": "ignored", "message": "No logs provided."}
+
+    settings = frappe.get_single("Employee Presence Settings")
+    if not settings.enable_location_tracking:
+        return {"status": "ignored", "message": "Location tracking is disabled globally."}
+
+    employee = frappe.db.get_value("Employee", {"user": frappe.session.user}, "name")
+    if not employee:
+        frappe.throw(_("Employee not found for current user"))
+
+    target = getattr(settings, "location_tracking_target", "All Employees") or "All Employees"
+    if target == "Selected Employees":
+        tracked_raw = getattr(settings, "tracked_employees", "[]") or "[]"
+        tracked_list = frappe.parse_json(tracked_raw) if isinstance(tracked_raw, str) else (tracked_raw or [])
+        if employee not in tracked_list:
+            return {"status": "ignored", "message": f"Location tracking is disabled for employee {employee}."}
+
+    active_session = get_active_session(employee)
+    session_name = active_session.name if active_session else None
+
+    device_type = None
+    if hasattr(frappe, "request") and frappe.request:
+        device_type = frappe.request.headers.get("User-Agent")
+    ip_address = None
+    if hasattr(frappe, "local") and frappe.local:
+        ip_address = frappe.local.request_ip
+
+    inserted = 0
+    last_inserted_time = None
+    for item in logs:
+        log_session = session_name
+        if not log_session and item.get("source") == "Logout":
+            log_session = frappe.db.get_value("Employee Session", {"employee": employee}, "name", order_by="modified desc")
+
+        log_time = item.get("logged_at") or now_datetime()
+        item_time = get_datetime(log_time)
+
+        # Skip duplicates within 45 seconds in the same batch
+        if (item.get("source") or "Auto Tracking") == "Auto Tracking" and last_inserted_time:
+            if abs((item_time - last_inserted_time).total_seconds()) < 45:
+                continue
+
+        doc = frappe.get_doc({
+            "doctype": "Employee Location Log",
+            "employee": employee,
+            "session": log_session,
+            "status": item.get("status"),
+            "source": item.get("source") or "Auto Tracking",
+            "latitude": flt(item.get("latitude")),
+            "longitude": flt(item.get("longitude")),
+            "accuracy": flt(item.get("accuracy")) if item.get("accuracy") is not None else None,
+            "logged_at": log_time,
+            "device_type": item.get("device_type") or device_type,
+            "ip_address": item.get("ip_address") or ip_address
+        })
+        doc.insert(ignore_permissions=True)
+        last_inserted_time = item_time
+        inserted += 1
+
+    frappe.db.commit()
+    return {"status": "success", "count": inserted}
 
 @frappe.whitelist()
 def get_location_logs(employee=None, session=None, from_date=None, to_date=None, status=None, source=None):
