@@ -43,7 +43,7 @@ messaging.onBackgroundMessage((payload) => {
 // 🌐 PWA CACHING LOGIC
 // ===============================
 
-const CACHE_NAME = "erpnext-cache-v4";
+const CACHE_NAME = "erpnext-cache-v5";
 
 self.addEventListener("install", event => {
     event.waitUntil(

@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (!existingManifest) {
     const manifestLink = document.createElement("link");
     manifestLink.rel = "manifest";
-    manifestLink.href = "/assets/company/manifest.json";
+    manifestLink.href = "/assets/company/manifest.json?v=3";
     document.head.appendChild(manifestLink);
     console.log("📝 Manifest added dynamically.");
   }
