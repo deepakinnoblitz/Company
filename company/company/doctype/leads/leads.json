@@ -116,7 +116,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "New Lead\nContacted\nQualified\nProposal Sent\nIn Negotiation\nFollow-up Scheduled\nOn Hold\nNot Interested\nIn Active\nClosed"
+   "options": "New Lead\nContacted\nQualified\nProposal Sent\nIn Negotiation\nFollow-up Scheduled\nOn Hold\nIn Active\nNot Interested\nProject Awarded"
   },
   {
    "fieldname": "move_to_party",
