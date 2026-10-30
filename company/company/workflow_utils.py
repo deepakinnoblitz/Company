@@ -64,66 +64,107 @@ def update_lead_workflow_v2():
         "In Negotiation",
         "Follow-up Scheduled",
         "On Hold",
-        "Proposal Approved",
-        "Proposal Rejected",
         "In Active",
-        "Not Interested"
+        "Not Interested",
+        "Project Awarded"
     ]
 
-    # Create Workflow Action Master records
+    # 1. Ensure Workflow State records exist
+    for state in states:
+        if not frappe.db.exists("Workflow State", state):
+            frappe.get_doc({
+                "doctype": "Workflow State",
+                "workflow_state_name": state
+            }).insert(ignore_permissions=True, ignore_mandatory=True)
+
+    # 2. Ensure Workflow Action Master records exist
     for state in states:
         action_name = f"Move to {state}"
-
-        if not frappe.db.exists(
-            "Workflow Action Master",
-            action_name
-        ):
+        if not frappe.db.exists("Workflow Action Master", action_name):
             frappe.get_doc({
                 "doctype": "Workflow Action Master",
                 "workflow_action_name": action_name
-            }).insert(
-                ignore_permissions=True
-            )
+            }).insert(ignore_permissions=True, ignore_mandatory=True)
 
-    # Remove existing transitions
-    frappe.db.delete(
-        "Workflow Transition",
-        {
-            "parent": workflow_name
-        }
-    )
-
-    idx = 1
-
-    # Create all possible transitions
-    for current_state in states:
-        for next_state in states:
-
-            if current_state == next_state:
-                continue
-
-            frappe.get_doc({
-                "doctype": "Workflow Transition",
-                "parent": workflow_name,
-                "parenttype": "Workflow",
-                "parentfield": "transitions",
-                "state": current_state,
-                "action": f"Move to {next_state}",
-                "next_state": next_state,
-                "allowed": "All",
+    # 3. Update Workflow Document States and Transitions in Lead Workflow
+    if frappe.db.exists("Workflow", workflow_name):
+        wf = frappe.get_doc("Workflow", workflow_name)
+        wf.states = []
+        for idx, state in enumerate(states, start=1):
+            wf.append("states", {
+                "state": state,
+                "doc_status": "0",
+                "allow_edit": "All",
                 "idx": idx
-            }).insert(
-                ignore_permissions=True
-            )
+            })
 
-            idx += 1
+        wf.transitions = []
+        idx = 1
+        for current_state in states:
+            for next_state in states:
+                if current_state == next_state:
+                    continue
+                wf.append("transitions", {
+                    "state": current_state,
+                    "action": f"Move to {next_state}",
+                    "next_state": next_state,
+                    "allowed": "All",
+                    "idx": idx
+                })
+                idx += 1
+
+        wf.save(ignore_permissions=True)
+    else:
+        doc = frappe.new_doc("Workflow")
+        doc.workflow_name = workflow_name
+        doc.document_type = "Lead"
+        doc.workflow_state_field = "workflow_state"
+        doc.is_active = 1
+        for idx, state in enumerate(states, start=1):
+            doc.append("states", {
+                "state": state,
+                "doc_status": "0",
+                "allow_edit": "All",
+                "idx": idx
+            })
+        idx = 1
+        for current_state in states:
+            for next_state in states:
+                if current_state == next_state:
+                    continue
+                doc.append("transitions", {
+                    "state": current_state,
+                    "action": f"Move to {next_state}",
+                    "next_state": next_state,
+                    "allowed": "All",
+                    "idx": idx
+                })
+                idx += 1
+        doc.insert(ignore_permissions=True)
+
+    # 4. Migrate any existing leads in old states
+    frappe.db.sql("""
+        UPDATE `tabLead`
+        SET workflow_state = 'Project Awarded'
+        WHERE workflow_state IN ('Closed', 'Proposal Approved')
+    """)
+    frappe.db.sql("""
+        UPDATE `tabLead`
+        SET status = 'Project Awarded'
+        WHERE status = 'Closed'
+    """)
+    frappe.db.sql("""
+        UPDATE `tabLead`
+        SET workflow_state = 'Not Interested'
+        WHERE workflow_state = 'Proposal Rejected'
+    """)
 
     frappe.db.commit()
 
     return {
         "status": "success",
         "states": len(states),
-        "transitions": idx - 1
+        "transitions": len(states) * (len(states) - 1)
     }
 
 # -------------------------------------------------------------------------------------------------------------------
@@ -149,7 +190,7 @@ def create_lead_workflow():
     states = [
         "New Lead", "Contacted", "Qualified", "Proposal Sent", 
         "In Negotiation", "Follow-up Scheduled", "On Hold", 
-        "In Active", "Not Interested", "Closed"
+        "In Active", "Not Interested", "Project Awarded"
     ]
     
     for state in states:
