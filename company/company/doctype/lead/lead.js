@@ -310,7 +310,7 @@ function get_pipeline_color_by_status(workflow_state) {
         "On Hold": "#9ca3af",           // gray
         "Not Interested": "#ef4444",    // red
         "In Active": "#64748b",         // slate
-        "Closed": "#15803d"             // dark green
+        "Project Awarded": "#15803d"    // dark green
     };
 
     return colors[workflow_state] || "#94a3b8";
@@ -362,9 +362,10 @@ function get_stage_details_html(frm) {
             "Re-engagement campaign",
             "Cold follow-up"
         ],
-        "Closed": [
+        "Project Awarded": [
             "Verify conversion",
-            "Review performance"
+            "Review performance",
+            "Handover to delivery"
         ]
     };
 

@@ -1773,13 +1773,15 @@ button.grid-add-row {
 }
 
 
-/* data-filter="status,=,Closed" */
+/* data-filter="status,=,Project Awarded" */
+[data-filter="status,=,Project Awarded"].indicator-pill.gray,
 [data-filter="status,=,Closed"].indicator-pill.gray {
   background: rgba(21, 128, 61, 0.25) !important;
   border: 1px solid rgba(21, 128, 61, 0.45) !important;
   color: #14532d !important;
 }
 
+[data-filter="status,=,Project Awarded"].indicator-pill.gray::before,
 [data-filter="status,=,Closed"].indicator-pill.gray::before {
   background: #15803d !important;
 }
@@ -1902,13 +1904,15 @@ button.grid-add-row {
 }
 
 
-/* data-filter="workflow_state,=,Closed" */
+/* data-filter="workflow_state,=,Project Awarded" */
+[data-filter="workflow_state,=,Project Awarded"].indicator-pill.gray,
 [data-filter="workflow_state,=,Closed"].indicator-pill.gray {
   background: rgba(21, 128, 61, 0.25) !important;
   border: 1px solid rgba(21, 128, 61, 0.45) !important;
   color: #14532d !important;
 }
 
+[data-filter="workflow_state,=,Project Awarded"].indicator-pill.gray::before,
 [data-filter="workflow_state,=,Closed"].indicator-pill.gray::before {
   background: #15803d !important;
 }
