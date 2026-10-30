@@ -93,12 +93,14 @@
    "options": "Service"
   },
   {
+   "default": "India",
    "fieldname": "country",
    "fieldtype": "Link",
    "label": "Country",
    "options": "Country"
   },
   {
+   "default": "Tamil Nadu",
    "fieldname": "state",
    "fieldtype": "Select",
    "in_list_view": 1,
