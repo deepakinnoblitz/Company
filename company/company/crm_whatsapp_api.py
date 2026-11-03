@@ -287,10 +287,10 @@ def send_whatsapp(phone, message=None, attachment=None):
             )
 
             if text_response.status_code != 200:
-
+                err_msg = text_result.get("error", {}).get("message") if isinstance(text_result, dict) else str(text_result)
                 return {
                     "success": False,
-                    "error": text_result
+                    "error": err_msg or text_result
                 }
 
             # Send document second
@@ -309,10 +309,10 @@ def send_whatsapp(phone, message=None, attachment=None):
             )
 
             if response.status_code != 200:
-
+                err_msg = result.get("error", {}).get("message") if isinstance(result, dict) else str(result)
                 return {
                     "success": False,
-                    "error": result
+                    "error": err_msg or result
                 }
 
         else:
@@ -331,10 +331,10 @@ def send_whatsapp(phone, message=None, attachment=None):
             )
 
             if response.status_code != 200:
-
+                err_msg = result.get("error", {}).get("message") if isinstance(result, dict) else str(result)
                 return {
                     "success": False,
-                    "error": result
+                    "error": err_msg or result
                 }
 
         # ----------------------------------------------------
@@ -547,3 +547,130 @@ def get_whatsapp_messages(phone, start=0, limit=10):
     messages.reverse()
 
     return messages
+
+
+# --------------------------------------------------------------------
+# LEAD WHATSAPP TEMPLATE PREVIEW & SEND
+# --------------------------------------------------------------------
+
+@frappe.whitelist()
+def get_lead_whatsapp_template_preview(lead_id, template_name):
+    """
+    Renders CRM WhatsApp Template header, message_body, and footer for a specific Lead.
+    """
+    if not lead_id or not template_name:
+        frappe.throw("Lead ID and Template Name are required")
+
+    lead = frappe.get_doc("Lead", lead_id)
+    template = frappe.get_doc("CRM WhatsApp Template", template_name)
+
+    from company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation import replace_template_variables
+
+    header = replace_template_variables(template.header_text or "", lead)
+    body = replace_template_variables(template.message_body or "", lead)
+    footer = replace_template_variables(template.footer_text or "", lead)
+
+    lead_name = lead.get("lead_name") or lead.get("full_name") or lead.name or ""
+
+    import re
+    def cleanup_text(text):
+        if not text:
+            return ""
+        text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        text = re.sub(r'\{\{\s*(?:doc\.)?lead_name\s*\}\}', lead_name, text, flags=re.IGNORECASE)
+        text = re.sub(r'\{\{\s*(?:doc\.)?full_name\s*\}\}', lead_name, text, flags=re.IGNORECASE)
+        text = re.sub(r'\{\{\s*(?:doc\.)?name\s*\}\}', lead.name or "", text, flags=re.IGNORECASE)
+        text = re.sub(r'\{\{\s*(?:doc\.)?phone(?:_number)?\s*\}\}', lead.phone_number or "", text, flags=re.IGNORECASE)
+        text = re.sub(r'\{\{\s*(?:doc\.)?company(?:_name)?\s*\}\}', lead.get("company_name") or "", text, flags=re.IGNORECASE)
+        return text
+
+    header = cleanup_text(header)
+    body = cleanup_text(body)
+    footer = cleanup_text(footer)
+    full_message = "\n\n".join(part for part in [header, body, footer] if part)
+
+    attachments = []
+    if template.allow_attachment:
+        if template.get("default_attachment"):
+            for att in template.default_attachment:
+                if att.file:
+                    attachments.append({
+                        "file": att.file,
+                        "file_name": (att.file or "").split("/")[-1],
+                        "description": getattr(att, "description", "") or "",
+                        "file_size": getattr(att, "file_size", "") or "",
+                    })
+        if not attachments:
+            child_rows = frappe.get_all(
+                "CRM WhatsApp Template Attachment",
+                filters={"parent": template.name},
+                fields=["file", "description", "file_size"]
+            )
+            for att in child_rows:
+                if att.file:
+                    attachments.append({
+                        "file": att.file,
+                        "file_name": (att.file or "").split("/")[-1],
+                        "description": att.description or "",
+                        "file_size": att.file_size or "",
+                    })
+
+    return {
+        "header": header,
+        "body": body,
+        "footer": footer,
+        "rendered_message": full_message,
+        "attachments": attachments,
+        "allow_attachment": bool(template.allow_attachment),
+        "phone_number": lead.phone_number,
+        "lead_name": lead_name,
+    }
+
+
+@frappe.whitelist()
+def send_lead_whatsapp_template(lead_id, template_name, custom_message=None, attachment=None):
+    """
+    Renders and sends a CRM WhatsApp Template to a Lead.
+    """
+    if not lead_id or not template_name:
+        frappe.throw("Lead ID and Template Name are required")
+
+    lead = frappe.get_doc("Lead", lead_id)
+    phone_number = lead.phone_number
+    if not phone_number:
+        frappe.throw("Lead does not have a phone number")
+
+    template = frappe.get_doc("CRM WhatsApp Template", template_name)
+
+    if custom_message:
+        message_to_send = custom_message
+    else:
+        from company.company.doctype.crm_whatsapp_automation.crm_whatsapp_automation import replace_template_variables
+        header = replace_template_variables(template.header_text or "", lead)
+        body = replace_template_variables(template.message_body or "", lead)
+        footer = replace_template_variables(template.footer_text or "", lead)
+        message_to_send = "\n\n".join(part for part in [header, body, footer] if part)
+
+    attachment_to_send = attachment
+    if not attachment_to_send and template.allow_attachment and template.get("default_attachment"):
+        files = [att.file for att in template.default_attachment if att.file]
+        if files:
+            attachment_to_send = files[0]
+
+    response = send_whatsapp(
+        phone=phone_number,
+        message=message_to_send,
+        attachment=attachment_to_send,
+    )
+
+    if response.get("success") and response.get("message_doc"):
+        frappe.db.set_value("CRM WhatsApp Message", response["message_doc"], "message_type", "Template")
+        frappe.db.commit()
+
+    if response.get("success") and not attachment and template.allow_attachment and template.get("default_attachment"):
+        files = [att.file for att in template.default_attachment if att.file]
+        if len(files) > 1:
+            for extra in files[1:]:
+                send_whatsapp(phone=phone_number, message=None, attachment=extra)
+
+    return response
