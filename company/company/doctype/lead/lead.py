@@ -71,7 +71,7 @@ class Lead(Document):
     def before_save(self):
         self.validate_phone_and_email()
         self.calculate_lead_score()
-        self.validate_proposal_exists()
+        # self.validate_proposal_exists()
         self.log_pipeline_timeline()
 
     def validate_proposal_exists(self):
