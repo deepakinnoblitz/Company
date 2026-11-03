@@ -3,6 +3,17 @@
 // -----------------------------------------
 frappe.ui.form.on("Lead", {
 
+    onload(frm) {
+        if (frm.doc.__islocal) {
+            if (!frm.doc.country) {
+                frm.set_value("country", "India");
+            }
+            if (!frm.doc.state) {
+                frm.set_value("state", "Tamil Nadu");
+            }
+        }
+    },
+
     refresh(frm) {
 
         // 1️⃣ Hide all buttons in Create mode

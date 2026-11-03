@@ -62,10 +62,16 @@ class Lead(Document):
         else:
             self.email = None
 
+    def before_insert(self):
+        if not self.country:
+            self.country = "India"
+        if not self.state:
+            self.state = "Tamil Nadu"
+
     def before_save(self):
         self.validate_phone_and_email()
         self.calculate_lead_score()
-        self.validate_proposal_exists()
+        # self.validate_proposal_exists()
         self.log_pipeline_timeline()
 
     def validate_proposal_exists(self):

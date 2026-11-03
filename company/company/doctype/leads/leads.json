@@ -66,6 +66,7 @@
    "reqd": 1
   },
   {
+   "default": "India",
    "fieldname": "country",
    "fieldtype": "Link",
    "label": "Country",
@@ -73,6 +74,7 @@
    "reqd": 1
   },
   {
+   "default": "Tamil Nadu",
    "fieldname": "state",
    "fieldtype": "Select",
    "label": "State",
