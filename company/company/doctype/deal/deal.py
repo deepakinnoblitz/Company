@@ -5,7 +5,7 @@ import json
 
 class Deal(Document):
     def before_save(self):
-        self.validate_estimation_stage()
+        # self.validate_estimation_stage()
         self.log_stage_history()
 
     def validate_estimation_stage(self):
